@@ -1,0 +1,47 @@
+=== CONTRACT DEPLOYMENT HISTORY ===
+
+--- Contract v3 (ACTIVE — Full Social) ---
+Package ID:  0x96fdc5b12ac04491d2cd1ab5b97b2404d585382da2650bef7e1bb604cd895324
+Module:      social
+Deploy Txn:  FCkpUmAjMPnPsRKjQBQLR2kthaPF36hFh8SDMM4oVAWK
+Upgrade Cap: 0x5534b7a7774d2cba668a47f66114e15655396d09b8811ae4acff87e893d51fb4
+Gas Used:    13,169,880 MIST (~0.013 SUI)
+Deployed:    April 2026 (Session 3)
+
+New structs in v3:
+  Profile: added bio field
+  Comment { id, post_id, owner, content }
+  Like    { id, post_id, owner }
+  Message { id, sender, receiver, content, created_at }
+
+New functions in v3:
+  create_profile(username, bio)
+  add_comment(post_id, content)
+  like_post(post_id)
+  send_message(receiver, content)
+
+Kept from v2:
+  create_post(blob_id, title)
+  update_post(post, new_blob_id, new_title)
+  delete_post(post)
+
+Explorer:
+  https://testnet.suivision.xyz/package/0x96fdc5b12ac04491d2cd1ab5b97b2404d585382da2650bef7e1bb604cd895324
+  https://testnet.suivision.xyz/txblock/FCkpUmAjMPnPsRKjQBQLR2kthaPF36hFh8SDMM4oVAWK
+
+--- Contract v2 (Walrus-linked Posts) ---
+Package ID:  0x819e6957458af4807b87732fa20e7df59b748c4318ded45f8685a09e28f40de1
+Deploy Txn:  FL4e4ehrMBSfddgcpMjLsUURTxZSKWegWi1RST51mEmW
+
+--- Contract v1 (Basic Profile+Post) ---
+Package ID:  0x0232fe5b5497cec87f0ad865a7058ae1cc716bba553d66e0262cd59bbb75fc0c
+
+--- Wallet ---
+Address: 0x2598d09dd5113dc4c2abd298c3c08597eb4d1848d5633667854a05535f4d66ed
+Network: Sui Testnet
+
+--- Walrus Integration Test Blob ---
+Blob ID:    edezrmgxXdEXcGjKWnI-NWYOVBjFCAHXX5deNIbiT2k
+Blob URL:   https://aggregator.walrus-testnet.walrus.space/v1/blobs/edezrmgxXdEXcGjKWnI-NWYOVBjFCAHXX5deNIbiT2k
+Post Txn:   ckmeHkarz1LfHKR4eryP2UjswSFjKwVGsWciu6mrbt9
+Post Obj:   0x1fe99b7cba1e3db5657f1057f820290af2820ba4a3a7f8c140cfa5405668c589

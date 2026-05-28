@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "myWorld",
+    "slug": "myworld-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#09090e"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.myworld.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used to take photos for posts and your profile.",
+        "NSPhotoLibraryUsageDescription": "Used to select photos for posts and your profile."
+      }
+    },
+    "android": {
+      "usesCleartextTraffic": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#09090e"
+      },
+      "package": "com.myworld.mobile",
+      "permissions": ["INTERNET", "NOTIFICATIONS", "RECEIVE_BOOT_COMPLETED", "VIBRATE"]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#00c8ff",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow myWorld to access your photos for posts and profile.",
+          "cameraPermission": "Allow myWorld to use your camera to take photos."
+        }
+      ]
+    ],
+    "scheme": "myworld",
+    "experiments": {}
+  }
+}
