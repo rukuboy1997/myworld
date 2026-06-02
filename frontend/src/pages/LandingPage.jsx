@@ -21,7 +21,7 @@ export default function LandingPage() {
           </h1>
           
           <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl animate-slide-up delay-200 leading-relaxed">
-            The decentralized social platform where creators and fans connect directly. Uncensorable, permanent, and exclusively yours on the Sui blockchain.
+             Connect with family and friends to make your world wonderful.
           </p>
           
           <div className="flex flex-col sm:flex-row items-center gap-4 mt-4 animate-slide-up delay-300 w-full sm:w-auto">
@@ -29,7 +29,7 @@ export default function LandingPage() {
               Enter myWorld
             </Link>
             <Link to="/explore" className="w-full sm:w-auto px-8 py-4 glass-panel rounded-full font-bold text-lg hover:bg-white/10 transition-all text-center">
-              Explore Creators
+              Explore People
             </Link>
           </div>
         </div>
@@ -41,8 +41,8 @@ export default function LandingPage() {
             <div className="w-14 h-14 bg-blue-500/20 rounded-2xl flex items-center justify-center text-blue-400 mb-2">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             </div>
-            <h3 className="text-2xl font-bold">Unstoppable</h3>
-            <p className="text-muted-foreground leading-relaxed">Your content lives on Walrus decentralized storage. No algorithms hiding your posts, no platforms taking you down.</p>
+            <h3 className="text-2xl font-bold">Stay Connected</h3>
+            <p className="text-muted-foreground leading-relaxed">Keep up with your favorite people and communities. Share your life's moments with the people who matter most to you.</p>
           </div>
           
           <div className="glass-panel p-8 rounded-3xl flex flex-col gap-4 relative overflow-hidden group">
@@ -50,8 +50,8 @@ export default function LandingPage() {
             <div className="w-14 h-14 bg-teal-500/20 rounded-2xl flex items-center justify-center text-teal-400 mb-2">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
             </div>
-            <h3 className="text-2xl font-bold">On-Chain Truth</h3>
-            <p className="text-muted-foreground leading-relaxed">Every post, like, and comment is verified on the Sui blockchain. Cryptographic proof of every interaction.</p>
+            <h3 className="text-2xl font-bold">Real Conversations</h3>
+            <p className="text-muted-foreground leading-relaxed">Chat directly with your family and friends in real time. No noise just genuine, private conversations. No intermediaries, no algorithms.</p>
           </div>
           
           <div className="glass-panel p-8 rounded-3xl flex flex-col gap-4 relative overflow-hidden group">
@@ -59,8 +59,8 @@ export default function LandingPage() {
             <div className="w-14 h-14 bg-purple-500/20 rounded-2xl flex items-center justify-center text-purple-400 mb-2">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             </div>
-            <h3 className="text-2xl font-bold">Direct Connection</h3>
-            <p className="text-muted-foreground leading-relaxed">Break the fourth wall. Chat directly with your favorite creators or your biggest fans without intermediaries.</p>
+            <h3 className="text-2xl font-bold">Share Your World</h3>
+            <p className="text-muted-foreground leading-relaxed">Post photos, videos, and thoughts. Your memories, stored reliably and shared with the people you choose.</p>
           </div>
         </div>
 

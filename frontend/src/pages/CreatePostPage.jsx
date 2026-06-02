@@ -4,6 +4,31 @@ import Layout from '../components/Layout.jsx';
 import { createPost } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 
+const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
+const MAX_VIDEO_DURATION_S = 180; // 3 minutes
+
+function formatBytes(bytes) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function checkVideoDuration(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    const url = URL.createObjectURL(file);
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(video.duration);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not read video duration'));
+    };
+    video.src = url;
+  });
+}
+
 export default function CreatePostPage() {
   const { address, isAuthenticated, openAuthModal } = useAuth();
   const [title, setTitle] = useState('');
@@ -13,26 +38,50 @@ export default function CreatePostPage() {
   const [mediaType, setMediaType] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
-  const [uploadPct, setUploadPct] = useState(null); // 0..100 while media uploads
+  const [uploadPct, setUploadPct] = useState(null);
   const fileRef = useRef(null);
   const navigate = useNavigate();
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 50 * 1024 * 1024) {
-      setError('File too large. Max 50 MB.');
-      return;
-    }
-    setError(null);
-    setMedia(file);
+
     const isImg = file.type.startsWith('image/');
     const isVid = file.type.startsWith('video/');
+
     if (!isImg && !isVid) {
-      setError('Only images or videos allowed.');
-      setMedia(null);
+      setError('Only images or videos are allowed.');
+      if (fileRef.current) fileRef.current.value = '';
       return;
     }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      setError(`File too large. Maximum size is 100 MB (your file is ${formatBytes(file.size)}).`);
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+
+    if (isVid) {
+      try {
+        const duration = await checkVideoDuration(file);
+        if (duration > MAX_VIDEO_DURATION_S) {
+          const mins = Math.floor(duration / 60);
+          const secs = Math.floor(duration % 60);
+          setError(
+            `Video too long (${mins}m ${secs}s). Maximum video length is 3 minutes. Please trim your video and try again.`
+          );
+          if (fileRef.current) fileRef.current.value = '';
+          return;
+        }
+      } catch {
+        setError('Could not verify video duration. Please try a different file.');
+        if (fileRef.current) fileRef.current.value = '';
+        return;
+      }
+    }
+
+    setError(null);
+    setMedia(file);
     setMediaType(isImg ? 'image' : 'video');
     setMediaPreview(URL.createObjectURL(file));
   };
@@ -67,11 +116,14 @@ export default function CreatePostPage() {
     }
   };
 
+  const isUploading = isSubmitting && media && uploadPct !== null && uploadPct < 100;
+  const isProcessing = isSubmitting && (!media || uploadPct === 100);
+
   if (!isAuthenticated) {
     return (
       <Layout>
         <div className="max-w-md mx-auto w-full px-4 py-20 text-center flex flex-col items-center gap-4">
-          <h2 className="text-2xl font-bold">Sign in required to post content</h2>
+          <h2 className="text-2xl font-bold">Sign in to post</h2>
           <p className="text-muted-foreground">Create a free account to start sharing your world.</p>
           <div className="flex gap-3">
             <button onClick={() => openAuthModal('signin')} className="bg-primary text-primary-foreground px-6 py-3 rounded-full font-bold hover:bg-primary/90">
@@ -125,7 +177,10 @@ export default function CreatePostPage() {
           {/* Media Upload */}
           <div className="flex flex-col gap-2">
             <label className="text-sm font-bold text-muted-foreground uppercase tracking-wider pl-1">
-              Media <span className="text-xs normal-case font-normal opacity-70">(optional — image or video, up to 50 MB)</span>
+              Media{' '}
+              <span className="text-xs normal-case font-normal opacity-70">
+                (optional — image or video up to 100 MB · videos max 3 minutes)
+              </span>
             </label>
 
             {!mediaPreview ? (
@@ -133,11 +188,13 @@ export default function CreatePostPage() {
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 disabled={isSubmitting}
-                className="w-full border-2 border-dashed border-white/10 rounded-2xl py-10 flex flex-col items-center justify-center gap-2 hover:border-primary/50 hover:bg-primary/5 transition-all"
+                className="w-full border-2 border-dashed border-white/10 rounded-2xl py-10 flex flex-col items-center justify-center gap-3 hover:border-primary/50 hover:bg-primary/5 transition-all"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                <span className="text-sm font-medium text-muted-foreground">Click to upload an image or video</span>
-                <span className="text-xs text-muted-foreground/70">Stored on Walrus, decentralized forever</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-muted-foreground">Click to upload an image or video</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">Max 100 MB · Videos up to 3 minutes</p>
+                </div>
               </button>
             ) : (
               <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/20">
@@ -167,18 +224,42 @@ export default function CreatePostPage() {
             />
           </div>
 
+          {/* Upload Progress Bar */}
+          {isUploading && (
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground font-medium">
+                  Uploading {mediaType === 'video' ? 'video' : 'image'}…
+                </span>
+                <span className="text-primary font-bold tabular-nums">{uploadPct}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-primary to-primary/70 rounded-full transition-all duration-200 ease-out"
+                  style={{ width: `${uploadPct}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground/60 text-center">
+                Please keep this page open until the upload finishes
+              </p>
+            </div>
+          )}
+
           <div className="pt-4 border-t border-white/10 flex justify-end">
             <button
               type="submit"
               disabled={isSubmitting || !title.trim() || !content.trim()}
               className="bg-primary text-primary-foreground px-8 py-3 rounded-full font-bold text-lg disabled:opacity-50 hover:bg-primary/90 transition-colors flex items-center gap-2"
             >
-              {isSubmitting ? (
+              {isUploading ? (
                 <>
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                  {media && uploadPct !== null && uploadPct < 100
-                    ? `Uploading to Walrus... ${uploadPct}%`
-                    : 'Publishing to Sui...'}
+                  Uploading… {uploadPct}%
+                </>
+              ) : isProcessing ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  Publishing…
                 </>
               ) : (
                 'Post to myWorld'

@@ -3,7 +3,6 @@ import cors from 'cors';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import { uploadToR2, getFromR2, r2MediaUrl, sniffMime } from './services/r2.service.js';
-import { suiCreatePost, suiCreateProfile, suiAddComment, suiLikePost, senderAddress } from './services/sui.service.js';
 import {
   initDb,
   getPosts, getPostById, savePost, updatePost,
@@ -22,8 +21,8 @@ import {
 } from './services/auth.service.js';
 import { getClientIp } from './utils/clientIp.js';
 import { sendNotificationEmail } from './services/notification-email.service.js';
-
-export { senderAddress };
+import { asyncWrapProviders } from 'async_hooks';
+import { timeStamp } from 'console';
 
 // ─── Firebase Realtime Database (fire-and-forget write) ───────────────────────
 const FIREBASE_DB_URL = (process.env.FIREBASE_DB_URL || 'https://fascoin-app-default-rtdb.firebaseio.com').replace(/\/$/, '');
@@ -152,7 +151,7 @@ export function buildApp() {
 
   // ─── Health ────────────────────────────────────────────────────────────────
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', wallet: senderAddress, timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
   app.get('/api/config', (req, res) => {
@@ -228,17 +227,11 @@ export function buildApp() {
         const r2 = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
         mediaUrl = r2.url;
       }
-      let postObjectId = null, txDigest = null;
-      try {
-        const suiResult = await suiCreatePost(null, title);
-        postObjectId = suiResult?.effects?.created?.[0]?.reference?.objectId || null;
-        txDigest = suiResult?.digest || null;
-      } catch {}
       const saved = await savePost({
-        id: uuidv4(), postObjectId, txDigest,
-        blobId: null, blobObjectId: null, blobUrl: null,
+        id: uuidv4(),
         mediaBlobId: mediaKey, mediaUrl, mediaType, mediaMime,
-        owner: effectiveOwner, title, content, isDeleted: false,
+        owner: effectiveOwner, title, content,
+        isDeleted: false,
         createdAt: new Date().toISOString(),
       });
       res.json(saved);
@@ -296,7 +289,6 @@ export function buildApp() {
         const likes = await getLikes(postId);
         res.json({ liked: false, likes: likes.length });
       } else {
-        if (post.postObjectId) { try { await suiLikePost(post.postObjectId); } catch {} }
         await saveLike({ id: uuidv4(), postId, owner: effectiveOwner, createdAt: new Date().toISOString() });
         // Notify post owner (skip self-notification)
         if (post.owner !== effectiveOwner) {
@@ -332,7 +324,6 @@ export function buildApp() {
       const postId = req.params.id;
       const post = await getPostById(postId);
       if (isPostUnavailable(post)) return res.status(404).json({ error: 'Not found' });
-      if (post.postObjectId) { try { await suiAddComment(post.postObjectId, content); } catch {} }
       const comment = await saveComment({ id: uuidv4(), postId, owner: effectiveOwner, content, createdAt: new Date().toISOString() });
       // Notify post owner (skip self-notification)
       if (post.owner !== effectiveOwner) {
@@ -405,7 +396,6 @@ export function buildApp() {
       } else if (req.body.bannerUrl) {
         update.bannerUrl = String(req.body.bannerUrl);
       }
-      try { await suiCreateProfile(username, bio); } catch {}
       const profile = await saveProfile(effectiveAddress, update);
       res.json(profile);
     } catch (err) {

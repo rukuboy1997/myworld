@@ -41,14 +41,31 @@ export const getStats = () => request('GET', '/stats');
 // ─── Posts ────────────────────────────────────────────────────────────────────
 export const getPost = (id) => request('GET', `/post/${id}`);
 
-export const createPost = async ({ title, content, owner, media }) => {
+export const createPost = ({ title, content, owner, media, onUploadProgress }) => {
   if (media) {
     const fd = new FormData();
     fd.append('title', title);
     fd.append('content', content);
     if (owner) fd.append('owner', owner);
     fd.append('media', media);
-    return requestForm('POST', '/post', fd);
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${BASE}/post`);
+      const token = getAuthToken();
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onUploadProgress) onUploadProgress(e.loaded / e.total);
+      };
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+          else reject(new Error(data.error || 'Upload failed'));
+        } catch { reject(new Error('Upload failed')); }
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.send(fd);
+    });
   }
   const payload = { title, content };
   if (owner) payload.owner = owner;
