@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { formatDistanceToNow, isToday, isYesterday, format } from 'date-fns';
 import { ref, onValue } from 'firebase/database';
 import Layout from '../components/Layout.jsx';
-import { getMessages, sendMessage, getAllProfiles, truncateAddress } from '../lib/api.js';
+import { getMessages, sendMessage, getAllProfiles, getConversation, truncateAddress } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { firebaseDb, convId as fbConvId } from '../lib/firebase.js';
 
@@ -168,32 +168,61 @@ export default function MessagesPage() {
     return () => unsub();
   }, [selectedUser?.address]);
 
-  // ─── Firebase real-time message listener ─────────────────────────────────
+  // ─── Firebase real-time message listener (with Neon DB history fallback) ─────────────────────────────────
   useEffect(() => {
     if (!selectedUser || !wallet) return;
 
     setIsLoadingChat(true);
+    setChatMessages([]);
     inputRef.current?.focus();
 
     const cId = fbConvId(wallet, selectedUser.address);
     const msgsRef = ref(firebaseDb, `conversations/${cId}/messages`);
+    
+    // Mutable buckets shared between the DB load and the Firebase listener.
+    // Both must resolve before we render — this avoids a blank flash when
+    // Firebase fires before the DB fetch returns (or vice versa).
+    // `active` prevents stale async results from overwriting a newer conversation.
+    let active = true;
+    let dbMsgs = [];
+    let fbMsgs = [];
+    let dbDone = false;
+    let fbDone = false;
+    function mergeAndSet() {
+      if (!active || !dbDone || !fbDone) return;
+      const map = new Map();
+      // DB messages first (historical baseline)
+      dbMsgs.forEach(m => map.set(m.id, m));
+      // Firebase messages overwrite on conflict (most up-to-date)
+      fbMsgs.forEach(m => map.set(m.id, m));
+      const sorted = Array.from(map.values())
+        .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      setChatMessages(sorted);
+      setIsLoadingChat(false);
+    }
+    
+    // 1) Load full history from Neon DB so old conversations are never blank
+    getConversation(wallet, selectedUser.address)
+      .then(msgs => { dbMsgs = msgs || []; })
+      .catch(() => {})
+      .finally(() => { dbDone = true; mergeAndSet(); });
+      
+    // 2) Subscribe to Firebase for real-time updates (new messages arrive here)
 
     const unsubscribe = onValue(msgsRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
-        const msgs = Object.entries(data)
-          .map(([id, msg]) => ({ ...msg, id }))
-          .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-        setChatMessages(msgs);
-      } else {
-        setChatMessages([]);
-      }
-      setIsLoadingChat(false);
+      fbMsgs = data
+        ? Object.entries(data).map(([id, msg]) => ({ ...msg, id }))
+        : [];
+      fbDone = true;
+      mergeAndSet();
+      
       // Keep sidebar in sync when new messages arrive
-      loadConversations();
+      if (active) loadConversations();
     }, (err) => {
       console.error('[firebase] onValue error:', err);
-      setIsLoadingChat(false);
+      fbDone = true;
+      mergeAndSet();
     });
 
     // Mark as read after a short delay so the unread separator shows briefly
@@ -204,6 +233,7 @@ export default function MessagesPage() {
     }, 1500);
 
     return () => {
+      active = false;
       unsubscribe();
       clearTimeout(markReadTimerRef.current);
     };
