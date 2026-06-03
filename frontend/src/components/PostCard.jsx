@@ -277,7 +277,7 @@ export default function PostCard({ post, onLikeUpdate }) {
   return (
     <div className="glass-panel rounded-3xl p-4 md:p-6 flex flex-col gap-3 md:gap-4 animate-slide-up overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 md:gap-3">
+      <div className="flex items-center justify-between gap-3">
         <Link
           to={`/profile/${post.owner}`}
           className="flex items-center gap-3 group min-w-0"
@@ -301,7 +301,7 @@ export default function PostCard({ post, onLikeUpdate }) {
           </div>
         </Link>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <div className="relative">
             <button
               onClick={() => setShowActions(!showActions)}
