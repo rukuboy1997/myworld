@@ -5,7 +5,7 @@ import { PACKAGE_ID, MNEMONIC, SUI_RPC } from '../config.js';
 
 const keypair = Ed25519Keypair.deriveKeypair(MNEMONIC);
 const client = new SuiJsonRpcClient({ url: SUI_RPC });
-export const senderAddress = keypair.getPublicKey().toSuiAddress();
+const senderAddress = keypair.getPublicKey().toSuiAddress();
 
 async function signAndExecute(tx) {
   return client.signAndExecuteTransaction({

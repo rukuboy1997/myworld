@@ -76,6 +76,10 @@ export function buildApp() {
   const PROFILE_LOCATION_MAX_LENGTH = 80;
   const PROFILE_TWITTER_MAX_LENGTH = 50;
   const PROFILE_PROFESSION_MAX_LENGTH = 80;
+  const POST_TITLE_MAX_LENGTH = 200;
+  const POST_CONTENT_MAX_LENGTH = 10000;
+  const COMMENT_CONTENT_MAX_LENGTH = 1000;
+  const MESSAGE_CONTENT_MAX_LENGTH = 2000;
 
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -640,7 +644,7 @@ export function buildApp() {
     res.json({
       totalPosts: posts.length,
       totalProfiles: Object.keys(profiles).length,
-      totalLikes, totalComments, walletAddress: senderAddress,
+      totalLikes, totalComments,
     });
   });
 
