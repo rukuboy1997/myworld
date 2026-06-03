@@ -5,6 +5,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   DARK MODE (DEFAULT)
+   ============================================ */
 :root {
   --background: 240 10% 4%;
   --foreground: 0 0% 98%;
@@ -35,6 +38,49 @@
   --ring: 195 100% 50%;
 
   --radius: 1rem;
+  
+  /* Glass effect for dark mode */
+  --glass-opacity: 0.05;
+  --glass-border-light: rgba(255, 255, 255, 0.1);
+  --scrollbar-color: rgba(255, 255, 255, 0.15);
+}
+
+/* ============================================
+   LIGHT MODE
+   ============================================ */
+html.light {
+  --background: 240 15% 97%;
+  --foreground: 240 10% 8%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 8%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 8%;
+
+  --primary: 195 100% 50%;
+  --primary-foreground: 240 5.9% 10%;
+
+  --secondary: 240 14% 93%;
+  --secondary-foreground: 240 10% 20%;
+
+  --muted: 240 14% 93%;
+  --muted-foreground: 240 8% 42%;
+
+  --accent: 195 100% 45%;
+  --accent-foreground: 240 5.9% 10%;
+
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+
+  --border: 240 14% 88%;
+  --input: 240 14% 93%;
+  --ring: 195 100% 50%;
+
+  /* Glass effect for light mode - frosted glass with white base */
+  --glass-opacity: 0.7;
+  --glass-border-light: rgba(0, 0, 0, 0.08);
+  --scrollbar-color: rgba(0, 0, 0, 0.15);
 }
 
 @layer base {
@@ -42,12 +88,12 @@
     @apply border-border;
   }
   html {
-    /* Scale base font down slightly on small screens to prevent "too zoomed in" feel */
     font-size: clamp(14px, 3.75vw, 16px);
   }
   body {
     @apply bg-background text-foreground antialiased min-h-[100dvh] flex flex-col;
     font-family: "Plus Jakarta Sans", sans-serif;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
   h1,
   h2,
@@ -60,19 +106,44 @@
 }
 
 @layer utilities {
+  /* Glass Panel - maintains morphic design in both modes */
   .glass-panel {
-    @apply bg-white/5 backdrop-blur-md border border-white/10 shadow-xl;
+    @apply backdrop-blur-md shadow-xl transition-all duration-300;
+    background-color: rgba(255, 255, 255, var(--glass-opacity));
+    border: 1px solid var(--glass-border-light);
   }
+
+  /* Light mode glass adjustments */
+  html.light .glass-panel {
+    background-color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  }
+
+  /* Text Gradients */
   .text-gradient {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-teal-400;
   }
+
+  html.light .text-gradient {
+    @apply bg-gradient-to-r from-blue-600 to-teal-600;
+  }
+
+  /* Brand Gradient */
   .bg-gradient-brand {
     @apply bg-gradient-to-r from-blue-500 to-teal-400;
   }
+
+  html.light .bg-gradient-brand {
+    @apply bg-gradient-to-r from-blue-600 to-teal-500;
+  }
+
+  /* Custom Scrollbar */
   .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    scrollbar-color: var(--scrollbar-color) transparent;
   }
+
   .custom-scrollbar::-webkit-scrollbar {
     width: 4px;
   }
@@ -80,9 +151,11 @@
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--scrollbar-color);
     border-radius: 9999px;
   }
+
+  /* Animations */
   .animate-fade-in {
     animation: fadeIn 0.5s ease-out forwards;
   }
@@ -97,6 +170,11 @@
   }
   .delay-300 {
     animation-delay: 300ms;
+  }
+
+  /* Light mode specific hover states */
+  html.light .hover\:bg-white\/10:hover {
+    @apply hover:bg-black/5;
   }
 }
 
