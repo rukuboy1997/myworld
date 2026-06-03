@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import Layout from '../components/Layout.jsx';
-import PostCard from '../components/PostCard.jsx';
-import { getPost } from '../lib/api.js';
+import React, { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import Layout from "../components/Layout.jsx";
+import PostCard from "../components/PostCard.jsx";
+import { getPost } from "../lib/api.js";
 
 export default function PostPage() {
   const { id } = useParams();
@@ -21,17 +21,21 @@ export default function PostPage() {
         if (cancelled) return;
         setPost({
           ...data,
-          commentCount: Array.isArray(data.comments) ? data.comments.length : data.commentCount || 0,
+          commentCount: Array.isArray(data.comments)
+            ? data.comments.length
+            : data.commentCount || 0,
         });
       } catch (err) {
-        if (!cancelled) setError(err.message || 'Failed to load post');
+        if (!cancelled) setError(err.message || "Failed to load post");
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     }
 
     loadPost();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   return (
@@ -45,7 +49,10 @@ export default function PostPage() {
               <h1 className="text-xl font-bold mb-2">Post not found</h1>
               <p className="text-muted-foreground">{error}</p>
             </div>
-            <Link to="/feed" className="mt-2 px-6 py-2 bg-secondary text-secondary-foreground rounded-full font-medium hover:bg-secondary/80 transition-colors">
+            <Link
+              to="/feed"
+              className="mt-2 px-6 py-2 bg-secondary text-secondary-foreground rounded-full font-medium hover:bg-secondary/80 transition-colors"
+            >
               Back to feed
             </Link>
           </div>

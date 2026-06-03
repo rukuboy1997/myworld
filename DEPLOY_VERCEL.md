@@ -25,13 +25,13 @@ Browser
 Set these in **Vercel → Project Settings → Environment Variables** (mark
 all as available in Production, Preview, and Development):
 
-| Variable | Required | Description |
-|---|---|---|
-| `NEON_DATABASE_URL` | yes | Postgres connection string. Use Neon's *pooled* connection string. |
-| `JWT_SECRET` | yes | Long random string used to sign auth JWTs. |
-| `SUI_PRIVATE_KEY` | yes | Backend wallet that signs Sui transactions. |
-| `RESEND_API_KEY` | recommended | API key for Resend (https://resend.com — free tier covers 100 emails/day). Without it, password-reset codes are only logged to the server console. |
-| `EMAIL_FROM` | optional | From address for password-reset emails. Defaults to `myWorld <onboarding@resend.dev>`. |
+| Variable            | Required    | Description                                                                                                                                        |
+| ------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEON_DATABASE_URL` | yes         | Postgres connection string. Use Neon's _pooled_ connection string.                                                                                 |
+| `JWT_SECRET`        | yes         | Long random string used to sign auth JWTs.                                                                                                         |
+| `SUI_PRIVATE_KEY`   | yes         | Backend wallet that signs Sui transactions.                                                                                                        |
+| `RESEND_API_KEY`    | recommended | API key for Resend (https://resend.com — free tier covers 100 emails/day). Without it, password-reset codes are only logged to the server console. |
+| `EMAIL_FROM`        | optional    | From address for password-reset emails. Defaults to `myWorld <onboarding@resend.dev>`.                                                             |
 
 ## One-time setup
 
@@ -40,7 +40,7 @@ all as available in Production, Preview, and Development):
 3. Vercel will auto-detect `vercel.json`. Don't change the framework preset.
 4. Add the environment variables above.
 5. Deploy. Vercel will run `npm install && cd frontend && npm install &&
-   npm run build`, then deploy the static assets and the `api/index.js`
+npm run build`, then deploy the static assets and the `api/index.js`
    serverless function.
 
 ## Caveats / things to know

@@ -9,10 +9,7 @@ export function getApiToken() {
 }
 
 export function getApiUrl() {
-  return ("https://myworld-api.vercel.app").replace(
-    /\/$/,
-    "",
-  );
+  return "https://myworld-api.vercel.app".replace(/\/$/, "");
 }
 
 const BASE = () => `${getApiUrl()}/api`;

@@ -1,6 +1,12 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
 
-const STORAGE_KEY = 'myworld_session';
+const STORAGE_KEY = "myworld_session";
 
 const AuthContext = createContext({
   user: null,
@@ -13,14 +19,14 @@ const AuthContext = createContext({
   openAuthModal: () => {},
   closeAuthModal: () => {},
   authModalOpen: false,
-  authModalMode: 'signin',
+  authModalMode: "signin",
 });
 
 let currentToken = null;
 export function getAuthToken() {
   if (currentToken) return currentToken;
   try {
-    const cached = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    const cached = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     return cached?.token || null;
   } catch {
     return null;
@@ -29,7 +35,7 @@ export function getAuthToken() {
 
 function loadCached() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
   } catch {
     return null;
   }
@@ -45,16 +51,16 @@ function saveCached(session) {
   }
 }
 
-const API_ORIGIN = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const API_ORIGIN = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 
 async function apiPost(path, body) {
   const res = await fetch(`${API_ORIGIN}/api${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (!res.ok) throw new Error(data.error || "Request failed");
   return data;
 }
 
@@ -63,7 +69,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(cached?.user || null);
   const [isLoading, setIsLoading] = useState(true);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState('signin');
+  const [authModalMode, setAuthModalMode] = useState("signin");
 
   // Initialize: hydrate token + verify session
   useEffect(() => {
@@ -71,9 +77,11 @@ export function AuthProvider({ children }) {
     if (c?.token) {
       currentToken = c.token;
       // Validate against backend
-      fetch(`${API_ORIGIN}/api/auth/me`, { headers: { Authorization: `Bearer ${c.token}` } })
-        .then(r => r.json())
-        .then(data => {
+      fetch(`${API_ORIGIN}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${c.token}` },
+      })
+        .then((r) => r.json())
+        .then((data) => {
           if (data.user) {
             setUser(data.user);
           } else {
@@ -89,7 +97,11 @@ export function AuthProvider({ children }) {
   }, []);
 
   const signUp = useCallback(async ({ username, email, password }) => {
-    const { user, token } = await apiPost('/auth/signup', { username, email, password });
+    const { user, token } = await apiPost("/auth/signup", {
+      username,
+      email,
+      password,
+    });
     saveCached({ user, token });
     setUser(user);
     setAuthModalOpen(false);
@@ -97,7 +109,10 @@ export function AuthProvider({ children }) {
   }, []);
 
   const signIn = useCallback(async ({ username, password }) => {
-    const { user, token } = await apiPost('/auth/login', { username, password });
+    const { user, token } = await apiPost("/auth/login", {
+      username,
+      password,
+    });
     saveCached({ user, token });
     setUser(user);
     setAuthModalOpen(false);
@@ -105,11 +120,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   const requestPasswordReset = useCallback(async ({ email }) => {
-    return await apiPost('/auth/forgot-password', { email });
+    return await apiPost("/auth/forgot-password", { email });
   }, []);
 
   const resetPassword = useCallback(async ({ email, code, newPassword }) => {
-    const { user, token } = await apiPost('/auth/reset-password', { email, code, newPassword });
+    const { user, token } = await apiPost("/auth/reset-password", {
+      email,
+      code,
+      newPassword,
+    });
     saveCached({ user, token });
     setUser(user);
     setAuthModalOpen(false);
@@ -121,7 +140,7 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
-  const openAuthModal = useCallback((mode = 'signin') => {
+  const openAuthModal = useCallback((mode = "signin") => {
     setAuthModalMode(mode);
     setAuthModalOpen(true);
   }, []);

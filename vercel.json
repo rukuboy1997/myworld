@@ -7,7 +7,5 @@
       "memory": 1024
     }
   },
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/[...path].js" }
-  ]
+  "routes": [{ "src": "/api/(.*)", "dest": "/api/[...path].js" }]
 }

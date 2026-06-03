@@ -11,7 +11,7 @@ async function readFromWalrus(blobId) {
 
   if (!response.ok) {
     throw new Error(
-      `Failed to read blob: ${response.status} ${await response.text()}`
+      `Failed to read blob: ${response.status} ${await response.text()}`,
     );
   }
 
@@ -41,7 +41,7 @@ async function main() {
     blobId = process.argv[2];
     if (!blobId) {
       console.error(
-        "\n❌ No walrus_result.json found. Run: node read.js <blobId>"
+        "\n❌ No walrus_result.json found. Run: node read.js <blobId>",
       );
       process.exit(1);
     }

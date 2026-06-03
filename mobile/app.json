@@ -28,7 +28,12 @@
         "backgroundColor": "#09090e"
       },
       "package": "com.myworld.mobile",
-      "permissions": ["INTERNET", "NOTIFICATIONS", "RECEIVE_BOOT_COMPLETED", "VIBRATE"]
+      "permissions": [
+        "INTERNET",
+        "NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
     },
     "web": {
       "bundler": "metro",

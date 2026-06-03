@@ -1,7 +1,7 @@
-import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
-import { Transaction } from '@mysten/sui/transactions';
-import { PACKAGE_ID, MNEMONIC, SUI_RPC } from '../config.js';
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { Transaction } from "@mysten/sui/transactions";
+import { PACKAGE_ID, MNEMONIC, SUI_RPC } from "../config.js";
 
 const keypair = Ed25519Keypair.deriveKeypair(MNEMONIC);
 const client = new SuiJsonRpcClient({ url: SUI_RPC });
@@ -20,8 +20,8 @@ export async function suiCreateProfile(username, bio) {
   tx.moveCall({
     target: `${PACKAGE_ID}::social::create_profile`,
     arguments: [
-      tx.pure.vector('u8', Array.from(Buffer.from(username, 'utf8'))),
-      tx.pure.vector('u8', Array.from(Buffer.from(bio, 'utf8'))),
+      tx.pure.vector("u8", Array.from(Buffer.from(username, "utf8"))),
+      tx.pure.vector("u8", Array.from(Buffer.from(bio, "utf8"))),
     ],
   });
   return signAndExecute(tx);
@@ -32,13 +32,13 @@ export async function suiCreatePost(blobId, title) {
   tx.moveCall({
     target: `${PACKAGE_ID}::social::create_post`,
     arguments: [
-      tx.pure.vector('u8', Array.from(Buffer.from(blobId, 'utf8'))),
-      tx.pure.vector('u8', Array.from(Buffer.from(title, 'utf8'))),
+      tx.pure.vector("u8", Array.from(Buffer.from(blobId, "utf8"))),
+      tx.pure.vector("u8", Array.from(Buffer.from(title, "utf8"))),
     ],
   });
   const result = await signAndExecute(tx);
   const postObject = result.objectChanges?.find(
-    c => c.type === 'created' && c.objectType?.includes('::social::Post')
+    (c) => c.type === "created" && c.objectType?.includes("::social::Post"),
   );
   return {
     digest: result.digest,
@@ -53,7 +53,7 @@ export async function suiAddComment(postId, content) {
     target: `${PACKAGE_ID}::social::add_comment`,
     arguments: [
       tx.pure.id(postId),
-      tx.pure.vector('u8', Array.from(Buffer.from(content, 'utf8'))),
+      tx.pure.vector("u8", Array.from(Buffer.from(content, "utf8"))),
     ],
   });
   return signAndExecute(tx);
@@ -74,7 +74,7 @@ export async function suiSendMessage(receiver, content) {
     target: `${PACKAGE_ID}::social::send_message`,
     arguments: [
       tx.pure.address(receiver),
-      tx.pure.vector('u8', Array.from(Buffer.from(content, 'utf8'))),
+      tx.pure.vector("u8", Array.from(Buffer.from(content, "utf8"))),
     ],
   });
   return signAndExecute(tx);

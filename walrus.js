@@ -10,10 +10,8 @@ const PACKAGE_ID =
   "0x819e6957458af4807b87732fa20e7df59b748c4318ded45f8685a09e28f40de1";
 const SUI_RPC = "https://fullnode.testnet.sui.io:443";
 
-const WALRUS_PUBLISHER =
-  "https://publisher.walrus-testnet.walrus.space";
-const WALRUS_AGGREGATOR =
-  "https://aggregator.walrus-testnet.walrus.space";
+const WALRUS_PUBLISHER = "https://publisher.walrus-testnet.walrus.space";
+const WALRUS_AGGREGATOR = "https://aggregator.walrus-testnet.walrus.space";
 const EPOCHS = 5; // store for 5 epochs
 
 // ─── STEP 1: Upload content to Walrus ────────────────────────────────────────
@@ -29,11 +27,13 @@ async function uploadToWalrus(content) {
       method: "PUT",
       headers: { "Content-Type": "application/octet-stream" },
       body: bytes,
-    }
+    },
   );
 
   if (!response.ok) {
-    throw new Error(`Walrus upload failed: ${response.status} ${await response.text()}`);
+    throw new Error(
+      `Walrus upload failed: ${response.status} ${await response.text()}`,
+    );
   }
 
   const result = await response.json();
@@ -61,11 +61,13 @@ async function linkToSui(blobId, title) {
   console.log("\n🔗 Linking blob to Sui contract...");
 
   const keypair = Ed25519Keypair.deriveKeypair(MNEMONIC);
-  const client = new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl("testnet") });
+  const client = new SuiJsonRpcClient({
+    url: getJsonRpcFullnodeUrl("testnet"),
+  });
 
   const tx = new Transaction();
 
-  const blobBytes  = Array.from(Buffer.from(blobId, "utf8"));
+  const blobBytes = Array.from(Buffer.from(blobId, "utf8"));
   const titleBytes = Array.from(Buffer.from(title, "utf8"));
 
   tx.moveCall({
@@ -84,7 +86,7 @@ async function linkToSui(blobId, title) {
 
   // Find the created Post object ID
   const postObject = result.objectChanges?.find(
-    (c) => c.type === "created" && c.objectType?.includes("::social::Post")
+    (c) => c.type === "created" && c.objectType?.includes("::social::Post"),
   );
 
   return {
@@ -127,13 +129,13 @@ async function main() {
   console.log("  🔗 Explorer Links");
   console.log("═══════════════════════════════════════════");
   console.log(
-    `  Walrus Blob: ${WALRUS_AGGREGATOR}/v1/blobs/${walrusResult.blobId}`
+    `  Walrus Blob: ${WALRUS_AGGREGATOR}/v1/blobs/${walrusResult.blobId}`,
   );
   console.log(
-    `  Sui Txn:     https://testnet.suivision.xyz/txblock/${suiResult.digest}`
+    `  Sui Txn:     https://testnet.suivision.xyz/txblock/${suiResult.digest}`,
   );
   console.log(
-    `  Post Object: https://testnet.suivision.xyz/object/${suiResult.postObjectId}`
+    `  Post Object: https://testnet.suivision.xyz/object/${suiResult.postObjectId}`,
   );
 
   // Save results for read.js

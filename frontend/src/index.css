@@ -1,5 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-@import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+@import url("https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -47,10 +47,15 @@
   }
   body {
     @apply bg-background text-foreground antialiased min-h-[100dvh] flex flex-col;
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: "Plus Jakarta Sans", sans-serif;
   }
-  h1, h2, h3, h4, h5, h6 {
-    font-family: 'Clash Display', sans-serif;
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: "Clash Display", sans-serif;
   }
 }
 
@@ -66,7 +71,7 @@
   }
   .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.15) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
   }
   .custom-scrollbar::-webkit-scrollbar {
     width: 4px;
@@ -75,7 +80,7 @@
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.15);
+    background: rgba(255, 255, 255, 0.15);
     border-radius: 9999px;
   }
   .animate-fade-in {
@@ -96,11 +101,21 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

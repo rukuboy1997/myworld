@@ -1,20 +1,23 @@
 # myWorld — Decentralized Social Platform
 
 ## Overview
+
 myWorld connects celebrities with their fans on the Sui blockchain. Posts, comments, and profiles are stored in Neon Postgres. Media (avatars, banners, post images/video) is stored in Cloudflare R2. Real-time chat uses Firebase Realtime Database. Sui blockchain is reserved for future tokenomics.
 
 ## Stack
-| Layer | Tech | Role |
-|---|---|---|
-| Frontend (Web) | Vite + React + Tailwind CSS | Social app UI |
-| Mobile | Expo + React Native | iOS & Android app |
-| Backend | Node.js + Express | API server + wallet signer |
-| Database | Neon Postgres | Posts, profiles, likes, comments, follows |
-| Media Storage | Cloudflare R2 | Avatar, banner, post media uploads |
-| Real-time Chat | Firebase Realtime Database | Live message delivery |
-| Blockchain | Sui Move (Testnet) | Reserved for future tokenomics |
+
+| Layer          | Tech                        | Role                                      |
+| -------------- | --------------------------- | ----------------------------------------- |
+| Frontend (Web) | Vite + React + Tailwind CSS | Social app UI                             |
+| Mobile         | Expo + React Native         | iOS & Android app                         |
+| Backend        | Node.js + Express           | API server + wallet signer                |
+| Database       | Neon Postgres               | Posts, profiles, likes, comments, follows |
+| Media Storage  | Cloudflare R2               | Avatar, banner, post media uploads        |
+| Real-time Chat | Firebase Realtime Database  | Live message delivery                     |
+| Blockchain     | Sui Move (Testnet)          | Reserved for future tokenomics            |
 
 ## Cloudflare R2 Setup
+
 - **Bucket:** `myworld`
 - **Account ID:** stored as `CF_ACCOUNT_ID` env var
 - **API Token:** stored as `CF_API_TOKEN` env var (CF API token with R2 read+write permissions)
@@ -22,6 +25,7 @@ myWorld connects celebrities with their fans on the Sui blockchain. Posts, comme
 - **Backend URL (optional):** Set `BACKEND_URL` env var (e.g. `https://myworld-api.vercel.app`) so media URLs stored in the DB are absolute. Leave empty for local dev (Vite proxy handles relative `/api/media/...` URLs).
 
 ## Firebase Realtime Database Setup
+
 - **Project:** `fascoin-app`
 - **Database URL:** `https://fascoin-app-default-rtdb.firebaseio.com` (stored as `FIREBASE_DB_URL` env var)
 - **Rules:** Must be set to **open** in the Firebase Console for messages to work:
@@ -44,6 +48,7 @@ myWorld connects celebrities with their fans on the Sui blockchain. Posts, comme
 **API URL:** Configured via `EXPO_PUBLIC_API_URL` env var (set to backend port 3001)
 
 ### Features
+
 - Full parity with web app: Feed, Explore, Create, Messages, Notifications, Profiles
 - **Light + Dark mode** — automatically follows system preference
 - **Push notifications** — requests permission on sign-in, registers Expo push token with backend (`POST /api/push-token`)
@@ -53,16 +58,19 @@ myWorld connects celebrities with their fans on the Sui blockchain. Posts, comme
 - Plus Jakarta Sans font (matching web typography)
 
 ### Testing on Physical Device
+
 1. Open the `myWorld Mobile` workflow console in Replit
 2. A QR code appears in the terminal
 3. Install **Expo Go** on your phone (Android or iOS)
 4. Scan the QR code — the app loads instantly
 
 ### Publishing Note
+
 - **iOS App Store**: Supported via Replit's Expo Launch (click Publish)
 - **Google Play Store**: Requires EAS Build outside of Replit — export the project and run `eas build --platform android` locally
 
 ### Mobile Files
+
 > All source files are JavaScript/JSX (no TypeScript). `babel-preset-expo` handles JSX transforms.
 
 ```
@@ -101,6 +109,7 @@ mobile/
 ```
 
 ## Architecture
+
 ```
 Browser (Vite :5000)
     ↕ /api proxy
@@ -115,22 +124,25 @@ Express API (:3001)
 ## Active Contract
 
 ### Contract v3 (current)
+
 **Module:** `myworld::social`
 
-| Package ID | `0x96fdc5b12ac04491d2cd1ab5b97b2404d585382da2650bef7e1bb604cd895324` |
-|---|---|
-| Network | Sui Testnet |
-| Deploy Txn | `FCkpUmAjMPnPsRKjQBQLR2kthaPF36hFh8SDMM4oVAWK` |
+| Package ID  | `0x96fdc5b12ac04491d2cd1ab5b97b2404d585382da2650bef7e1bb604cd895324` |
+| ----------- | -------------------------------------------------------------------- |
+| Network     | Sui Testnet                                                          |
+| Deploy Txn  | `FCkpUmAjMPnPsRKjQBQLR2kthaPF36hFh8SDMM4oVAWK`                       |
 | Upgrade Cap | `0x5534b7a7774d2cba668a47f66114e15655396d09b8811ae4acff87e893d51fb4` |
 
 **Move Structs:**
-- `Profile { id, owner, username, bio }` 
+
+- `Profile { id, owner, username, bio }`
 - `Post { id, owner, blob_id, title, created_at, is_deleted }`
 - `Comment { id, post_id, owner, content }`
 - `Like { id, post_id, owner }`
 - `Message { id, sender, receiver, content, created_at }`
 
 **Entry Functions:**
+
 - `create_profile(username, bio)`
 - `create_post(blob_id, title)` — links to Walrus blob
 - `update_post(post, new_blob_id, new_title)` — owner only
@@ -142,12 +154,14 @@ Express API (:3001)
 ---
 
 ## Wallet
+
 - **Address:** `0x2598d09dd5113dc4c2abd298c3c08597eb4d1848d5633667854a05535f4d66ed`
 - **Network:** Sui Testnet
 
 ---
 
 ## Project Structure
+
 ```
 myworld/
   Move.toml              # Package manifest
@@ -189,6 +203,7 @@ read.js                  # Legacy blob retrieval verification script
 ---
 
 ## Run Commands
+
 ```bash
 bash start.sh        # Start full app (backend + frontend)
 # Schema + seed are auto-run on first server boot (data/db.js → initDb)
@@ -197,6 +212,7 @@ node read.js         # Verify blob retrieval from Walrus
 ```
 
 ## API Endpoints (Express :3001)
+
 ```
 GET  /api/health
 GET  /api/feed
@@ -228,6 +244,7 @@ POST /api/auth/resend-verify  (requireAuth)
 ```
 
 ## Workflow
+
 **Name:** myWorld App  
 **Command:** `bash start.sh`  
 **Port:** 5000 (Vite frontend) + 3001 (Express backend, internal)
@@ -240,6 +257,7 @@ Frontend and backend are deployed as **two independent Vercel projects**.
 Each has its own `vercel.json`. A problem in one does not affect the other.
 
 ### Backend Vercel Project
+
 - **Root directory**: `/` (repo root)
 - **Config file**: `vercel.json` (root)
 - **CORS**: Handled at Vercel edge level via `headers` in `vercel.json` — allows `https://myworld-app.vercel.app`. Update the `Access-Control-Allow-Origin` value there if your frontend URL changes.
@@ -251,6 +269,7 @@ Each has its own `vercel.json`. A problem in one does not affect the other.
   | `CORS_ORIGIN` | Your frontend Vercel URL (e.g. `https://myworld-app.vercel.app`) |
 
 ### Frontend Vercel Project
+
 - **Root directory**: `frontend/`
 - **Config file**: `frontend/vercel.json`
 - **Environment variables to set in Vercel:**
@@ -259,15 +278,18 @@ Each has its own `vercel.json`. A problem in one does not affect the other.
   | `VITE_API_URL` | Your backend Vercel URL (e.g. `https://myworld-api.vercel.app`) |
 
 ### How it works
+
 - In **local dev**, `VITE_API_URL` is empty so all `/api/...` calls go through Vite's proxy to `localhost:3001`. No change needed.
 - In **production**, `VITE_API_URL` points to the backend domain. The frontend calls `https://myworld-api.vercel.app/api/...` directly.
 - `CORS_ORIGIN` on the backend allows the frontend domain to make cross-origin requests.
 
 ## Walrus Test Blob
+
 - **Blob ID:** `edezrmgxXdEXcGjKWnI-NWYOVBjFCAHXX5deNIbiT2k`
 - **URL:** https://aggregator.walrus-testnet.walrus.space/v1/blobs/edezrmgxXdEXcGjKWnI-NWYOVBjFCAHXX5deNIbiT2k
 
 ## Key Notes
+
 - The backend wallet signs all blockchain transactions — frontend is wallet-agnostic
 - Comments/likes/messages are stored in Neon Postgres and (if possible) on-chain via Sui
 - Posts can include rich media (image/video) uploaded to Walrus alongside the text content
@@ -281,6 +303,7 @@ Each has its own `vercel.json`. A problem in one does not affect the other.
   - Download from: https://github.com/MystenLabs/sui/releases/download/testnet-v1.68.1/sui-testnet-v1.68.1-ubuntu-x86_64.tgz
 
 ## Hackathon Pitch Video
+
 - **Route:** `/pitch` — full-screen cinematic 5-scene pitch video for Sui x ONE Samurai hackathon (Tokyo, Apr 2026)
 - **File:** `frontend/src/pages/PitchVideoPage.jsx`
 - Scene 1 (Hook): "1,000,000,000 FANS · ZERO REAL CONNECTION"
@@ -293,5 +316,6 @@ Each has its own `vercel.json`. A problem in one does not affect the other.
 - Colors: Sui teal #00C8FF, ONE red #FF3B30, gold #FFD700 on #060610 ultra-dark bg
 
 ## Previous Contracts
+
 - v1: `0x0232fe5b5497cec87f0ad865a7058ae1cc716bba553d66e0262cd59bbb75fc0c`
 - v2: `0x819e6957458af4807b87732fa20e7df59b748c4318ded45f8685a09e28f40de1` (current, deployed)

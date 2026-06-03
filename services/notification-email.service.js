@@ -1,27 +1,34 @@
-import { sendEmail } from './email.service.js';
+import { sendEmail } from "./email.service.js";
 
-const APP_URL = process.env.APP_URL || 'https://myworld.dakta.name.ng';
-const APP_NAME = 'myWorld';
+const APP_URL = process.env.APP_URL || "https://myworld.dakta.name.ng";
+const APP_NAME = "myWorld";
 const LOGO_URL = `${APP_URL}/logo.png`;
 
 // ─── Brand tokens (inline — required for email clients) ───────────────────────
 const C = {
-  bg: '#080D1A',
-  card: '#0F1729',
-  cardBorder: '#1E2D4A',
-  primary: '#00C2FF',
-  primaryDark: '#0098CC',
-  gold: '#F5A623',
-  text: '#F0F4FF',
-  muted: '#8B9DC3',
-  bubble: '#162035',
-  success: '#10B981',
-  danger: '#EF4444',
-  white: '#FFFFFF',
+  bg: "#080D1A",
+  card: "#0F1729",
+  cardBorder: "#1E2D4A",
+  primary: "#00C2FF",
+  primaryDark: "#0098CC",
+  gold: "#F5A623",
+  text: "#F0F4FF",
+  muted: "#8B9DC3",
+  bubble: "#162035",
+  success: "#10B981",
+  danger: "#EF4444",
+  white: "#FFFFFF",
 };
 
 // ─── Base layout wrapper ──────────────────────────────────────────────────────
-function baseTemplate({ preview, heroEmoji, heroTitle, bodyHtml, ctaLabel, ctaUrl }) {
+function baseTemplate({
+  preview,
+  heroEmoji,
+  heroTitle,
+  bodyHtml,
+  ctaLabel,
+  ctaUrl,
+}) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -110,25 +117,28 @@ function baseTemplate({ preview, heroEmoji, heroTitle, bodyHtml, ctaLabel, ctaUr
 
 // ─── Actor display name helper ────────────────────────────────────────────────
 function actorName(actorProfile) {
-  if (!actorProfile) return 'Someone';
-  return actorProfile.displayName || actorProfile.username || 'Someone';
+  if (!actorProfile) return "Someone";
+  return actorProfile.displayName || actorProfile.username || "Someone";
 }
 
 function truncAddr(addr) {
-  if (!addr) return '';
+  if (!addr) return "";
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
 // ─── Info card (profile-style block inside emails) ───────────────────────────
 function infoCard(lines) {
-  const rows = lines.map(({ label, value, highlight }) =>
-    `<tr>
+  const rows = lines
+    .map(
+      ({ label, value, highlight }) =>
+        `<tr>
       <td style="padding:8px 0;border-bottom:1px solid ${C.cardBorder};">
         <span style="font-size:12px;color:${C.muted};display:block;margin-bottom:2px;">${label}</span>
         <span style="font-size:14px;color:${highlight ? C.primary : C.text};font-weight:600;">${value}</span>
       </td>
-    </tr>`
-  ).join('');
+    </tr>`,
+    )
+    .join("");
   return `
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
     style="background:${C.bubble};border-radius:16px;border:1px solid ${C.cardBorder};margin:24px 0;text-align:left;">
@@ -142,7 +152,7 @@ function infoCard(lines) {
 
 // ─── Quote block ──────────────────────────────────────────────────────────────
 function quoteBlock(text) {
-  if (!text) return '';
+  if (!text) return "";
   return `
   <div style="background:${C.bubble};border-left:3px solid ${C.primary};border-radius:0 12px 12px 0;
     padding:16px 20px;margin:20px 0;text-align:left;">
@@ -153,108 +163,144 @@ function quoteBlock(text) {
 // ─────────────────────────────────────────────────────────────────────────────
 //  PUBLIC: sendNotificationEmail
 // ─────────────────────────────────────────────────────────────────────────────
-export async function sendNotificationEmail({ type, recipientEmail, recipientName, actorProfile, extra }) {
+export async function sendNotificationEmail({
+  type,
+  recipientEmail,
+  recipientName,
+  actorProfile,
+  extra,
+}) {
   if (!recipientEmail) return;
 
   const actor = actorName(actorProfile);
-  const actorAddr = actorProfile?.address ? truncAddr(actorProfile.address) : '';
+  const actorAddr = actorProfile?.address
+    ? truncAddr(actorProfile.address)
+    : "";
   const appLink = `${APP_URL}/notifications`;
 
   let subject, preview, heroEmoji, heroTitle, bodyHtml, ctaLabel, ctaUrl;
 
   switch (type) {
     // ── LIKE ────────────────────────────────────────────────────────────────
-    case 'like': {
-      const postUrl = extra?.postId ? `${APP_URL}/post/${extra.postId}` : appLink;
+    case "like": {
+      const postUrl = extra?.postId
+        ? `${APP_URL}/post/${extra.postId}`
+        : appLink;
       subject = `❤️ ${actor} liked your post on myWorld`;
       preview = `${actor} just gave your content a like! Come see who's loving your work.`;
-      heroEmoji = '❤️';
-      heroTitle = 'Your post got a like!';
+      heroEmoji = "❤️";
+      heroTitle = "Your post got a like!";
       bodyHtml = `
         <p style="margin:0 0 4px;font-size:16px;color:${C.muted};">
           <strong style="color:${C.white};">${actor}</strong> just liked one of your posts.
         </p>
         ${infoCard([
-          { label: 'From', value: `${actor} ${actorAddr ? `(${actorAddr})` : ''}`, highlight: true },
-          { label: 'Post preview', value: extra?.postTitle || 'Your post', highlight: false },
+          {
+            label: "From",
+            value: `${actor} ${actorAddr ? `(${actorAddr})` : ""}`,
+            highlight: true,
+          },
+          {
+            label: "Post preview",
+            value: extra?.postTitle || "Your post",
+            highlight: false,
+          },
         ])}
         <p style="margin:8px 0 0;font-size:13px;color:${C.muted};">
           You're building an audience on myWorld. Keep creating!
         </p>`;
-      ctaLabel = 'View Your Post';
+      ctaLabel = "View Your Post";
       ctaUrl = postUrl;
       break;
     }
 
     // ── COMMENT ─────────────────────────────────────────────────────────────
-    case 'comment': {
-      const postUrl = extra?.postId ? `${APP_URL}/post/${extra.postId}` : appLink;
+    case "comment": {
+      const postUrl = extra?.postId
+        ? `${APP_URL}/post/${extra.postId}`
+        : appLink;
       subject = `💬 ${actor} commented on your post`;
       preview = `${actor} left a comment on your post. See what they said!`;
-      heroEmoji = '💬';
-      heroTitle = 'New comment on your post!';
+      heroEmoji = "💬";
+      heroTitle = "New comment on your post!";
       bodyHtml = `
         <p style="margin:0 0 16px;font-size:16px;color:${C.muted};">
           <strong style="color:${C.white};">${actor}</strong> just commented on your post.
         </p>
-        ${extra?.commentText ? quoteBlock(extra.commentText) : ''}
+        ${extra?.commentText ? quoteBlock(extra.commentText) : ""}
         ${infoCard([
-          { label: 'From', value: `${actor} ${actorAddr ? `(${actorAddr})` : ''}`, highlight: true },
-          { label: 'Post', value: extra?.postTitle || 'Your post', highlight: false },
+          {
+            label: "From",
+            value: `${actor} ${actorAddr ? `(${actorAddr})` : ""}`,
+            highlight: true,
+          },
+          {
+            label: "Post",
+            value: extra?.postTitle || "Your post",
+            highlight: false,
+          },
         ])}
         <p style="margin:8px 0 0;font-size:13px;color:${C.muted};">
           Join the conversation and keep the discussion going!
         </p>`;
-      ctaLabel = 'Read the Comment';
+      ctaLabel = "Read the Comment";
       ctaUrl = postUrl;
       break;
     }
 
     // ── MESSAGE ──────────────────────────────────────────────────────────────
-    case 'message': {
+    case "message": {
       const msgUrl = `${APP_URL}/messages`;
       subject = `✉️ New message from ${actor} on myWorld`;
       preview = `${actor} sent you a private message. Don't leave them waiting!`;
-      heroEmoji = '✉️';
-      heroTitle = 'You have a new message!';
+      heroEmoji = "✉️";
+      heroTitle = "You have a new message!";
       bodyHtml = `
         <p style="margin:0 0 16px;font-size:16px;color:${C.muted};">
           <strong style="color:${C.white};">${actor}</strong> slid into your inbox.
         </p>
-        ${extra?.messagePreview ? quoteBlock(extra.messagePreview) : ''}
+        ${extra?.messagePreview ? quoteBlock(extra.messagePreview) : ""}
         ${infoCard([
-          { label: 'From', value: `${actor} ${actorAddr ? `(${actorAddr})` : ''}`, highlight: true },
-          { label: 'When', value: 'Just now', highlight: false },
+          {
+            label: "From",
+            value: `${actor} ${actorAddr ? `(${actorAddr})` : ""}`,
+            highlight: true,
+          },
+          { label: "When", value: "Just now", highlight: false },
         ])}
         <p style="margin:8px 0 0;font-size:13px;color:${C.muted};">
           Conversations on myWorld are end-to-end on Sui. Reply now!
         </p>`;
-      ctaLabel = 'Open Messages';
+      ctaLabel = "Open Messages";
       ctaUrl = msgUrl;
       break;
     }
 
     // ── FOLLOW ───────────────────────────────────────────────────────────────
-    case 'follow': {
+    case "follow": {
       const profileUrl = actorProfile?.address
         ? `${APP_URL}/profile/${actorProfile.address}`
         : appLink;
       subject = `🔔 ${actor} is now following you on myWorld`;
       preview = `${actor} just followed you. You're growing your audience on myWorld!`;
-      heroEmoji = '🌟';
-      heroTitle = 'You have a new follower!';
+      heroEmoji = "🌟";
+      heroTitle = "You have a new follower!";
       bodyHtml = `
         <p style="margin:0 0 16px;font-size:16px;color:${C.muted};">
           <strong style="color:${C.white};">${actor}</strong> just started following you on myWorld.
         </p>
         ${infoCard([
-          { label: 'New follower', value: `${actor} ${actorAddr ? `(${actorAddr})` : ''}`, highlight: true },
-          { label: 'Network', value: 'Sui Blockchain', highlight: false },
+          {
+            label: "New follower",
+            value: `${actor} ${actorAddr ? `(${actorAddr})` : ""}`,
+            highlight: true,
+          },
+          { label: "Network", value: "Sui Blockchain", highlight: false },
         ])}
         <p style="margin:8px 0 0;font-size:13px;color:${C.muted};">
           Your influence is growing. Follow them back and build your community!
         </p>`;
-      ctaLabel = 'View Their Profile';
+      ctaLabel = "View Their Profile";
       ctaUrl = profileUrl;
       break;
     }
@@ -263,7 +309,14 @@ export async function sendNotificationEmail({ type, recipientEmail, recipientNam
       return;
   }
 
-  const html = baseTemplate({ preview, heroEmoji, heroTitle, bodyHtml, ctaLabel, ctaUrl });
+  const html = baseTemplate({
+    preview,
+    heroEmoji,
+    heroTitle,
+    bodyHtml,
+    ctaLabel,
+    ctaUrl,
+  });
 
   await sendEmail({
     to: recipientEmail,
