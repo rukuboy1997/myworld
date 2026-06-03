@@ -11,6 +11,7 @@ import { useAuth } from "../lib/auth.jsx";
 import AuthModal from "./AuthModal.jsx";
 import InviteModal from "./InviteModal.jsx";
 import { updatePresence } from "../lib/firebase.js";
+import ThemeToggle from './ThemeToggle.jsx';
 
 export default function Layout({ children }) {
   const { user, address, isAuthenticated, isLoading, signOut, openAuthModal } =
@@ -186,6 +187,7 @@ export default function Layout({ children }) {
         </nav>
 
         <div className="flex items-center gap-2 md:gap-3">
+          <ThemeToggle />
           {/* Invite Friends (desktop) */}
           <button
             onClick={() => setShowInvite(true)}
