@@ -13,7 +13,7 @@ function ConfirmDialog({
   isDangerous,
 }) {
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
       <div className="glass-panel rounded-2xl p-6 max-w-sm w-full border border-white/10 shadow-2xl">
         <h2 className="text-lg font-bold mb-2">{title}</h2>
         <p className="text-sm text-muted-foreground mb-6">{message}</p>
@@ -58,7 +58,7 @@ function ReportDialog({ postId, onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
       <div className="glass-panel rounded-2xl p-6 max-w-sm w-full border border-white/10 shadow-2xl">
         <h2 className="text-lg font-bold mb-4">Report Post</h2>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
