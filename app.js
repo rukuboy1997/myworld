@@ -149,7 +149,44 @@ export function buildApp() {
     }
   });
 
-  // ─── Auth ──────────────────────────────────────────────────────────────────
+  // ─── Helpers ─────────────────────────────────────────────────────────
+  function truncateAddr(addr) {
+    if (!addr) return "Unknown";
+    return addr.slice(0, 6) + "..." + addr.slice(-4);
+  }
+  function defaultProfile(addr) {
+    return {
+      address: addr,
+      username: truncateAddr(addr),
+      bio: "",
+      displayName: "",
+      avatarUrl: null,
+      profession: "",
+    };
+  }
+  function detectMediaType(mime) {
+    if (!mime) return null;
+    if (mime.startsWith("image/")) return "image";
+    if (mime.startsWith("video/")) return "video";
+    return null;
+  }
+  function normalizeTextInput(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+  function tooLongError(field, maxLength) {
+    return `${field} too long (max ${maxLength} characters)`;
+  }
+  function validateMaxLength(res, field, value, maxLength) {
+    if (value.length <= maxLength) return false;
+    res.status(400).json({ error: tooLongError(field, maxLength) });
+    return true;
+  }
+  // Check if post is deleted or doesn't exist
+  function isPostUnavailable(post) {
+    return !post || post.isDeleted === true;
+  }
+
+  // ─── Auth ──────────────────────────────────────────────────────────────
   app.post("/api/auth/signup", async (req, res) => {
     try {
       const { username, email, password } = req.body || {};
@@ -213,7 +250,7 @@ export function buildApp() {
     }
   });
 
-  // ─── Health ────────────────────────────────────────────────────────────────
+  // ─── Health ─────────────────────────────────────────────────────────────
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
@@ -222,40 +259,7 @@ export function buildApp() {
     res.json({ status: "ok", storage: "r2" });
   });
 
-  // ─── Helpers ───────────────────────────────────────────────────────────────
-  function truncateAddr(addr) {
-    if (!addr) return "Unknown";
-    return addr.slice(0, 6) + "..." + addr.slice(-4);
-  }
-  function defaultProfile(addr) {
-    return {
-      address: addr,
-      username: truncateAddr(addr),
-      bio: "",
-      displayName: "",
-      avatarUrl: null,
-      profession: "",
-    };
-  }
-  function detectMediaType(mime) {
-    if (!mime) return null;
-    if (mime.startsWith("image/")) return "image";
-    if (mime.startsWith("video/")) return "video";
-    return null;
-  }
-  function normalizeTextInput(value) {
-    return typeof value === "string" ? value.trim() : "";
-  }
-  function tooLongError(field, maxLength) {
-    return `${field} too long (max ${maxLength} characters)`;
-  }
-  function validateMaxLength(res, field, value, maxLength) {
-    if (value.length <= maxLength) return false;
-    res.status(400).json({ error: tooLongError(field, maxLength) });
-    return true;
-  }
-
-  // ─── Feed ──────────────────────────────────────────────────────────────────
+  // ─── Feed ──────────────────────────────────────────────────────────────
   app.get("/api/feed", async (req, res) => {
     try {
       const viewer = req.query.viewer || null;
@@ -285,7 +289,7 @@ export function buildApp() {
     }
   });
 
-  // ─── Post CRUD ─────────────────────────────────────────────────────────────
+  // ─── Post CRUD ──────────────────────────────────────────────────────────
   app.post(
     "/api/post",
     requireAuth,
@@ -351,15 +355,31 @@ export function buildApp() {
   );
 
   app.get("/api/post/:id", async (req, res) => {
-    const post = await getPostById(req.params.id);
-    if (isPostUnavailable(post))
-      return res.status(404).json({ error: "Not found" });
-    const content = post.content || "";
-    const likes = await getLikes(post.id);
-    const comments = await getComments(post.id);
-    const profile =
-      (await getProfile(post.owner)) || defaultProfile(post.owner);
-    res.json({ ...post, content, likes: likes.length, comments, profile });
+    try {
+      const post = await getPostById(req.params.id);
+      if (isPostUnavailable(post))
+        return res.status(404).json({ error: "Not found" });
+      const content = post.content || "";
+      const likes = await getLikes(post.id);
+      const comments = await getComments(post.id);
+      const profiles = await getAllProfiles();
+      const profile =
+        profiles[post.owner] || defaultProfile(post.owner);
+      const enrichedComments = comments.map((c) => ({
+        ...c,
+        profile: profiles[c.owner] || defaultProfile(c.owner),
+      }));
+      res.json({
+        ...post,
+        content,
+        likes: likes.length,
+        comments: enrichedComments,
+        profile,
+      });
+    } catch (err) {
+      console.error("get_post error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.put("/api/post/:id", requireAuth, async (req, res) => {
@@ -377,7 +397,8 @@ export function buildApp() {
           .status(400)
           .json({ error: tooLongError("content", POST_CONTENT_MAX_LENGTH) });
       const post = await getPostById(req.params.id);
-      if (!post) return res.status(404).json({ error: "Not found" });
+      if (isPostUnavailable(post))
+        return res.status(404).json({ error: "Not found" });
       if (post.owner !== req.userAddress)
         return res.status(403).json({ error: "Forbidden" });
       const updated = await updatePost(req.params.id, { title, content });
@@ -401,7 +422,7 @@ export function buildApp() {
     }
   });
 
-  // ─── Like ──────────────────────────────────────────────────────────────────
+  // ─── Like ────────────────────────────────────────────────────────────────
   app.post("/api/post/:id/like", requireAuth, async (req, res) => {
     try {
       const effectiveOwner = req.userAddress;
@@ -440,19 +461,25 @@ export function buildApp() {
         res.json({ liked: true, likes: likes.length });
       }
     } catch (err) {
+      console.error("like error:", err);
       res.status(500).json({ error: err.message });
     }
   });
 
   app.get("/api/post/:id/likes", async (req, res) => {
-    const post = await getPostById(req.params.id);
-    if (isPostUnavailable(post))
-      return res.status(404).json({ error: "Not found" });
-    const likes = await getLikes(req.params.id);
-    res.json({ count: likes.length, likes });
+    try {
+      const post = await getPostById(req.params.id);
+      if (isPostUnavailable(post))
+        return res.status(404).json({ error: "Not found" });
+      const likes = await getLikes(req.params.id);
+      res.json({ count: likes.length, likes });
+    } catch (err) {
+      console.error("get_likes error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // ─── Comment ───────────────────────────────────────────────────────────────
+  // ─── Comment ────────────────────────────────────────────────────────────
   app.post("/api/post/:id/comment", requireAuth, async (req, res) => {
     try {
       const content = normalizeTextInput(req.body?.content);
@@ -497,25 +524,70 @@ export function buildApp() {
         (await getProfile(effectiveOwner)) || defaultProfile(effectiveOwner);
       res.json({ ...comment, profile });
     } catch (err) {
+      console.error("add_comment error:", err);
       res.status(500).json({ error: err.message });
     }
   });
 
   app.get("/api/post/:id/comments", async (req, res) => {
-    const post = await getPostById(req.params.id);
-    if (isPostUnavailable(post))
-      return res.status(404).json({ error: "Not found" });
-    const profiles = await getAllProfiles();
-    const comments = await getComments(req.params.id);
-    res.json(
-      comments.map((c) => ({
-        ...c,
-        profile: profiles[c.owner] || defaultProfile(c.owner),
-      })),
-    );
+    try {
+      const post = await getPostById(req.params.id);
+      if (isPostUnavailable(post))
+        return res.status(404).json({ error: "Not found" });
+      const profiles = await getAllProfiles();
+      const comments = await getComments(req.params.id);
+      res.json(
+        comments.map((c) => ({
+          ...c,
+          profile: profiles[c.owner] || defaultProfile(c.owner),
+        })),
+      );
+    } catch (err) {
+      console.error("get_comments error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // ─── Profile ───────────────────────────────────────────────────────────────
+  // ─── Report Post ────────────────────────────────────────────────────────
+  app.post("/api/post/:id/report", requireAuth, async (req, res) => {
+    try {
+      const postId = req.params.id;
+      const { reason, description } = req.body || {};
+      const reporterAddress = req.userAddress;
+
+      if (!reason) {
+        return res.status(400).json({ error: "reason required" });
+      }
+
+      const post = await getPostById(postId);
+      if (isPostUnavailable(post))
+        return res.status(404).json({ error: "Post not found" });
+
+      // Log the report (you can store this in DB if needed)
+      console.log(`[Report] Post ${postId} reported by ${reporterAddress}`, {
+        reason,
+        description,
+      });
+
+      // Optionally notify post owner
+      if (post.owner !== reporterAddress) {
+        await createNotification({
+          recipient: post.owner,
+          type: "report",
+          actorAddress: reporterAddress,
+          postId,
+          excerpt: `Your post was reported for: ${reason}`,
+        });
+      }
+
+      res.json({ success: true, message: "Post reported successfully" });
+    } catch (err) {
+      console.error("report_post error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── Profile ────────────────────────────────────────────────────────────
   app.post(
     "/api/profile",
     requireAuth,
@@ -621,57 +693,67 @@ export function buildApp() {
   );
 
   app.get("/api/profile/:address", async (req, res) => {
-    const targetAddr = req.params.address;
-    const viewer = req.query.viewer || null;
-    const profile = await getProfile(targetAddr);
-    const allPosts = await getPosts();
-    const posts = allPosts.filter((p) => p.owner === targetAddr);
-    const enrichedPosts = await Promise.all(
-      posts.map(async (p) => {
-        const likes = await getLikes(p.id);
-        const comments = await getComments(p.id);
-        const userLiked = viewer
-          ? likes.some((l) => l.owner === viewer)
-          : false;
-        return {
-          ...p,
-          likes: likes.length,
-          commentCount: comments.length,
-          userLiked,
-        };
-      }),
-    );
-    const totalLikes = enrichedPosts.reduce((acc, p) => acc + p.likes, 0);
-    const [followerCount, followingCount] = await Promise.all([
-      getFollowerCount(targetAddr),
-      getFollowingCount(targetAddr),
-    ]);
-    res.json({
-      address: targetAddr,
-      ...(profile || defaultProfile(targetAddr)),
-      posts: enrichedPosts,
-      totalLikes,
-      postCount: enrichedPosts.length,
-      followerCount,
-      followingCount,
-    });
+    try {
+      const targetAddr = req.params.address;
+      const viewer = req.query.viewer || null;
+      const profile = await getProfile(targetAddr);
+      const allPosts = await getPosts();
+      const posts = allPosts.filter((p) => p.owner === targetAddr);
+      const enrichedPosts = await Promise.all(
+        posts.map(async (p) => {
+          const likes = await getLikes(p.id);
+          const comments = await getComments(p.id);
+          const userLiked = viewer
+            ? likes.some((l) => l.owner === viewer)
+            : false;
+          return {
+            ...p,
+            likes: likes.length,
+            commentCount: comments.length,
+            userLiked,
+          };
+        }),
+      );
+      const totalLikes = enrichedPosts.reduce((acc, p) => acc + p.likes, 0);
+      const [followerCount, followingCount] = await Promise.all([
+        getFollowerCount(targetAddr),
+        getFollowingCount(targetAddr),
+      ]);
+      res.json({
+        address: targetAddr,
+        ...(profile || defaultProfile(targetAddr)),
+        posts: enrichedPosts,
+        totalLikes,
+        postCount: enrichedPosts.length,
+        followerCount,
+        followingCount,
+      });
+    } catch (err) {
+      console.error("get_profile error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.get("/api/profiles", async (req, res) => {
-    const [profiles, stats] = await Promise.all([
-      getAllProfiles(),
-      getProfileStats(),
-    ]);
-    res.json(
-      Object.values(profiles).map((profile) => ({
-        ...profile,
-        postCount: stats[profile.address]?.postCount || 0,
-        totalLikes: stats[profile.address]?.totalLikes || 0,
-      })),
-    );
+    try {
+      const [profiles, stats] = await Promise.all([
+        getAllProfiles(),
+        getProfileStats(),
+      ]);
+      res.json(
+        Object.values(profiles).map((profile) => ({
+          ...profile,
+          postCount: stats[profile.address]?.postCount || 0,
+          totalLikes: stats[profile.address]?.totalLikes || 0,
+        })),
+      );
+    } catch (err) {
+      console.error("get_profiles error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // ─── Follows ───────────────────────────────────────────────────────────────
+  // ─── Follows ────────────────────────────────────────────────────────────
   app.post("/api/follow", requireAuth, async (req, res) => {
     try {
       const follower = req.userAddress;
@@ -754,7 +836,7 @@ export function buildApp() {
     }
   });
 
-  // ─── Notifications ─────────────────────────────────────────────────────────
+  // ─── Notifications ──────────────────────────────────────────────────────
   app.get("/api/notifications", requireAuth, async (req, res) => {
     try {
       const notifications = await getNotifications(req.userAddress);
@@ -789,7 +871,7 @@ export function buildApp() {
     }
   });
 
-  // ─── Presence ──────────────────────────────────────────────────────────────
+  // ─── Presence ───────────────────────────────────────────────────────────
   app.post("/api/presence/heartbeat", requireAuth, async (req, res) => {
     try {
       await upsertPresence(req.userAddress);
@@ -809,7 +891,7 @@ export function buildApp() {
     }
   });
 
-  // ─── Messages ──────────────────────────────────────────────────────────────
+  // ─── Messages ───────────────────────────────────────────────────────────
   app.post("/api/message", requireAuth, async (req, res) => {
     try {
       const receiver = normalizeTextInput(req.body?.receiver);
@@ -861,29 +943,39 @@ export function buildApp() {
   });
 
   app.get("/api/messages/:address", requireAuth, async (req, res) => {
-    if (req.params.address !== req.userAddress)
-      return res.status(403).json({ error: "Forbidden" });
-    const messages = await getMessages(req.userAddress);
-    const profiles = await getAllProfiles();
-    const enriched = messages.map((m) => ({
-      ...m,
-      senderProfile: profiles[m.sender] || defaultProfile(m.sender),
-      receiverProfile: profiles[m.receiver] || defaultProfile(m.receiver),
-    }));
-    res.json(enriched);
+    try {
+      if (req.params.address !== req.userAddress)
+        return res.status(403).json({ error: "Forbidden" });
+      const messages = await getMessages(req.userAddress);
+      const profiles = await getAllProfiles();
+      const enriched = messages.map((m) => ({
+        ...m,
+        senderProfile: profiles[m.sender] || defaultProfile(m.sender),
+        receiverProfile: profiles[m.receiver] || defaultProfile(m.receiver),
+      }));
+      res.json(enriched);
+    } catch (err) {
+      console.error("get_messages error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.get("/api/conversation", requireAuth, async (req, res) => {
-    const { a, b } = req.query;
-    if (!a || !b)
-      return res.status(400).json({ error: "a and b addresses required" });
-    if (a !== req.userAddress && b !== req.userAddress)
-      return res.status(403).json({ error: "Forbidden" });
-    const messages = await getConversation(a, b);
-    res.json(messages);
+    try {
+      const { a, b } = req.query;
+      if (!a || !b)
+        return res.status(400).json({ error: "a and b addresses required" });
+      if (a !== req.userAddress && b !== req.userAddress)
+        return res.status(403).json({ error: "Forbidden" });
+      const messages = await getConversation(a, b);
+      res.json(messages);
+    } catch (err) {
+      console.error("get_conversation error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // ─── Push Tokens ───────────────────────────────────────────────────────────
+  // ─── Push Tokens ────────────────────────────────────────────────────────
   app.post("/api/push-token", requireAuth, async (req, res) => {
     try {
       const { token, platform = "unknown" } = req.body;
@@ -901,9 +993,7 @@ export function buildApp() {
     }
   });
 
-  // ─── R2 Media Proxy ────────────────────────────────────────────────────────
-  // Serves media stored in Cloudflare R2. Use CF_R2_PUBLIC_BASE env var to
-  // bypass this proxy and serve directly from R2/CDN in production.
+  // ─── R2 Media Proxy ─────────────────────────────────────────────────────
   app.get(/^\/api\/media\/(.+)$/, async (req, res) => {
     try {
       const key = req.params[0];
@@ -915,7 +1005,6 @@ export function buildApp() {
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       const ct = r2Res.headers.get("content-length");
       if (ct) res.setHeader("Content-Length", ct);
-      // Stream the R2 response body to the client
       const { Readable } = await import("stream");
       const nodeStream = Readable.fromWeb
         ? Readable.fromWeb(r2Res.body)
@@ -927,22 +1016,27 @@ export function buildApp() {
     }
   });
 
-  // ─── Stats ─────────────────────────────────────────────────────────────────
+  // ─── Stats ──────────────────────────────────────────────────────────────
   app.get("/api/stats", async (req, res) => {
-    const posts = await getPosts();
-    const profiles = await getAllProfiles();
-    let totalLikes = 0,
-      totalComments = 0;
-    for (const p of posts) {
-      totalLikes += (await getLikes(p.id)).length;
-      totalComments += (await getComments(p.id)).length;
+    try {
+      const posts = await getPosts();
+      const profiles = await getAllProfiles();
+      let totalLikes = 0,
+        totalComments = 0;
+      for (const p of posts) {
+        totalLikes += (await getLikes(p.id)).length;
+        totalComments += (await getComments(p.id)).length;
+      }
+      res.json({
+        totalPosts: posts.length,
+        totalProfiles: Object.keys(profiles).length,
+        totalLikes,
+        totalComments,
+      });
+    } catch (err) {
+      console.error("stats error:", err);
+      res.status(500).json({ error: err.message });
     }
-    res.json({
-      totalPosts: posts.length,
-      totalProfiles: Object.keys(profiles).length,
-      totalLikes,
-      totalComments,
-    });
   });
 
   return app;
