@@ -1,5 +1,5 @@
-import React from 'react';
-import { useTheme } from '../lib/theme.jsx';
+import React from "react";
+import { useTheme } from "../lib/theme.jsx";
 
 export default function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -7,11 +7,11 @@ export default function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+      title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
       className="p-2 rounded-full hover:bg-white/10 dark:hover:bg-white/10 hover:dark:bg-black/10 transition-colors text-muted-foreground hover:text-foreground"
       aria-label="Toggle theme"
     >
-      {theme === 'dark' ? (
+      {theme === "dark" ? (
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="20"

@@ -11,7 +11,7 @@ import { useAuth } from "../lib/auth.jsx";
 import AuthModal from "./AuthModal.jsx";
 import InviteModal from "./InviteModal.jsx";
 import { updatePresence } from "../lib/firebase.js";
-import ThemeToggle from './ThemeToggle.jsx';
+import ThemeToggle from "./ThemeToggle.jsx";
 
 export default function Layout({ children }) {
   const { user, address, isAuthenticated, isLoading, signOut, openAuthModal } =

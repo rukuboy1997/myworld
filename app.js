@@ -363,8 +363,7 @@ export function buildApp() {
       const likes = await getLikes(post.id);
       const comments = await getComments(post.id);
       const profiles = await getAllProfiles();
-      const profile =
-        profiles[post.owner] || defaultProfile(post.owner);
+      const profile = profiles[post.owner] || defaultProfile(post.owner);
       const enrichedComments = comments.map((c) => ({
         ...c,
         profile: profiles[c.owner] || defaultProfile(c.owner),

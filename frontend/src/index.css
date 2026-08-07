@@ -38,7 +38,7 @@
   --ring: 195 100% 50%;
 
   --radius: 1rem;
-  
+
   /* Glass effect for dark mode */
   --glass-opacity: 0.05;
   --glass-border-light: rgba(255, 255, 255, 0.1);
@@ -93,7 +93,9 @@ html.light {
   body {
     @apply bg-background text-foreground antialiased min-h-[100dvh] flex flex-col;
     font-family: "Plus Jakarta Sans", sans-serif;
-    transition: background-color 0.3s ease, color 0.3s ease;
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
   }
   h1,
   h2,
