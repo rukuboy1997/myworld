@@ -9,6 +9,7 @@ import NotificationsPage from "./pages/NotificationsPage.jsx";
 import VerifyEmailPage from "./pages/VerifyEmailPage.jsx";
 import PostPage from "./pages/PostPage.jsx";
 import EditPostPage from "./pages/EditPostPage.jsx";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/edit/:id" element={<EditPostPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
       </Routes>
     </BrowserRouter>
   );
