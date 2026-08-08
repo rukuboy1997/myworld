@@ -10,6 +10,7 @@ import VerifyEmailPage from "./pages/VerifyEmailPage.jsx";
 import PostPage from "./pages/PostPage.jsx";
 import EditPostPage from "./pages/EditPostPage.jsx";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";
+import TermsOfServicePage from "./pages/TermsOfServicePage.jsx";
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/edit/:id" element={<EditPostPage />} />
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms" element={<TermsOfServicePage />} />
       </Routes>
     </BrowserRouter>
   );
