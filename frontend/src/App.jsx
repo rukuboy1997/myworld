@@ -12,6 +12,8 @@ import EditPostPage from "./pages/EditPostPage.jsx";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";
 import TermsOfServicePage from "./pages/TermsOfServicePage.jsx";
 import DeleteAccountPage from "./pages/DeleteAccountPage.jsx";
+import ChildSafetyPage from "./pages/ChildSafetyPage.jsx";
+
 
 export default function App() {
   return (
@@ -30,6 +32,7 @@ export default function App() {
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsOfServicePage />} />
         <Route path="/delete-account" element={<DeleteAccountPage />} />
+        <Route path="/child-safety" element={<ChildSafetyPage />} />
       </Routes>
     </BrowserRouter>
   );
