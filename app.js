@@ -667,6 +667,7 @@ export function buildApp() {
           const ext = f.mimetype.split("/")[1] || "jpg";
           const key = `avatars/${effectiveAddress}-${Date.now()}.${ext}`;
           const r2 = await uploadToR2(key, f.buffer, f.mimetype);
+          update.avatarBlobId = r2.key;
           update.avatarUrl = r2.url;
         } else if (req.body.avatarUrl) {
           update.avatarUrl = String(req.body.avatarUrl);
@@ -678,6 +679,7 @@ export function buildApp() {
           const ext = f.mimetype.split("/")[1] || "jpg";
           const key = `banners/${effectiveAddress}-${Date.now()}.${ext}`;
           const r2 = await uploadToR2(key, f.buffer, f.mimetype);
+          update.bannerBlobId = r2.key;
           update.bannerUrl = r2.url;
         } else if (req.body.bannerUrl) {
           update.bannerUrl = String(req.body.bannerUrl);
