@@ -1,6 +1,7 @@
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
 import { v4 as uuidv4 } from "uuid";
+import { r2MediaUrl } from "../services/r2.service.js";
 
 neonConfig.webSocketConstructor = ws;
 
@@ -147,6 +148,13 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS profession TEXT DEFAULT '';
 // ─── Row → object mapping ────────────────────────────────────────────────────
 function rowToPost(r) {
   if (!r) return null;
+
+  // R2 object keys are the stable media identity. The public URL is only
+  // a delivery address and may change when CF_R2_PUBLIC_BASE changes.
+  const isR2Key =
+    typeof r.media_blob_id === "string" &&
+    /^(posts|avatars|banners)\\//.test(r.media_blob_id);
+
   return {
     id: r.id,
     postObjectId: r.post_object_id,
@@ -155,7 +163,7 @@ function rowToPost(r) {
     blobObjectId: r.blob_object_id,
     blobUrl: r.blob_url,
     mediaBlobId: r.media_blob_id,
-    mediaUrl: r.media_url,
+    mediaUrl: isR2Key ? r2MediaUrl(r.media_blob_id) : r.media_url,
     mediaType: r.media_type,
     mediaMime: r.media_mime,
     owner: r.owner,
@@ -169,15 +177,24 @@ function rowToPost(r) {
 
 function rowToProfile(r) {
   if (!r) return null;
+
+  const isR2Key = (value) =>
+    typeof value === "string" &&
+    /^(posts|avatars|banners)\\//.test(value);
+
   return {
     address: r.address,
     username: r.username,
     bio: r.bio || "",
     displayName: r.display_name || "",
     avatarBlobId: r.avatar_blob_id,
-    avatarUrl: r.avatar_url,
+    avatarUrl: isR2Key(r.avatar_blob_id)
+      ? r2MediaUrl(r.avatar_blob_id)
+      : r.avatar_url,
     bannerBlobId: r.banner_blob_id,
-    bannerUrl: r.banner_url,
+    bannerUrl: isR2Key(r.banner_blob_id)
+      ? r2MediaUrl(r.banner_blob_id)
+      : r.banner_url,
     website: r.website || "",
     location: r.location || "",
     twitter: r.twitter || "",
