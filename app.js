@@ -130,41 +130,20 @@ export function buildApp() {
   });
 
   // CORS
-  // CORS_ORIGIN may be:
-  //   - "*" to allow browser/WebView origins
-  //   - a comma-separated list of exact origins
-  // Credentials cannot be used with Access-Control-Allow-Origin: *, so when
-  // "*" is configured we reflect the requesting Origin instead.
-  const configuredCorsOrigins = String(process.env.CORS_ORIGIN || "*")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-  const allowAllCorsOrigins =
-    configuredCorsOrigins.includes("*") || configuredCorsOrigins.length === 0;
-
+  // myWorld is a browser + WebView application, so the API intentionally
+  // accepts requests from any origin. The frontend does not use cookie-based
+  // credentials, so wildcard CORS is safe here and avoids origin-matching
+  // failures when the web app or mobile WebView changes origin.
   const corsOptions = {
-    origin(origin, callback) {
-      // Requests without an Origin (curl/server-to-server) do not need CORS.
-      if (!origin) return callback(null, true);
-
-      // WebViews and sandboxed documents can send the literal "null" origin.
-      if (origin === "null") return callback(null, true);
-
-      if (allowAllCorsOrigins || configuredCorsOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(null, false);
-    },
-    credentials: true,
+    origin: "*",
+    credentials: false,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     optionsSuccessStatus: 204,
   };
 
-  // Handle CORS before DB initialization so OPTIONS preflight requests never
-  // depend on Neon/R2/database availability.
+  // CORS must run before DB initialization so OPTIONS preflight requests are
+  // answered without touching Neon or any other external service.
   app.use(cors(corsOptions));
   app.options(/.*/, cors(corsOptions));
   app.use(express.json({ limit: "10mb" }));
