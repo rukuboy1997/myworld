@@ -10,6 +10,7 @@ import {
 } from "./services/r2.service.js";
 import {
   initDb,
+  pool,
   getPosts,
   getPostById,
   savePost,
@@ -127,6 +128,25 @@ export function buildApp() {
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 50 * 1024 * 1024 },
+  });
+
+  // Lightweight diagnostics. This route is intentionally before the
+  // database-init middleware so deployment/startup failures are visible as
+  // JSON instead of an opaque Vercel 500 page.
+  app.get("/api/health", async (req, res) => {
+    try {
+      await ensureDb();
+      await pool.query("SELECT 1");
+      res.json({ ok: true, service: "myWorld API", database: "connected" });
+    } catch (err) {
+      console.error("[health] database initialization failed:", err);
+      res.status(500).json({
+        ok: false,
+        service: "myWorld API",
+        database: "error",
+        error: err?.message || "Database initialization failed",
+      });
+    }
   });
 
   // CORS
@@ -1046,6 +1066,16 @@ export function buildApp() {
       console.error("stats error:", err);
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // Explicit JSON error handler for Vercel/Express failures that occur
+  // before an individual route's try/catch (for example DB initialization).
+  app.use((err, req, res, next) => {
+    console.error("[api] unhandled error:", err);
+    if (res.headersSent) return next(err);
+    res.status(500).json({
+      error: err?.message || "Internal server error",
+    });
   });
 
   return app;
