@@ -129,15 +129,44 @@ export function buildApp() {
     limits: { fileSize: 50 * 1024 * 1024 },
   });
 
+  // CORS
+  // CORS_ORIGIN may be:
+  //   - "*" to allow browser/WebView origins
+  //   - a comma-separated list of exact origins
+  // Credentials cannot be used with Access-Control-Allow-Origin: *, so when
+  // "*" is configured we reflect the requesting Origin instead.
+  const configuredCorsOrigins = String(process.env.CORS_ORIGIN || "*")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const allowAllCorsOrigins =
+    configuredCorsOrigins.includes("*") || configuredCorsOrigins.length === 0;
+
   const corsOptions = {
-    origin: true,
+    origin(origin, callback) {
+      // Requests without an Origin (curl/server-to-server) do not need CORS.
+      if (!origin) return callback(null, true);
+
+      // WebViews and sandboxed documents can send the literal "null" origin.
+      if (origin === "null") return callback(null, true);
+
+      if (allowAllCorsOrigins || configuredCorsOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(null, false);
+    },
     credentials: true,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    optionsSuccessStatus: 204,
   };
 
-  app.options(/.*/, cors(corsOptions));
+  // Handle CORS before DB initialization so OPTIONS preflight requests never
+  // depend on Neon/R2/database availability.
   app.use(cors(corsOptions));
+  app.options(/.*/, cors(corsOptions));
   app.use(express.json({ limit: "10mb" }));
 
   app.use(async (req, res, next) => {
