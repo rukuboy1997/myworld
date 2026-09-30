@@ -130,6 +130,25 @@ export function buildApp() {
     limits: { fileSize: 50 * 1024 * 1024 },
   });
 
+  // CORS
+  // myWorld is a browser + WebView application, so the API intentionally
+  // accepts requests from any origin. The frontend does not use cookie-based
+  // credentials, so wildcard CORS is safe here and avoids origin-matching
+  // failures when the web app or mobile WebView changes origin.
+  const corsOptions = {
+    origin: "*",
+    credentials: false,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    optionsSuccessStatus: 204,
+  };
+
+  // CORS must run before DB initialization so OPTIONS preflight requests are
+  // answered without touching Neon or any other external service.
+  app.use(cors(corsOptions));
+  app.options(/.*/, cors(corsOptions));
+  app.use(express.json({ limit: "10mb" }));
+
   // Lightweight diagnostics. This route is intentionally before the
   // database-init middleware so deployment/startup failures are visible as
   // JSON instead of an opaque Vercel 500 page.
@@ -149,24 +168,7 @@ export function buildApp() {
     }
   });
 
-  // CORS
-  // myWorld is a browser + WebView application, so the API intentionally
-  // accepts requests from any origin. The frontend does not use cookie-based
-  // credentials, so wildcard CORS is safe here and avoids origin-matching
-  // failures when the web app or mobile WebView changes origin.
-  const corsOptions = {
-    origin: "*",
-    credentials: false,
-    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    optionsSuccessStatus: 204,
-  };
 
-  // CORS must run before DB initialization so OPTIONS preflight requests are
-  // answered without touching Neon or any other external service.
-  app.use(cors(corsOptions));
-  app.options(/.*/, cors(corsOptions));
-  app.use(express.json({ limit: "10mb" }));
 
   app.use(async (req, res, next) => {
     try {
