@@ -5,10 +5,15 @@ import { r2MediaUrl } from "../services/r2.service.js";
 
 neonConfig.webSocketConstructor = ws;
 
-const connectionString = process.env.NEON_DATABASE_URL;
+const connectionString =
+  process.env.NEON_DATABASE_URL ||
+  process.env.DATABASE_URL ||
+  "";
+
 if (!connectionString) {
-  console.error("[db] NEON_DATABASE_URL is not set");
-  process.exit(1);
+  throw new Error(
+    "Database connection string is missing. Set NEON_DATABASE_URL or DATABASE_URL in Vercel."
+  );
 }
 
 export const pool = new Pool({ connectionString });
