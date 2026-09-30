@@ -153,7 +153,7 @@ function rowToPost(r) {
   // a delivery address and may change when CF_R2_PUBLIC_BASE changes.
   const isR2Key =
     typeof r.media_blob_id === "string" &&
-    /^(posts|avatars|banners)\\//.test(r.media_blob_id);
+    /^(posts|avatars|banners)\//.test(r.media_blob_id);
 
   return {
     id: r.id,
@@ -180,7 +180,7 @@ function rowToProfile(r) {
 
   const isR2Key = (value) =>
     typeof value === "string" &&
-    /^(posts|avatars|banners)\\//.test(value);
+    /^(posts|avatars|banners)\//.test(value);
 
   return {
     address: r.address,
