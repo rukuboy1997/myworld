@@ -8,11 +8,24 @@ function authHeaders() {
 }
 
 async function request(method, path, body) {
+  const headers = { ...authHeaders() };
+
+  // Only send JSON Content-Type when a JSON body exists. Sending
+  // Content-Type: application/json on a body-less GET forces an unnecessary
+  // CORS preflight in the browser.
+  if (body !== undefined && body !== null) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const opts = {
     method,
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers,
   };
-  if (body) opts.body = JSON.stringify(body);
+
+  if (body !== undefined && body !== null) {
+    opts.body = JSON.stringify(body);
+  }
+
   const res = await fetch(`${BASE}${path}`, opts);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
