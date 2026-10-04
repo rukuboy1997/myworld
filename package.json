@@ -1,27 +1,24 @@
 {
-  "name": "myworld-walrus",
+  "name": "myworld",
   "version": "1.0.0",
-  "description": "MyWorld social contract connected to Walrus decentralized storage",
+  "description": "Modern social media platform with Cloudflare R2 media storage and Firebase realtime features",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "dev": "node server.js",
     "build": "cd frontend && npm install && npm run build",
-    "upload": "node walrus.js",
-    "read": "node read.js",
     "deploy": "bash run_deploy.sh"
   },
   "keywords": [
-    "sui",
-    "walrus",
-    "move",
-    "web3"
+    "social-media",
+    "react",
+    "express",
+    "firebase",
+    "cloudflare-r2"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@mysten/sui": "^2.13.0",
-    "@mysten/walrus": "^1.1.0",
     "@neondatabase/serverless": "^1.1.0",
     "@types/node": "^22.13.11",
     "bcryptjs": "^3.0.3",
