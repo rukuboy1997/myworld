@@ -42,6 +42,7 @@ import {
   upsertPresence,
   getBatchPresence,
   getUserByAddress,
+  saveReport,
 } from "./data/db.js";
 import {
   requireAuth,
