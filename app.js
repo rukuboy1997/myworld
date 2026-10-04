@@ -1077,3 +1077,8 @@ export function buildApp() {
 
   return app;
 }
+
+// Vercel may detect app.js itself as the Express entrypoint.
+// Export a ready Express server as the default export so Vercel can invoke it.
+const vercelApp = buildApp();
+export default vercelApp;
