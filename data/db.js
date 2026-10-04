@@ -183,9 +183,41 @@ function rowToPost(r) {
 function rowToProfile(r) {
   if (!r) return null;
 
-  const isR2Key = (value) =>
-    typeof value === "string" &&
-    /^(posts|avatars|banners)\//.test(value);
+  // Profile media has existed in several formats over myWorld's history:
+  // 1) current R2 object keys: avatars/... and banners/...
+  // 2) older R2 URLs using the previous public domain (dakta.name.ng)
+  // 3) legacy Walrus blob IDs/URLs
+  //
+  // Keep legacy Walrus media working, but rebuild any R2 media URL from
+  // its stable object path so changing CF_R2_PUBLIC_BASE does not break it.
+  const r2KeyFromValue = (value, folder) => {
+    if (typeof value !== "string" || !value) return null;
+
+    // Current format: avatars/foo.jpg / banners/foo.png
+    if (new RegExp(`^${folder}/`).test(value)) return value;
+
+    // Older format: https://.../avatars/foo.jpg or https://.../banners/foo.png
+    try {
+      const url = new URL(value);
+      const marker = `/${folder}/`;
+      const index = url.pathname.indexOf(marker);
+      if (index !== -1) {
+        return url.pathname.slice(index + 1);
+      }
+    } catch {
+      // Not a URL; leave legacy value untouched.
+    }
+
+    return null;
+  };
+
+  const avatarR2Key =
+    r2KeyFromValue(r.avatar_blob_id, "avatars") ||
+    r2KeyFromValue(r.avatar_url, "avatars");
+
+  const bannerR2Key =
+    r2KeyFromValue(r.banner_blob_id, "banners") ||
+    r2KeyFromValue(r.banner_url, "banners");
 
   return {
     address: r.address,
@@ -193,13 +225,9 @@ function rowToProfile(r) {
     bio: r.bio || "",
     displayName: r.display_name || "",
     avatarBlobId: r.avatar_blob_id,
-    avatarUrl: isR2Key(r.avatar_blob_id)
-      ? r2MediaUrl(r.avatar_blob_id)
-      : r.avatar_url,
+    avatarUrl: avatarR2Key ? r2MediaUrl(avatarR2Key) : r.avatar_url,
     bannerBlobId: r.banner_blob_id,
-    bannerUrl: isR2Key(r.banner_blob_id)
-      ? r2MediaUrl(r.banner_blob_id)
-      : r.banner_url,
+    bannerUrl: bannerR2Key ? r2MediaUrl(bannerR2Key) : r.banner_url,
     website: r.website || "",
     location: r.location || "",
     twitter: r.twitter || "",
