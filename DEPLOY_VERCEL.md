@@ -1,68 +1,120 @@
 # Deploying myWorld to Vercel
 
-This project is set up for a single Vercel deployment that serves both the
-React frontend and the Express API.
+myWorld uses two Vercel projects:
 
-## Architecture on Vercel
+1. **Frontend** — Vite + React in `frontend/`
+2. **Backend** — Express API from the repository root
 
-```
-Browser
-   │
-   ├── /            → static React build (frontend/dist)
-   ├── /assets/*    → static assets
-   └── /api/*       → api/index.js (the entire Express app, wrapped as a
-                       serverless function via serverless-http)
-```
-
-- `api/index.js` — Vercel serverless entry. Imports the same Express `app`
-  the local dev server uses.
-- `app.js` — shared Express app builder.
-- `server.js` — local-dev only entry (used by `npm run dev` / Replit).
-- `vercel.json` — build config + URL rewrites.
-
-## Required environment variables
-
-Set these in **Vercel → Project Settings → Environment Variables** (mark
-all as available in Production, Preview, and Development):
-
-| Variable            | Required    | Description                                                                                                                                        |
-| ------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEON_DATABASE_URL` | yes         | Postgres connection string. Use Neon's _pooled_ connection string.                                                                                 |
-| `JWT_SECRET`        | yes         | Long random string used to sign auth JWTs.                                                                                                         |
-| `SUI_PRIVATE_KEY`   | yes         | Backend wallet that signs Sui transactions.                                                                                                        |
-| `RESEND_API_KEY`    | recommended | API key for Resend (https://resend.com — free tier covers 100 emails/day). Without it, password-reset codes are only logged to the server console. |
-| `EMAIL_FROM`        | optional    | From address for password-reset emails. Defaults to `myWorld <onboarding@resend.dev>`.                                                             |
-
-## One-time setup
-
-1. Push this repo to GitHub.
-2. In Vercel, click **Add New → Project**, pick the repo.
-3. Vercel will auto-detect `vercel.json`. Don't change the framework preset.
-4. Add the environment variables above.
-5. Deploy. Vercel will run `npm install && cd frontend && npm install &&
-npm run build`, then deploy the static assets and the `api/index.js`
-   serverless function.
-
-## Caveats / things to know
-
-- **Body size cap.** Vercel functions have a 4.5MB request body limit.
-  Image avatars and short-form posts are fine; large videos uploaded via
-  the post form may be rejected. The cap can be raised on Pro by setting
-  `bodyParser.sizeLimit` per route — but for big media you should upload
-  to Walrus directly from the browser instead.
-- **Function timeout.** `vercel.json` requests `maxDuration: 60` (Pro). On
-  the Hobby plan this silently caps at 10s, which can be tight for Walrus
-  uploads on slow connections.
-- **Cold starts.** First request after idle takes ~1–2s extra. The Neon
-  serverless driver is used so connections are cheap.
-- **Rate limiter.** Backed by a Postgres table (`rate_limit_events`) so it
-  works across cold starts and multiple function instances.
-- **Sui wallet keys.** Treat `SUI_PRIVATE_KEY` like a production secret —
-  never commit it.
-
-## Testing the deployed API
+## Backend architecture
 
 ```
-curl https://your-app.vercel.app/api/health
-curl https://your-app.vercel.app/api/feed
+Browser / Mobile WebView
+        │
+        ▼
+Vercel
+        │
+        ▼
+Express API
+   ├── Neon Postgres
+   ├── Cloudflare R2
+   ├── Firebase Realtime Database
+   └── Email service
 ```
+
+The backend entrypoint is `index.js`. The local development entrypoint is `server.js`.
+
+## Backend environment variables
+
+Set these in Vercel:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NEON_DATABASE_URL` | yes | PostgreSQL connection |
+| `JWT_SECRET` | yes | JWT signing secret |
+| `CORS_ORIGIN` | yes | API CORS configuration |
+| `CF_ACCOUNT_ID` | yes | Cloudflare account |
+| `CF_API_TOKEN` | yes | R2 API token |
+| `CF_R2_BUCKET` | yes | R2 bucket name |
+| `CF_R2_PUBLIC_BASE` | yes | Public R2 media base URL |
+| `BACKEND_URL` | optional | Public API origin |
+| `FIREBASE_DB_URL` | yes | Firebase Realtime Database URL |
+| `RESEND_API_KEY` | recommended | Email delivery |
+| `EMAIL_FROM` | optional | Email sender |
+
+## Frontend environment variables
+
+The frontend Vercel project uses:
+
+```
+VITE_API_URL=https://myworld-api.vercel.app
+```
+
+Set the Vercel project root directory to:
+
+```
+frontend/
+```
+
+## Build
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Backend:
+
+```bash
+npm install
+```
+
+## Media
+
+All new media is uploaded through the Express API to Cloudflare R2.
+
+Current R2 folders:
+
+```
+posts/
+avatars/
+banners/
+```
+
+The public R2 domain is configured through `CF_R2_PUBLIC_BASE`.
+
+## Database
+
+Neon PostgreSQL stores the application's durable social data:
+
+- Accounts
+- Profiles
+- Posts
+- Likes
+- Comments
+- Follows
+- Notifications
+- Reports
+- Messages
+- Presence fallback
+- Password-reset records
+
+Firebase Realtime Database provides realtime delivery for messaging and presence.
+
+## Production testing
+
+Health check:
+
+```
+curl https://myworld-api.vercel.app/api/health
+```
+
+Feed:
+
+```
+curl https://myworld-api.vercel.app/api/feed
+```
+
+The production application is a conventional social platform and does not require blockchain or decentralized-storage services.
