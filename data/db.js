@@ -73,11 +73,6 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 CREATE TABLE IF NOT EXISTS posts (
   id              TEXT PRIMARY KEY,
-  post_object_id  TEXT,
-  tx_digest       TEXT,
-  blob_id         TEXT,
-  blob_object_id  TEXT,
-  blob_url        TEXT,
   media_blob_id   TEXT,
   media_url       TEXT,
   media_type      TEXT,
@@ -164,19 +159,12 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS profession TEXT DEFAULT '';
 function rowToPost(r) {
   if (!r) return null;
 
-  // R2 object keys are the stable media identity. The public URL is only
-  // a delivery address and may change when CF_R2_PUBLIC_BASE changes.
   const isR2Key =
     typeof r.media_blob_id === "string" &&
-    /^(posts|avatars|banners)\//.test(r.media_blob_id);
+    /^posts\//.test(r.media_blob_id);
 
   return {
     id: r.id,
-    postObjectId: r.post_object_id,
-    txDigest: r.tx_digest,
-    blobId: r.blob_id,
-    blobObjectId: r.blob_object_id,
-    blobUrl: r.blob_url,
     mediaBlobId: r.media_blob_id,
     mediaUrl: isR2Key ? r2MediaUrl(r.media_blob_id) : r.media_url,
     mediaType: r.media_type,
@@ -193,39 +181,24 @@ function rowToPost(r) {
 function rowToProfile(r) {
   if (!r) return null;
 
-  // Profile media has existed in several formats over myWorld's history:
-  // 1) current R2 object keys: avatars/... and banners/...
-  // 2) older R2 URLs using the previous public domain (dakta.name.ng)
-  // 3) legacy Walrus blob IDs/URLs
-  //
-  // Keep legacy Walrus media working, but rebuild any R2 media URL from
-  // its stable object path so changing CF_R2_PUBLIC_BASE does not break it.
   const r2KeyFromValue = (value, folder) => {
     if (typeof value !== "string" || !value) return null;
-
-    // Current format: avatars/foo.jpg / banners/foo.png
     if (new RegExp(`^${folder}/`).test(value)) return value;
 
-    // Older format: https://.../avatars/foo.jpg or https://.../banners/foo.png
     try {
       const url = new URL(value);
       const marker = `/${folder}/`;
       const index = url.pathname.indexOf(marker);
-      if (index !== -1) {
-        return url.pathname.slice(index + 1);
-      }
-    } catch {
-      // Not a URL; leave legacy value untouched.
-    }
+      if (index !== -1) return url.pathname.slice(index + 1);
+    } catch {}
 
     return null;
   };
 
-  const avatarR2Key =
+  const avatarKey =
     r2KeyFromValue(r.avatar_blob_id, "avatars") ||
     r2KeyFromValue(r.avatar_url, "avatars");
-
-  const bannerR2Key =
+  const bannerKey =
     r2KeyFromValue(r.banner_blob_id, "banners") ||
     r2KeyFromValue(r.banner_url, "banners");
 
@@ -234,10 +207,8 @@ function rowToProfile(r) {
     username: r.username,
     bio: r.bio || "",
     displayName: r.display_name || "",
-    avatarBlobId: r.avatar_blob_id,
-    avatarUrl: avatarR2Key ? r2MediaUrl(avatarR2Key) : r.avatar_url,
-    bannerBlobId: r.banner_blob_id,
-    bannerUrl: bannerR2Key ? r2MediaUrl(bannerR2Key) : r.banner_url,
+    avatarUrl: avatarKey ? r2MediaUrl(avatarKey) : null,
+    bannerUrl: bannerKey ? r2MediaUrl(bannerKey) : null,
     website: r.website || "",
     location: r.location || "",
     twitter: r.twitter || "",
@@ -332,24 +303,17 @@ export async function getPostById(id) {
 export async function savePost(post) {
   const id = post.id || uuidv4();
   await pool.query(
-    `INSERT INTO posts (id, post_object_id, tx_digest, blob_id, blob_object_id, blob_url,
-       media_blob_id, media_url, media_type, media_mime,
+    `INSERT INTO posts (id, media_blob_id, media_url, media_type, media_mime,
        owner, title, content, is_deleted, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      ON CONFLICT (id) DO UPDATE SET
-       post_object_id = EXCLUDED.post_object_id, tx_digest = EXCLUDED.tx_digest,
-       blob_id = EXCLUDED.blob_id, blob_object_id = EXCLUDED.blob_object_id,
-       blob_url = EXCLUDED.blob_url, media_blob_id = EXCLUDED.media_blob_id,
-       media_url = EXCLUDED.media_url, media_type = EXCLUDED.media_type,
-       media_mime = EXCLUDED.media_mime, title = EXCLUDED.title,
-       content = EXCLUDED.content, is_deleted = EXCLUDED.is_deleted`,
+       media_blob_id = EXCLUDED.media_blob_id, media_url = EXCLUDED.media_url,
+       media_type = EXCLUDED.media_type, media_mime = EXCLUDED.media_mime,
+       title = EXCLUDED.title, content = EXCLUDED.content,
+       is_deleted = EXCLUDED.is_deleted`,
     [
       id,
-      post.postObjectId,
-      post.txDigest,
-      post.blobId,
-      post.blobObjectId,
-      post.blobUrl,
+      post.id || id,
       post.mediaBlobId || null,
       post.mediaUrl || null,
       post.mediaType || null,
@@ -368,8 +332,6 @@ export async function updatePost(id, fields) {
   const map = {
     title: "title",
     content: "content",
-    blobId: "blob_id",
-    blobUrl: "blob_url",
     mediaBlobId: "media_blob_id",
     mediaUrl: "media_url",
     mediaType: "media_type",
@@ -791,105 +753,78 @@ export async function updateUserPassword(userId, passwordHash) {
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+async function purgeLegacyDecentralizedData() {
+  const postColumns = new Set(
+    (
+      await pool.query(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'posts'`,
+      )
+    ).rows.map((r) => r.column_name),
+  );
+
+  const legacyPostConditions = [];
+  if (postColumns.has("media_url"))
+    legacyPostConditions.push("media_url ILIKE '%walrus%'");
+  if (postColumns.has("blob_url"))
+    legacyPostConditions.push("blob_url ILIKE '%walrus%'");
+  for (const col of ["post_object_id", "tx_digest", "blob_id", "blob_object_id"]) {
+    if (postColumns.has(col)) legacyPostConditions.push(`${col} IS NOT NULL`);
+  }
+
+  if (legacyPostConditions.length) {
+    await pool.query(
+      `DELETE FROM posts WHERE ${legacyPostConditions.join(" OR ")}`,
+    );
+  }
+
+  const profileColumns = new Set(
+    (
+      await pool.query(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'profiles'`,
+      )
+    ).rows.map((r) => r.column_name),
+  );
+
+  const legacyProfileConditions = [];
+  if (profileColumns.has("avatar_url"))
+    legacyProfileConditions.push("avatar_url ILIKE '%walrus%'");
+  if (profileColumns.has("banner_url"))
+    legacyProfileConditions.push("banner_url ILIKE '%walrus%'");
+
+  if (legacyProfileConditions.length) {
+    const { rows: legacyUsers } = await pool.query(
+      `SELECT address FROM profiles WHERE ${legacyProfileConditions.join(" OR ")}`,
+    );
+
+    for (const { address } of legacyUsers) {
+      await pool.query("DELETE FROM notifications WHERE actor_address = $1 OR recipient = $1", [address]);
+      await pool.query("DELETE FROM messages WHERE sender = $1 OR receiver = $1", [address]);
+      await pool.query("DELETE FROM follows WHERE follower = $1 OR following = $1", [address]);
+      await pool.query("DELETE FROM push_tokens WHERE user_address = $1", [address]);
+      await pool.query("DELETE FROM presence WHERE address = $1", [address]);
+      await pool.query("DELETE FROM profiles WHERE address = $1", [address]);
+      await pool.query("DELETE FROM users WHERE address = $1", [address]);
+    }
+  }
+
+  await pool.query(`
+    ALTER TABLE posts
+      DROP COLUMN IF EXISTS post_object_id,
+      DROP COLUMN IF EXISTS tx_digest,
+      DROP COLUMN IF EXISTS blob_id,
+      DROP COLUMN IF EXISTS blob_object_id,
+      DROP COLUMN IF EXISTS blob_url
+  `);
+}
+
 export async function initDb() {
   await pool.query(SCHEMA_SQL);
-  const { rows } = await pool.query(`SELECT COUNT(*)::int AS c FROM posts`);
-  if (rows[0].c === 0) {
-    console.log("[db] empty — seeding initial data...");
-    await seedInitialData();
-  }
+  await pool.query(SCHEMA_SQL);
+  await purgeLegacyDecentralizedData();
   console.log("[db] Postgres ready");
 }
 
-async function seedInitialData() {
-  const OWNER =
-    "0x2598d09dd5113dc4c2abd298c3c08597eb4d1848d5633667854a05535f4d66ed";
-  const FAN1 =
-    "0x1111000000000000000000000000000000000000000000000000000000000001";
-  const FAN2 =
-    "0x2222000000000000000000000000000000000000000000000000000000000002";
-
-  await saveProfile(OWNER, {
-    username: "myWorld_Official",
-    bio: "The official myWorld account. Building the future of fan engagement on Sui blockchain.",
-    displayName: "myWorld",
-    location: "Decentralized",
-    website: "https://myworld.app",
-    profession: "Tech Entrepreneur",
-  });
-  await saveProfile(FAN1, {
-    username: "StarFan_Alpha",
-    bio: "Day 1 supporter. Believer in decentralized social.",
-    displayName: "Alpha",
-    profession: "Content Creator",
-  });
-  await saveProfile(FAN2, {
-    username: "CryptoFan_Beta",
-    bio: "Here for the culture and the blockchain.",
-    displayName: "Beta",
-  });
-
-  await savePost({
-    id: "seed-post-1",
-    postObjectId:
-      "0x1fe99b7cba1e3db5657f1057f820290af2820ba4a3a7f8c140cfa5405668c589",
-    txDigest: "ckmeHkarz1LfHKR4eryP2UjswSFjKwVGsWciu6mrbt9",
-    blobId: "edezrmgxXdEXcGjKWnI-NWYOVBjFCAHXX5deNIbiT2k",
-    blobObjectId:
-      "0xe4924b2c5eea8695824f24af08517818ff74c5a2bb5666f83caa9ef9dfb14a42",
-    owner: OWNER,
-    title: "Welcome to myWorld",
-    content:
-      "This is the very first post on myWorld — a new era of fan engagement powered by the Sui blockchain and Walrus decentralized storage. Every post you see here is permanently stored on the decentralized web, owned by its creator, immutable and censorship-resistant. Welcome to the future.",
-    blobUrl:
-      "https://aggregator.walrus-testnet.walrus.space/v1/blobs/edezrmgxXdEXcGjKWnI-NWYOVBjFCAHXX5deNIbiT2k",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
-  });
-  await savePost({
-    id: "seed-post-2",
-    owner: OWNER,
-    title: "Behind the Scenes",
-    content:
-      "Not everything makes it to the main stage. This is where the real moments happen — unfiltered, unscripted, and directly to you. No middlemen. No algorithms deciding what you see. Just me and my world, now your world too.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-  });
-  await savePost({
-    id: "seed-post-3",
-    owner: FAN1,
-    title: "Day 1 fan right here",
-    content:
-      "Been following this journey from the very beginning. myWorld is everything I hoped it would be — direct, authentic, decentralized. Proud to be part of this community from day one.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-  });
-
-  await saveLike({ postId: "seed-post-1", owner: FAN1 });
-  await saveLike({ postId: "seed-post-1", owner: FAN2 });
-  await saveLike({ postId: "seed-post-2", owner: FAN1 });
-  await saveComment({
-    postId: "seed-post-1",
-    owner: FAN1,
-    content:
-      "This is incredible. First post on a decentralized social platform — history in the making.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-  });
-  await saveComment({
-    postId: "seed-post-1",
-    owner: FAN2,
-    content: "The future is here. No more centralized gatekeepers.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-  });
-  await saveMessage({
-    sender: FAN1,
-    receiver: OWNER,
-    content: "Hey! Just joined myWorld. This is amazing!",
-    createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-  });
-  await saveMessage({
-    sender: OWNER,
-    receiver: FAN1,
-    content: "Welcome to myWorld! So glad you are here. Exciting things ahead.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 40).toISOString(),
-  });
-
-  console.log("[db] seed complete");
-}
