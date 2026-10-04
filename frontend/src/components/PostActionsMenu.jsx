@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { deletePost, reportPost } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
@@ -12,8 +13,11 @@ function ConfirmDialog({
   onCancel,
   isDangerous,
 }) {
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
+  return createPortal(
+    <div
+      data-post-action-dialog="true"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in"
+    >
       <div className="glass-panel rounded-2xl p-6 max-w-sm w-full border border-white/10 shadow-2xl">
         <h2 className="text-lg font-bold mb-2">{title}</h2>
         <p className="text-sm text-muted-foreground mb-6">{message}</p>
@@ -32,7 +36,8 @@ function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -57,8 +62,11 @@ function ReportDialog({ postId, onClose, onSuccess }) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
+  return createPortal(
+    <div
+      data-post-action-dialog="true"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in"
+    >
       <div className="glass-panel rounded-2xl p-6 max-w-sm w-full border border-white/10 shadow-2xl">
         <h2 className="text-lg font-bold mb-4">Report Post</h2>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -108,7 +116,8 @@ function ReportDialog({ postId, onClose, onSuccess }) {
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -120,7 +129,7 @@ export default function PostActionsMenu({
 }) {
   const menuRef = useRef(null);
   const navigate = useNavigate();
-  const { address } = useAuth();
+  const { address, isAuthenticated, openAuthModal } = useAuth();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -129,7 +138,13 @@ export default function PostActionsMenu({
 
   useEffect(() => {
     const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target) &&
+        !e.target.closest("[data-post-action-dialog]")
+      ) {
+        onClose();
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -151,6 +166,15 @@ export default function PostActionsMenu({
   const handleEdit = () => {
     navigate(`/edit/${post.id}`);
     onClose();
+  };
+
+  const handleReportOpen = () => {
+    if (!isAuthenticated) {
+      onClose();
+      openAuthModal("signin");
+      return;
+    }
+    setShowReportDialog(true);
   };
 
   return (
@@ -207,7 +231,7 @@ export default function PostActionsMenu({
           </>
         ) : (
           <button
-            onClick={() => setShowReportDialog(true)}
+            onClick={handleReportOpen}
             className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-left transition-colors hover:bg-amber-500/10 text-amber-400 hover:text-amber-300"
           >
             <svg
