@@ -313,7 +313,6 @@ export async function savePost(post) {
        is_deleted = EXCLUDED.is_deleted`,
     [
       id,
-      post.id || id,
       post.mediaBlobId || null,
       post.mediaUrl || null,
       post.mediaType || null,
