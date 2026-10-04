@@ -823,7 +823,6 @@ async function purgeLegacyDecentralizedData() {
 
 export async function initDb() {
   await pool.query(SCHEMA_SQL);
-  await pool.query(SCHEMA_SQL);
   await purgeLegacyDecentralizedData();
   console.log("[db] Postgres ready");
 }
