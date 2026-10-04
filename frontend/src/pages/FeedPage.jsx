@@ -27,6 +27,10 @@ export default function FeedPage() {
     fetchFeed();
   }, [wallet]);
 
+  const handlePostDelete = (postId) => {
+    setPosts((current) => current.filter((post) => post.id !== postId));
+  };
+
   const handleLikeUpdate = (postId, newLikes, newCommentCount) => {
     setPosts((current) =>
       current.map((post) => {
@@ -138,7 +142,11 @@ export default function FeedPage() {
           <div className="flex flex-col gap-6">
             {posts.map((post, i) => (
               <div key={post.id} style={{ animationDelay: `${i * 100}ms` }}>
-                <PostCard post={post} onLikeUpdate={handleLikeUpdate} />
+                <PostCard
+                  post={post}
+                  onLikeUpdate={handleLikeUpdate}
+                  onPostDelete={handlePostDelete}
+                />
               </div>
             ))}
           </div>
