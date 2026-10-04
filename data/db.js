@@ -800,6 +800,7 @@ async function purgeLegacyDecentralizedData() {
     );
 
     for (const { address } of legacyUsers) {
+      await pool.query("DELETE FROM posts WHERE owner = $1", [address]);
       await pool.query("DELETE FROM notifications WHERE actor_address = $1 OR recipient = $1", [address]);
       await pool.query("DELETE FROM messages WHERE sender = $1 OR receiver = $1", [address]);
       await pool.query("DELETE FROM follows WHERE follower = $1 OR following = $1", [address]);
