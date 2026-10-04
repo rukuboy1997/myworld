@@ -180,7 +180,7 @@ function ShareMenu({ postId, postTitle, onClose }) {
   );
 }
 
-export default function PostCard({ post, onLikeUpdate }) {
+export default function PostCard({ post, onLikeUpdate, onPostDelete }) {
   const { address: wallet, isAuthenticated, openAuthModal } = useAuth();
   const [isLiked, setIsLiked] = useState(!!post.userLiked);
   const [likesCount, setLikesCount] = useState(post.likes || 0);
@@ -324,9 +324,8 @@ export default function PostCard({ post, onLikeUpdate }) {
               <PostActionsMenu
                 post={post}
                 onClose={() => setShowActions(false)}
-                onPostDelete={() => {
-                  // Handle post deletion (remove from feed)
-                  onLikeUpdate?.(post.id, undefined, undefined, "delete");
+                onPostDelete={(deletedPostId) => {
+                  onPostDelete?.(deletedPostId);
                 }}
                 onPostEdit={(updatedPost) => {
                   // Handle post edit (update in feed)
