@@ -120,6 +120,16 @@ CREATE TABLE IF NOT EXISTS follows (
   PRIMARY KEY (follower, following)
 );
 
+CREATE TABLE IF NOT EXISTS reports (
+  id              TEXT PRIMARY KEY,
+  post_id         TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  reporter        TEXT NOT NULL,
+  reason          TEXT NOT NULL,
+  description     TEXT DEFAULT '',
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(post_id, reporter)
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id            TEXT PRIMARY KEY,
   recipient     TEXT NOT NULL,
@@ -595,6 +605,23 @@ export async function getFollowing(address) {
     [address],
   );
   return rows;
+}
+
+
+// ─── Post Reports ─────────────────────────────────────────────────────────────
+export async function saveReport({ postId, reporter, reason, description }) {
+  const id = uuidv4();
+  const { rows } = await pool.query(
+    `INSERT INTO reports (id, post_id, reporter, reason, description, created_at)
+     VALUES ($1,$2,$3,$4,$5,NOW())
+     ON CONFLICT (post_id, reporter)
+     DO UPDATE SET reason = EXCLUDED.reason,
+                   description = EXCLUDED.description,
+                   created_at = NOW()
+     RETURNING id, post_id, reporter, reason, description, created_at`,
+    [id, postId, reporter, reason, description || ""],
+  );
+  return rows[0];
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
