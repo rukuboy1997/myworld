@@ -752,7 +752,7 @@ export async function updateUserPassword(userId, passwordHash) {
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
-async function purgeLegacyDecentralizedData() {
+async function purgeLegacyData() {
   const postColumns = new Set(
     (
       await pool.query(
@@ -823,7 +823,7 @@ async function purgeLegacyDecentralizedData() {
 
 export async function initDb() {
   await pool.query(SCHEMA_SQL);
-  await purgeLegacyDecentralizedData();
+  await purgeLegacyData();
   console.log("[db] Postgres ready");
 }
 
