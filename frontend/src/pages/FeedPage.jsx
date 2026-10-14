@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Layout from "../components/Layout.jsx";
 import PostCard from "../components/PostCard.jsx";
+import StatusTray from "../components/StatusTray.jsx";
 import { getFeed } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 
@@ -98,6 +99,8 @@ export default function FeedPage() {
             </svg>
           </button>
         </div>
+
+        <StatusTray />
 
         {isLoading && posts.length === 0 ? (
           <div className="flex flex-col gap-6">
