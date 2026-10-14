@@ -108,7 +108,7 @@ Firebase Realtime Database provides realtime delivery for messaging and presence
 
 ## Status cleanup
 
-Set `CRON_SECRET` in the backend Vercel project to a long random value. Vercel runs `/api/cron/status-cleanup` hourly. The endpoint only accepts requests with the matching `Authorization: Bearer <CRON_SECRET>` header. Expired statuses are hidden immediately by API queries; the cron removes expired media and records afterward.
+Set `CRON_SECRET` in the backend Vercel project to a long random value. Vercel runs `/api/cron/status-cleanup` daily at 02:00 UTC. The endpoint only accepts requests with the matching `Authorization: Bearer <CRON_SECRET>` header. Expired statuses are hidden immediately by API queries; the cron removes expired media and records afterward.
 
 ## Production testing
 
