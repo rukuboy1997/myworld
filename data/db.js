@@ -125,6 +125,29 @@ CREATE TABLE IF NOT EXISTS reports (
   UNIQUE(post_id, reporter)
 );
 
+CREATE TABLE IF NOT EXISTS statuses (
+  id              TEXT PRIMARY KEY,
+  owner           TEXT NOT NULL,
+  content         TEXT DEFAULT '',
+  media_key       TEXT,
+  media_url       TEXT,
+  media_type      TEXT,
+  media_mime      TEXT,
+  audience        TEXT NOT NULL DEFAULT 'followers' CHECK (audience IN ('everyone', 'followers')),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at      TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_statuses_active_owner
+  ON statuses (owner, created_at DESC) WHERE expires_at > NOW();
+
+CREATE TABLE IF NOT EXISTS status_views (
+  status_id       TEXT NOT NULL REFERENCES statuses(id) ON DELETE CASCADE,
+  viewer          TEXT NOT NULL,
+  viewed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (status_id, viewer)
+);
+CREATE INDEX IF NOT EXISTS idx_status_views_viewer ON status_views (viewer, viewed_at DESC);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id            TEXT PRIMARY KEY,
   recipient     TEXT NOT NULL,
@@ -796,6 +819,129 @@ export async function updateUserPassword(userId, passwordHash) {
     passwordHash,
     userId,
   ]);
+}
+
+// ─── Status ───────────────────────────────────────────────────────────────────
+function rowToStatus(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    owner: row.owner,
+    content: row.content || "",
+    mediaKey: row.media_key || null,
+    mediaUrl: row.media_url || null,
+    mediaType: row.media_type || null,
+    mediaMime: row.media_mime || null,
+    audience: row.audience,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    expiresAt: row.expires_at instanceof Date ? row.expires_at.toISOString() : row.expires_at,
+    viewCount: Number(row.view_count || 0),
+    viewedByMe: Boolean(row.viewed_by_me),
+    profile: row.profile_address ? {
+      address: row.profile_address,
+      username: row.profile_username,
+      displayName: row.profile_display_name || row.profile_username,
+      avatarUrl: row.profile_avatar_url || null,
+    } : null,
+  };
+}
+
+export async function createStatus(status) {
+  const { rows } = await pool.query(
+    `INSERT INTO statuses
+      (id, owner, content, media_key, media_url, media_type, media_mime, audience, created_at, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW() + INTERVAL '24 hours')
+     RETURNING *`,
+    [status.id, status.owner, status.content || "", status.mediaKey || null,
+      status.mediaUrl || null, status.mediaType || null, status.mediaMime || null,
+      status.audience || "followers"],
+  );
+  return rowToStatus(rows[0]);
+}
+
+export async function getActiveStatusesForViewer(viewer) {
+  const { rows } = await pool.query(
+    `SELECT s.*,
+       COUNT(DISTINCT sv.viewer)::int AS view_count,
+       COALESCE(BOOL_OR(sv.viewer = $1), FALSE) AS viewed_by_me,
+       p.address AS profile_address, p.username AS profile_username,
+       p.display_name AS profile_display_name, p.avatar_url AS profile_avatar_url
+     FROM statuses s
+     LEFT JOIN status_views sv ON sv.status_id = s.id
+     LEFT JOIN profiles p ON p.address = s.owner
+     WHERE s.expires_at > NOW()
+       AND (
+         s.owner = $1
+         OR s.audience = 'everyone'
+         OR (s.audience = 'followers' AND EXISTS (
+           SELECT 1 FROM follows f WHERE f.follower = $1 AND f.following = s.owner
+         ))
+       )
+     GROUP BY s.id, p.address
+     ORDER BY s.created_at ASC`,
+    [viewer],
+  );
+  return rows.map(rowToStatus);
+}
+
+export async function getActiveStatusById(statusId, viewer) {
+  const { rows } = await pool.query(
+    `SELECT s.*,
+       COUNT(DISTINCT sv.viewer)::int AS view_count,
+       COALESCE(BOOL_OR(sv.viewer = $2), FALSE) AS viewed_by_me,
+       p.address AS profile_address, p.username AS profile_username,
+       p.display_name AS profile_display_name, p.avatar_url AS profile_avatar_url
+     FROM statuses s
+     LEFT JOIN status_views sv ON sv.status_id = s.id
+     LEFT JOIN profiles p ON p.address = s.owner
+     WHERE s.id = $1 AND s.expires_at > NOW()
+       AND (
+         s.owner = $2
+         OR s.audience = 'everyone'
+         OR (s.audience = 'followers' AND EXISTS (
+           SELECT 1 FROM follows f WHERE f.follower = $2 AND f.following = s.owner
+         ))
+       )
+     GROUP BY s.id, p.address`,
+    [statusId, viewer],
+  );
+  return rowToStatus(rows[0]);
+}
+
+export async function recordStatusView(statusId, viewer) {
+  await pool.query(
+    `INSERT INTO status_views (status_id, viewer)
+     SELECT id, $2 FROM statuses
+     WHERE id = $1 AND owner <> $2 AND expires_at > NOW()
+     ON CONFLICT (status_id, viewer) DO NOTHING`,
+    [statusId, viewer],
+  );
+}
+
+export async function getStatusViewers(statusId, owner) {
+  const { rows } = await pool.query(
+    `SELECT sv.viewer, sv.viewed_at, p.username, p.display_name, p.avatar_url
+     FROM status_views sv
+     JOIN statuses s ON s.id = sv.status_id
+     LEFT JOIN profiles p ON p.address = sv.viewer
+     WHERE sv.status_id = $1 AND s.owner = $2 AND s.expires_at > NOW()
+     ORDER BY sv.viewed_at DESC`,
+    [statusId, owner],
+  );
+  return rows.map((row) => ({
+    address: row.viewer,
+    username: row.username || row.viewer,
+    displayName: row.display_name || row.username || row.viewer,
+    avatarUrl: row.avatar_url || null,
+    viewedAt: row.viewed_at instanceof Date ? row.viewed_at.toISOString() : row.viewed_at,
+  }));
+}
+
+export async function deleteExpiredStatuses() {
+  const { rows } = await pool.query(
+    `DELETE FROM statuses WHERE expires_at <= NOW() RETURNING id, media_key`,
+  );
+  return rows;
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
