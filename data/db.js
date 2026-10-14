@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS statuses (
   expires_at      TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_statuses_active_owner
-  ON statuses (owner, created_at DESC) WHERE expires_at > NOW();
+  ON statuses (owner, expires_at, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS status_views (
   status_id       TEXT NOT NULL REFERENCES statuses(id) ON DELETE CASCADE,
