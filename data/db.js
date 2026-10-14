@@ -908,6 +908,24 @@ export async function getActiveStatusById(statusId, viewer) {
   return rowToStatus(rows[0]);
 }
 
+export async function getActiveStatusMediaKey(statusId, viewer) {
+  const { rows } = await pool.query(
+    `SELECT s.media_key, s.media_mime
+     FROM statuses s
+     WHERE s.id = $1 AND s.expires_at > NOW() AND s.media_key IS NOT NULL
+       AND (
+         s.owner = $2
+         OR s.audience = 'everyone'
+         OR (s.audience = 'followers' AND EXISTS (
+           SELECT 1 FROM follows f WHERE f.follower = s.owner AND f.following = $2
+         ))
+       )
+     LIMIT 1`,
+    [statusId, viewer],
+  );
+  return rows[0] || null;
+}
+
 export async function recordStatusView(statusId, viewer) {
   await pool.query(
     `INSERT INTO status_views (status_id, viewer)
