@@ -288,11 +288,57 @@ function rowToNotification(r) {
 }
 
 // ─── Posts ───────────────────────────────────────────────────────────────────
-export async function getPosts() {
+export async function getPostsPage({ limit = 20, beforeCreatedAt = null, beforeId = null } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 51);
   const { rows } = await pool.query(
-    `SELECT * FROM posts WHERE is_deleted = false ORDER BY created_at DESC`,
+    `SELECT *
+     FROM posts
+     WHERE is_deleted = false
+       AND (
+         $1::timestamptz IS NULL
+         OR (created_at, id) < ($1::timestamptz, $2::text)
+       )
+     ORDER BY created_at DESC, id DESC
+     LIMIT $3`,
+    [beforeCreatedAt, beforeId, safeLimit],
   );
   return rows.map(rowToPost);
+}
+
+export async function getPosts() {
+  const { rows } = await pool.query(
+    `SELECT * FROM posts WHERE is_deleted = false ORDER BY created_at DESC, id DESC`,
+  );
+  return rows.map(rowToPost);
+}
+
+export async function getFeedEngagement(postIds, viewer = null) {
+  if (!Array.isArray(postIds) || postIds.length === 0) return {};
+
+  const { rows } = await pool.query(
+    `SELECT
+       p.id AS post_id,
+       COUNT(DISTINCT l.id)::int AS likes,
+       COUNT(DISTINCT c.id)::int AS comment_count,
+       COALESCE(BOOL_OR(l.owner = $2), FALSE) AS user_liked
+     FROM posts p
+     LEFT JOIN likes l ON l.post_id = p.id
+     LEFT JOIN comments c ON c.post_id = p.id
+     WHERE p.id = ANY($1::text[])
+     GROUP BY p.id`,
+    [postIds, viewer],
+  );
+
+  return Object.fromEntries(
+    rows.map((row) => [
+      row.post_id,
+      {
+        likes: row.likes,
+        commentCount: row.comment_count,
+        userLiked: row.user_liked,
+      },
+    ]),
+  );
 }
 
 export async function getPostById(id) {
