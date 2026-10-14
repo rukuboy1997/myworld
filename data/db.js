@@ -874,7 +874,7 @@ export async function getActiveStatusesForViewer(viewer) {
          s.owner = $1
          OR s.audience = 'everyone'
          OR (s.audience = 'followers' AND EXISTS (
-           SELECT 1 FROM follows f WHERE f.follower = $1 AND f.following = s.owner
+           SELECT 1 FROM follows f WHERE f.follower = s.owner AND f.following = $1
          ))
        )
      GROUP BY s.id, p.address
