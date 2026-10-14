@@ -31,6 +31,7 @@ Set these in Vercel:
 | --- | --- | --- |
 | `NEON_DATABASE_URL` | yes | PostgreSQL connection |
 | `JWT_SECRET` | yes | JWT signing secret |
+| `CRON_SECRET` | yes | Protects the scheduled expired-status cleanup endpoint |
 | `CORS_ORIGIN` | yes | API CORS configuration |
 | `CF_ACCOUNT_ID` | yes | Cloudflare account |
 | `CF_API_TOKEN` | yes | R2 API token |
@@ -79,6 +80,7 @@ Current R2 folders:
 
 ```
 posts/
+statuses/
 avatars/
 banners/
 ```
@@ -97,11 +99,16 @@ Neon PostgreSQL stores the application's durable social data:
 - Follows
 - Notifications
 - Reports
+- Statuses and unique status views
 - Messages
 - Presence fallback
 - Password-reset records
 
 Firebase Realtime Database provides realtime delivery for messaging and presence.
+
+## Status cleanup
+
+Set `CRON_SECRET` in the backend Vercel project to a long random value. Vercel runs `/api/cron/status-cleanup` hourly. The endpoint only accepts requests with the matching `Authorization: Bearer <CRON_SECRET>` header. Expired statuses are hidden immediately by API queries; the cron removes expired media and records afterward.
 
 ## Production testing
 
