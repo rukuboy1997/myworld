@@ -4,6 +4,7 @@ import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
 import {
   uploadToR2,
+  deleteFromR2,
   getFromR2,
   r2MediaUrl,
   sniffMime,
@@ -19,6 +20,8 @@ import {
   getActiveStatusById,
   recordStatusView,
   getStatusViewers,
+  getExpiredStatuses,
+  deleteExpiredStatusIds,
   getPostById,
   savePost,
   updatePost,
@@ -350,6 +353,45 @@ export function buildApp() {
     } catch (err) {
       console.error("feed error:", err);
       res.status(500).json({ error: "Failed to load feed" });
+    }
+  });
+
+  // Vercel Cron: expire status records and remove their unique R2 media objects.
+  app.get("/api/cron/status-cleanup", async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      return res.status(503).json({ error: "Status cleanup is not configured" });
+    }
+    if (req.headers.authorization !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const expired = await getExpiredStatuses();
+      const deletableIds = [];
+      let mediaFailures = 0;
+      for (const status of expired) {
+        if (status.media_key) {
+          // Only delete objects created by this status feature.
+          if (!status.media_key.startsWith("statuses/")) {
+            mediaFailures += 1;
+            console.warn("[status-cleanup] skipped unexpected media key", status.id);
+            continue;
+          }
+          try {
+            await deleteFromR2(status.media_key);
+          } catch (err) {
+            mediaFailures += 1;
+            console.warn("[status-cleanup] R2 deletion failed; status will be retried", status.id, err.message);
+            continue;
+          }
+        }
+        deletableIds.push(status.id);
+      }
+      const deleted = await deleteExpiredStatusIds(deletableIds);
+      res.json({ ok: true, scanned: expired.length, deleted, mediaFailures });
+    } catch (err) {
+      console.error("status_cleanup error:", err);
+      res.status(500).json({ error: "Status cleanup failed" });
     }
   });
 
