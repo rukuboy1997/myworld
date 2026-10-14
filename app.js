@@ -15,6 +15,7 @@ import {
   pool,
   getPosts,
   getPostsPage,
+  getRankedPostsPage,
   getFeedEngagement,
   createStatus,
   getActiveStatusesForViewer,
@@ -306,8 +307,13 @@ export function buildApp() {
         return res.status(400).json({ error: "limit must be an integer between 1 and 50" });
       }
 
+      const sort = req.query.sort === undefined ? "latest" : String(req.query.sort);
+      if (sort !== "latest" && sort !== "for-you") {
+        return res.status(400).json({ error: "sort must be latest or for-you" });
+      }
       let beforeCreatedAt = null;
       let beforeId = null;
+      let beforeScore = null;
       if (req.query.cursor) {
         try {
           const decoded = Buffer.from(String(req.query.cursor), "base64url").toString("utf8");
@@ -317,8 +323,10 @@ export function buildApp() {
             Number.isNaN(Date.parse(cursor.createdAt)) ||
             typeof cursor.id !== "string" ||
             !cursor.id
-          ) {
-            throw new Error("Invalid cursor");
+          ) throw new Error("Invalid cursor");
+          if (sort === "for-you") {
+            if (typeof cursor.score !== "number" || !Number.isFinite(cursor.score)) throw new Error("Invalid ranked cursor");
+            beforeScore = cursor.score;
           }
           beforeCreatedAt = cursor.createdAt;
           beforeId = cursor.id;
@@ -328,7 +336,9 @@ export function buildApp() {
       }
 
       const viewer = typeof req.query.viewer === "string" ? req.query.viewer : null;
-      const posts = await getPostsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
+      const posts = sort === "for-you"
+        ? await getRankedPostsPage({ viewer, limit: limit + 1, beforeScore, beforeCreatedAt, beforeId })
+        : await getPostsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
       const hasMore = posts.length > limit;
       const page = hasMore ? posts.slice(0, limit) : posts;
       const [profiles, engagement] = await Promise.all([
@@ -345,13 +355,13 @@ export function buildApp() {
       const lastPost = page[page.length - 1];
       const nextCursor = hasMore && lastPost
         ? Buffer.from(JSON.stringify({
+            ...(sort === "for-you" ? { score: lastPost.score } : {}),
             createdAt: lastPost.createdAt,
             id: lastPost.id,
           })).toString("base64url")
         : null;
-
       res.set("Cache-Control", "private, no-store");
-      res.json({ items, nextCursor, hasMore });
+      res.json({ items, nextCursor, hasMore, sort });
     } catch (err) {
       console.error("feed error:", err);
       res.status(500).json({ error: "Failed to load feed" });
