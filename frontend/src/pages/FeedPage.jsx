@@ -9,13 +9,18 @@ export default function FeedPage() {
   const [posts, setPosts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const fetchFeed = async () => {
     setIsLoading(true);
     setError(null);
     try {
       const data = await getFeed(wallet);
-      setPosts(data || []);
+      setPosts(data.items || []);
+      setNextCursor(data.nextCursor || null);
+      setHasMore(Boolean(data.hasMore));
     } catch (err) {
       setError(err.message || "Failed to load feed");
     } finally {
@@ -26,6 +31,24 @@ export default function FeedPage() {
   useEffect(() => {
     fetchFeed();
   }, [wallet]);
+
+  const loadMore = async () => {
+    if (!nextCursor || isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    try {
+      const data = await getFeed(wallet, { cursor: nextCursor });
+      setPosts((current) => {
+        const existingIds = new Set(current.map((post) => post.id));
+        return [...current, ...(data.items || []).filter((post) => !existingIds.has(post.id))];
+      });
+      setNextCursor(data.nextCursor || null);
+      setHasMore(Boolean(data.hasMore));
+    } catch (err) {
+      setError(err.message || "Failed to load more posts");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const handlePostDelete = (postId) => {
     setPosts((current) => current.filter((post) => post.id !== postId));
@@ -149,6 +172,16 @@ export default function FeedPage() {
                 />
               </div>
             ))}
+            {hasMore && (
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={isLoadingMore}
+                className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-3 font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isLoadingMore ? "Loading more posts…" : "Load more posts"}
+              </button>
+            )}
           </div>
         )}
       </div>
