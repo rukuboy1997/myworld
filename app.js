@@ -1,9 +1,11 @@
 import express from "express";
+import { Readable } from "node:stream";
 import cors from "cors";
 import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
 import {
   uploadToR2,
+  deleteFromR2,
   getFromR2,
   r2MediaUrl,
   sniffMime,
@@ -14,6 +16,14 @@ import {
   getPosts,
   getPostsPage,
   getFeedEngagement,
+  createStatus,
+  getActiveStatusesForViewer,
+  getActiveStatusById,
+  getActiveStatusMediaKey,
+  recordStatusView,
+  getStatusViewers,
+  getExpiredStatuses,
+  deleteExpiredStatusIds,
   getPostById,
   savePost,
   updatePost,
@@ -345,6 +355,161 @@ export function buildApp() {
     } catch (err) {
       console.error("feed error:", err);
       res.status(500).json({ error: "Failed to load feed" });
+    }
+  });
+
+  // Vercel Cron: expire status records and remove their unique R2 media objects.
+  app.get("/api/cron/status-cleanup", async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      return res.status(503).json({ error: "Status cleanup is not configured" });
+    }
+    if (req.headers.authorization !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const expired = await getExpiredStatuses();
+      const deletableIds = [];
+      let mediaFailures = 0;
+      for (const status of expired) {
+        if (status.media_key) {
+          // Only delete objects created by this status feature.
+          if (!status.media_key.startsWith("statuses/")) {
+            mediaFailures += 1;
+            console.warn("[status-cleanup] skipped unexpected media key", status.id);
+            continue;
+          }
+          try {
+            await deleteFromR2(status.media_key);
+          } catch (err) {
+            mediaFailures += 1;
+            console.warn("[status-cleanup] R2 deletion failed; status will be retried", status.id, err.message);
+            continue;
+          }
+        }
+        deletableIds.push(status.id);
+      }
+      const deleted = await deleteExpiredStatusIds(deletableIds);
+      res.json({ ok: true, scanned: expired.length, deleted, mediaFailures });
+    } catch (err) {
+      console.error("status_cleanup error:", err);
+      res.status(500).json({ error: "Status cleanup failed" });
+    }
+  });
+
+  // ─── Status ───────────────────────────────────────────────────────────────
+  app.get("/api/statuses", requireAuth, async (req, res) => {
+    try {
+      const statuses = await getActiveStatusesForViewer(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items: statuses });
+    } catch (err) {
+      console.error("get_statuses error:", err);
+      res.status(500).json({ error: "Failed to load statuses" });
+    }
+  });
+
+  app.post(
+    "/api/statuses",
+    requireAuth,
+    upload.single("media"),
+    async (req, res) => {
+      try {
+        const content = normalizeTextInput(req.body?.content || "");
+        const audience = req.body?.audience === "everyone" ? "everyone" : "followers";
+        if (content.length > 700) {
+          return res.status(400).json({ error: "Status text must be 700 characters or fewer" });
+        }
+        if (!content && !req.file) {
+          return res.status(400).json({ error: "Add text or choose an image/video" });
+        }
+
+        let mediaKey = null;
+        let mediaUrl = null;
+        let mediaType = null;
+        let mediaMime = null;
+        if (req.file) {
+          mediaMime = req.file.mimetype || "";
+          mediaType = detectMediaType(mediaMime);
+          if (!mediaType) {
+            return res.status(400).json({ error: "Only image or video media is allowed" });
+          }
+          const sniffed = sniffMime(req.file.buffer);
+          if (sniffed && !["image/", "video/"].some((prefix) => sniffed.startsWith(prefix))) {
+            return res.status(400).json({ error: "The uploaded file does not appear to be an image or video" });
+          }
+          const maxBytes = mediaType === "video" ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+          if (req.file.size > maxBytes) {
+            return res.status(400).json({
+              error: mediaType === "video" ? "Status videos must be 25 MB or smaller" : "Status images must be 10 MB or smaller",
+            });
+          }
+          const ext = mediaMime.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || "bin";
+          mediaKey = `statuses/${req.userAddress}/${uuidv4()}.${ext}`;
+          const uploaded = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
+          mediaUrl = uploaded.url;
+        }
+
+        const status = await createStatus({
+          id: uuidv4(),
+          owner: req.userAddress,
+          content,
+          mediaKey,
+          mediaUrl,
+          mediaType,
+          mediaMime,
+          audience,
+        });
+        res.status(201).json({ status });
+      } catch (err) {
+        console.error("create_status error:", err);
+        res.status(500).json({ error: "Failed to create status" });
+      }
+    },
+  );
+
+  app.get("/api/statuses/:id/media", requireAuth, async (req, res) => {
+    try {
+      const media = await getActiveStatusMediaKey(req.params.id, req.userAddress);
+      if (!media?.media_key) {
+        return res.status(404).json({ error: "Status media not found or unavailable" });
+      }
+      const object = await getFromR2(media.media_key);
+      res.set("Content-Type", media.media_mime || object.headers.get("content-type") || "application/octet-stream");
+      res.set("Cache-Control", "private, no-store");
+      res.set("X-Content-Type-Options", "nosniff");
+      if (object.headers.get("content-length")) res.set("Content-Length", object.headers.get("content-length"));
+      Readable.fromWeb(object.body).pipe(res);
+    } catch (err) {
+      console.error("status_media error:", err);
+      if (!res.headersSent) res.status(500).json({ error: "Failed to load status media" });
+      else res.end();
+    }
+  });
+
+  app.post("/api/statuses/:id/view", requireAuth, async (req, res) => {
+    try {
+      const status = await getActiveStatusById(req.params.id, req.userAddress);
+      if (!status) return res.status(404).json({ error: "Status not found or unavailable" });
+      await recordStatusView(status.id, req.userAddress);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("view_status error:", err);
+      res.status(500).json({ error: "Failed to record status view" });
+    }
+  });
+
+  app.get("/api/statuses/:id/viewers", requireAuth, async (req, res) => {
+    try {
+      const status = await getActiveStatusById(req.params.id, req.userAddress);
+      if (!status || status.owner !== req.userAddress) {
+        return res.status(404).json({ error: "Status not found" });
+      }
+      const viewers = await getStatusViewers(status.id, req.userAddress);
+      res.json({ viewers, count: viewers.length });
+    } catch (err) {
+      console.error("status_viewers error:", err);
+      res.status(500).json({ error: "Failed to load status viewers" });
     }
   });
 

@@ -185,3 +185,21 @@ export function truncateAddress(addr) {
   if (!addr) return "";
   return addr.slice(0, 6) + "..." + addr.slice(-4);
 }
+
+
+// ─── Status ────────────────────────────────────────────────────────────────────
+export const getStatuses = () => request("GET", "/statuses");
+export const createStatus = (formData) => requestForm("POST", "/statuses", formData);
+export const recordStatusView = (statusId) => request("POST", `/statuses/${encodeURIComponent(statusId)}/view`, {});
+export const getStatusViewers = (statusId) => request("GET", `/statuses/${encodeURIComponent(statusId)}/viewers`);
+
+export async function getStatusMedia(statusId) {
+  const res = await fetch(`${BASE}/statuses/${encodeURIComponent(statusId)}/media`, {
+    headers: { ...authHeaders() },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Couldn't load status media");
+  }
+  return res.blob();
+}

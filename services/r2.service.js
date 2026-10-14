@@ -57,6 +57,25 @@ export async function uploadToR2(
 }
 
 /**
+ * Delete an object from R2 by its stable object key.
+ */
+export async function deleteFromR2(key) {
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
+    throw new Error("R2 not configured");
+  }
+  const url = r2ObjectUrl(key);
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${CF_API_TOKEN}` },
+  });
+  if (!res.ok && res.status !== 404) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`R2 delete failed (${res.status}): ${text}`);
+  }
+  return true;
+}
+
+/**
  * Stream an object from R2 — used by the /api/media/:key proxy endpoint.
  * Returns the raw fetch Response so the caller can pipe headers + body.
  */
