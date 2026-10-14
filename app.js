@@ -1,4 +1,5 @@
 import express from "express";
+import { Readable } from "node:stream";
 import cors from "cors";
 import multer from "multer";
 import { v4 as uuidv4 } from "uuid";
@@ -18,6 +19,7 @@ import {
   createStatus,
   getActiveStatusesForViewer,
   getActiveStatusById,
+  getActiveStatusMediaKey,
   recordStatusView,
   getStatusViewers,
   getExpiredStatuses,
@@ -465,6 +467,25 @@ export function buildApp() {
       }
     },
   );
+
+  app.get("/api/statuses/:id/media", requireAuth, async (req, res) => {
+    try {
+      const media = await getActiveStatusMediaKey(req.params.id, req.userAddress);
+      if (!media?.media_key) {
+        return res.status(404).json({ error: "Status media not found or unavailable" });
+      }
+      const object = await getFromR2(media.media_key);
+      res.set("Content-Type", media.media_mime || object.headers.get("content-type") || "application/octet-stream");
+      res.set("Cache-Control", "private, no-store");
+      res.set("X-Content-Type-Options", "nosniff");
+      if (object.headers.get("content-length")) res.set("Content-Length", object.headers.get("content-length"));
+      Readable.fromWeb(object.body).pipe(res);
+    } catch (err) {
+      console.error("status_media error:", err);
+      if (!res.headersSent) res.status(500).json({ error: "Failed to load status media" });
+      else res.end();
+    }
+  });
 
   app.post("/api/statuses/:id/view", requireAuth, async (req, res) => {
     try {
