@@ -14,6 +14,11 @@ import {
   getPosts,
   getPostsPage,
   getFeedEngagement,
+  createStatus,
+  getActiveStatusesForViewer,
+  getActiveStatusById,
+  recordStatusView,
+  getStatusViewers,
   getPostById,
   savePost,
   updatePost,
@@ -345,6 +350,103 @@ export function buildApp() {
     } catch (err) {
       console.error("feed error:", err);
       res.status(500).json({ error: "Failed to load feed" });
+    }
+  });
+
+  // ─── Status ───────────────────────────────────────────────────────────────
+  app.get("/api/statuses", requireAuth, async (req, res) => {
+    try {
+      const statuses = await getActiveStatusesForViewer(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items: statuses });
+    } catch (err) {
+      console.error("get_statuses error:", err);
+      res.status(500).json({ error: "Failed to load statuses" });
+    }
+  });
+
+  app.post(
+    "/api/statuses",
+    requireAuth,
+    upload.single("media"),
+    async (req, res) => {
+      try {
+        const content = normalizeTextInput(req.body?.content || "");
+        const audience = req.body?.audience === "everyone" ? "everyone" : "followers";
+        if (content.length > 700) {
+          return res.status(400).json({ error: "Status text must be 700 characters or fewer" });
+        }
+        if (!content && !req.file) {
+          return res.status(400).json({ error: "Add text or choose an image/video" });
+        }
+
+        let mediaKey = null;
+        let mediaUrl = null;
+        let mediaType = null;
+        let mediaMime = null;
+        if (req.file) {
+          mediaMime = req.file.mimetype || "";
+          mediaType = detectMediaType(mediaMime);
+          if (!mediaType) {
+            return res.status(400).json({ error: "Only image or video media is allowed" });
+          }
+          const sniffed = sniffMime(req.file.buffer);
+          if (sniffed && !["image/", "video/"].some((prefix) => sniffed.startsWith(prefix))) {
+            return res.status(400).json({ error: "The uploaded file does not appear to be an image or video" });
+          }
+          const maxBytes = mediaType === "video" ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+          if (req.file.size > maxBytes) {
+            return res.status(400).json({
+              error: mediaType === "video" ? "Status videos must be 25 MB or smaller" : "Status images must be 10 MB or smaller",
+            });
+          }
+          const ext = mediaMime.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || "bin";
+          mediaKey = `statuses/${req.userAddress}/${uuidv4()}.${ext}`;
+          const uploaded = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
+          mediaUrl = uploaded.url;
+        }
+
+        const status = await createStatus({
+          id: uuidv4(),
+          owner: req.userAddress,
+          content,
+          mediaKey,
+          mediaUrl,
+          mediaType,
+          mediaMime,
+          audience,
+        });
+        res.status(201).json({ status });
+      } catch (err) {
+        console.error("create_status error:", err);
+        res.status(500).json({ error: "Failed to create status" });
+      }
+    },
+  );
+
+  app.post("/api/statuses/:id/view", requireAuth, async (req, res) => {
+    try {
+      const status = await getActiveStatusById(req.params.id, req.userAddress);
+      if (!status) return res.status(404).json({ error: "Status not found or unavailable" });
+      await recordStatusView(status.id, req.userAddress);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("view_status error:", err);
+      res.status(500).json({ error: "Failed to record status view" });
+    }
+  });
+
+  app.get("/api/statuses/:id/viewers", requireAuth, async (req, res) => {
+    try {
+      const status = await getActiveStatusById(req.params.id, req.userAddress);
+      if (!status || status.owner !== req.userAddress) {
+        return res.status(404).json({ error: "Status not found" });
+      }
+      const viewers = await getStatusViewers(status.id, req.userAddress);
+      res.json({ viewers, count: viewers.length });
+    } catch (err) {
+      console.error("status_viewers error:", err);
+      res.status(500).json({ error: "Failed to load status viewers" });
     }
   });
 
