@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../lib/auth.jsx";
-import { createStatus, getStatuses, getStatusViewers, recordStatusView } from "../lib/api.js";
+import { createStatus, getStatuses, getStatusMedia, getStatusViewers, recordStatusView } from "../lib/api.js";
 
 function initials(status) {
   const label = status?.profile?.displayName || status?.profile?.username || status?.owner || "?";
@@ -28,6 +28,7 @@ export default function StatusTray() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [viewers, setViewers] = useState(null);
+  const [mediaSrc, setMediaSrc] = useState(null);
 
   const refresh = useCallback(async () => {
     if (!isAuthenticated) {
@@ -133,6 +134,26 @@ export default function StatusTray() {
 
   const currentStatus = viewerGroup?.statuses?.[viewerIndex];
 
+  useEffect(() => {
+    let objectUrl = null;
+    let cancelled = false;
+    setMediaSrc(null);
+    if (!currentStatus?.mediaType) return undefined;
+    getStatusMedia(currentStatus.id)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setMediaSrc(objectUrl);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || "Couldn't load status media");
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [currentStatus?.id, currentStatus?.mediaType]);
+
   return (
     <>
       <section className="glass-panel rounded-3xl border border-white/10 p-4 md:p-5">
@@ -213,11 +234,11 @@ export default function StatusTray() {
             <button type="button" onClick={() => moveViewer(-1)} className="absolute inset-y-20 left-0 z-10 w-1/4" aria-label="Previous status" />
             <button type="button" onClick={() => moveViewer(1)} className="absolute inset-y-20 right-0 z-10 w-1/4" aria-label="Next status" />
             <div className="flex min-h-0 flex-1 items-center justify-center bg-black px-5 pb-8 pt-20 text-center text-white">
-              {currentStatus.mediaType === "image" && currentStatus.mediaUrl ? <img src={currentStatus.mediaUrl} alt="Status" className="max-h-full max-w-full rounded-xl object-contain" /> :
-               currentStatus.mediaType === "video" && currentStatus.mediaUrl ? <video src={currentStatus.mediaUrl} className="max-h-full max-w-full rounded-xl object-contain" controls autoPlay playsInline /> :
+              {currentStatus.mediaType === "image" && mediaSrc ? <img src={mediaSrc} alt="Status" className="max-h-full max-w-full rounded-xl object-contain" /> :
+               currentStatus.mediaType === "video" && mediaSrc ? <video src={mediaSrc} className="max-h-full max-w-full rounded-xl object-contain" controls autoPlay playsInline /> :
                <p className="whitespace-pre-wrap break-words text-2xl font-bold">{currentStatus.content}</p>}
             </div>
-            {currentStatus.content && currentStatus.mediaUrl && <p className="absolute bottom-16 left-4 right-4 z-20 rounded-xl bg-black/45 px-3 py-2 text-center text-sm text-white">{currentStatus.content}</p>}
+            {currentStatus.content && currentStatus.mediaType && <p className="absolute bottom-16 left-4 right-4 z-20 rounded-xl bg-black/45 px-3 py-2 text-center text-sm text-white">{currentStatus.content}</p>}
             <div className="relative z-20 flex items-center justify-between gap-3 border-t border-white/10 bg-slate-950 px-4 py-3 text-xs text-white/70">
               <span>{currentStatus.viewCount || 0} views</span>
               {currentStatus.owner === address && <button type="button" className="font-semibold text-white hover:text-pink-300" onClick={async () => { try { const data = await getStatusViewers(currentStatus.id); setViewers(data.viewers || []); } catch (err) { setError(err.message); } }}>Viewers</button>}
