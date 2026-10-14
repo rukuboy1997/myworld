@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE INDEX IF NOT EXISTS idx_posts_owner    ON posts(owner);
 CREATE INDEX IF NOT EXISTS idx_posts_created  ON posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_feed_cursor ON posts (created_at DESC, id DESC) WHERE is_deleted = false;
 CREATE INDEX IF NOT EXISTS idx_likes_post     ON likes(post_id);
 CREATE INDEX IF NOT EXISTS idx_comments_post  ON comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_messages_pair  ON messages(sender, receiver);
