@@ -80,10 +80,13 @@ export default function StatusTray() {
     setViewerIndex(start);
     setViewers(null);
     const status = group.statuses[start];
-    if (status && group.owner !== address) {
+    // Owners can open their own statuses, but never count themselves as viewers.
+    if (status && group.owner !== address && !status.viewedByMe) {
       try {
-        await recordStatusView(status.id);
-        setStatuses((current) => current.map((item) => item.id === status.id ? { ...item, viewedByMe: true, viewCount: (item.viewCount || 0) + 1 } : item));
+        const result = await recordStatusView(status.id);
+        setStatuses((current) => current.map((item) => item.id === status.id
+          ? { ...item, viewedByMe: true, viewCount: (item.viewCount || 0) + (result.recorded ? 1 : 0) }
+          : item));
       } catch {}
     }
   };
@@ -100,8 +103,10 @@ export default function StatusTray() {
     const status = viewerGroup.statuses[next];
     if (status && viewerGroup.owner !== address && !status.viewedByMe) {
       try {
-        await recordStatusView(status.id);
-        setStatuses((current) => current.map((item) => item.id === status.id ? { ...item, viewedByMe: true, viewCount: (item.viewCount || 0) + 1 } : item));
+        const result = await recordStatusView(status.id);
+        setStatuses((current) => current.map((item) => item.id === status.id
+          ? { ...item, viewedByMe: true, viewCount: (item.viewCount || 0) + (result.recorded ? 1 : 0) }
+          : item));
       } catch {}
     }
   };
@@ -132,6 +137,7 @@ export default function StatusTray() {
     }
   };
 
+  const ownGroup = groups.find((group) => group.owner === address);
   const currentStatus = viewerGroup?.statuses?.[viewerIndex];
 
   useEffect(() => {
@@ -168,13 +174,30 @@ export default function StatusTray() {
         </div>
 
         <div className="flex gap-4 overflow-x-auto pb-1">
-          <button type="button" onClick={() => isAuthenticated ? setComposerOpen(true) : openAuthModal("signin")} className="flex w-[76px] shrink-0 flex-col items-center gap-2 text-center">
-            <span className="relative flex h-[66px] w-[66px] items-center justify-center rounded-full border-2 border-dashed border-white/30 bg-white/5 text-2xl">
-              +
-              {groups.some((group) => group.owner === address) && <span className="absolute -bottom-1 -right-1 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold text-white">YOU</span>}
+          <button
+            type="button"
+            onClick={() => {
+              if (!isAuthenticated) return openAuthModal("signin");
+              if (ownGroup) return openGroup(ownGroup);
+              setComposerOpen(true);
+            }}
+            className="flex w-[76px] shrink-0 flex-col items-center gap-2 text-center"
+            aria-label={ownGroup ? "View your status and viewers" : "Create your first status"}
+          >
+            <span className={`relative flex h-[66px] w-[66px] items-center justify-center rounded-full p-[3px] ${ownGroup ? "bg-gradient-to-tr from-fuchsia-500 via-pink-500 to-amber-300" : "border-2 border-dashed border-white/30 bg-white/5"}`}>
+              <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border-2 border-background bg-secondary text-2xl font-bold">
+                {ownGroup?.profile?.avatarUrl ? <img src={ownGroup.profile.avatarUrl} alt="" className="h-full w-full object-cover" /> : ownGroup ? initials(ownGroup.statuses[0]) : "+"}
+              </span>
+              {ownGroup && <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-emerald-500 text-sm font-bold text-white">+</span>}
             </span>
-            <span className="w-full truncate text-xs font-medium">Your status</span>
+            <span className="w-full truncate text-xs font-medium">{ownGroup ? "Your status" : "Add status"}</span>
           </button>
+          {ownGroup && (
+            <button type="button" onClick={() => setComposerOpen(true)} className="flex w-[50px] shrink-0 flex-col items-center gap-2 pt-2 text-center" aria-label="Add another status">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/5 text-xl">+</span>
+              <span className="w-full truncate text-[10px]">Add</span>
+            </button>
+          )}
 
           {groups.filter((group) => group.owner !== address).map((group) => (
             <button key={group.owner} type="button" onClick={() => openGroup(group)} className="flex w-[76px] shrink-0 flex-col items-center gap-2 text-center">

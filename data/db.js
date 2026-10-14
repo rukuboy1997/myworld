@@ -927,13 +927,15 @@ export async function getActiveStatusMediaKey(statusId, viewer) {
 }
 
 export async function recordStatusView(statusId, viewer) {
-  await pool.query(
+  const { rowCount } = await pool.query(
     `INSERT INTO status_views (status_id, viewer)
      SELECT id, $2 FROM statuses
      WHERE id = $1 AND owner <> $2 AND expires_at > NOW()
      ON CONFLICT (status_id, viewer) DO NOTHING`,
     [statusId, viewer],
   );
+  // Only the first view by a given account counts; repeat opens are idempotent.
+  return (rowCount || 0) > 0;
 }
 
 export async function getStatusViewers(statusId, owner) {
