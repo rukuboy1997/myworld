@@ -937,11 +937,20 @@ export async function getStatusViewers(statusId, owner) {
   }));
 }
 
-export async function deleteExpiredStatuses() {
+export async function getExpiredStatuses() {
   const { rows } = await pool.query(
-    `DELETE FROM statuses WHERE expires_at <= NOW() RETURNING id, media_key`,
+    `SELECT id, media_key FROM statuses WHERE expires_at <= NOW() ORDER BY expires_at ASC LIMIT 500`,
   );
   return rows;
+}
+
+export async function deleteExpiredStatusIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+  const { rowCount } = await pool.query(
+    `DELETE FROM statuses WHERE id = ANY($1::text[]) AND expires_at <= NOW()`,
+    [ids],
+  );
+  return rowCount || 0;
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
