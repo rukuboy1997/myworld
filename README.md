@@ -63,7 +63,7 @@ The application stores stable R2 object keys and builds public URLs from `CF_R2_
 
 Status v1 stores status metadata and unique viewer records in Neon PostgreSQL. Images and videos are stored in Cloudflare R2 under the `statuses/` prefix. Active statuses are filtered by their server-set 24-hour expiry, and the API enforces the audience setting.
 
-The backend Vercel project must define `CRON_SECRET` as a strong random secret. An hourly Vercel Cron job calls `/api/cron/status-cleanup` to delete expired status media from R2 and then remove the expired database records. If an R2 deletion fails, the record is retained so a later cleanup run can retry it.
+The backend Vercel project must define `CRON_SECRET` as a strong random secret. A daily Vercel Cron job calls `/api/cron/status-cleanup` to delete expired status media from R2 and then remove the expired database records. If an R2 deletion fails, the record is retained so a later cleanup run can retry it.
 
 Status API routes:
 - `GET /api/statuses` — active statuses visible to the signed-in user
