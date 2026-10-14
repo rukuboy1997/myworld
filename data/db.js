@@ -329,6 +329,42 @@ export async function getPostsPage({ limit = 20, beforeCreatedAt = null, beforeI
   return rows.map(rowToPost);
 }
 
+// Relevance-ranked Home feed. Fresh posts lead, meaningful engagement helps,
+// and followed creators receive a modest boost. Latest remains chronological.
+export async function getRankedPostsPage({ viewer = null, limit = 20, beforeScore = null, beforeCreatedAt = null, beforeId = null } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 51);
+  const { rows } = await pool.query(
+    `WITH engagement AS (
+       SELECT p.id AS post_id,
+         COUNT(DISTINCT l.id)::int AS likes,
+         COUNT(DISTINCT c.id)::int AS comment_count
+       FROM posts p
+       LEFT JOIN likes l ON l.post_id = p.id
+       LEFT JOIN comments c ON c.post_id = p.id
+       WHERE p.is_deleted = false
+       GROUP BY p.id
+     ), ranked AS (
+       SELECT p.*, COALESCE(e.likes, 0)::int AS likes,
+         COALESCE(e.comment_count, 0)::int AS comment_count,
+         (45.0 * EXP(-GREATEST(EXTRACT(EPOCH FROM (NOW() - p.created_at)), 0) / 172800.0)
+          + 7.0 * LN(1.0 + COALESCE(e.likes, 0))
+          + 11.0 * LN(1.0 + COALESCE(e.comment_count, 0))
+          + CASE WHEN EXISTS (SELECT 1 FROM follows f WHERE f.follower = $1 AND f.following = p.owner) THEN 16.0 ELSE 0.0 END
+          + CASE WHEN p.owner = $1 THEN 5.0 ELSE 0.0 END) AS feed_score
+       FROM posts p
+       LEFT JOIN engagement e ON e.post_id = p.id
+       WHERE p.is_deleted = false
+     )
+     SELECT * FROM ranked
+     WHERE $2::double precision IS NULL
+        OR (feed_score, created_at, id) < ($2::double precision, $3::timestamptz, $4::text)
+     ORDER BY feed_score DESC, created_at DESC, id DESC
+     LIMIT $5`,
+    [viewer, beforeScore, beforeCreatedAt, beforeId, safeLimit],
+  );
+  return rows.map((row) => ({ ...rowToPost(row), score: Number(row.feed_score) }));
+}
+
 export async function getPosts() {
   const { rows } = await pool.query(
     `SELECT * FROM posts WHERE is_deleted = false ORDER BY created_at DESC, id DESC`,

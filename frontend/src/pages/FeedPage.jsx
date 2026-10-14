@@ -12,13 +12,14 @@ export default function FeedPage() {
   const [error, setError] = useState(null);
   const [nextCursor, setNextCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
+  const [sort, setSort] = useState("for-you");
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const fetchFeed = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await getFeed(wallet);
+      const data = await getFeed(wallet, { sort });
       setPosts(data.items || []);
       setNextCursor(data.nextCursor || null);
       setHasMore(Boolean(data.hasMore));
@@ -31,13 +32,13 @@ export default function FeedPage() {
 
   useEffect(() => {
     fetchFeed();
-  }, [wallet]);
+  }, [wallet, sort]);
 
   const loadMore = async () => {
     if (!nextCursor || isLoadingMore || !hasMore) return;
     setIsLoadingMore(true);
     try {
-      const data = await getFeed(wallet, { cursor: nextCursor });
+      const data = await getFeed(wallet, { cursor: nextCursor, sort });
       setPosts((current) => {
         const existingIds = new Set(current.map((post) => post.id));
         return [...current, ...(data.items || []).filter((post) => !existingIds.has(post.id))];
@@ -98,6 +99,11 @@ export default function FeedPage() {
               <path d="M3 3v5h5" />
             </svg>
           </button>
+        </div>
+
+        <div className="flex w-full gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-1">
+          <button type="button" onClick={() => setSort("for-you")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${sort === "for-you" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5"}`}>For You</button>
+          <button type="button" onClick={() => setSort("latest")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${sort === "latest" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5"}`}>Latest</button>
         </div>
 
         <StatusTray />
