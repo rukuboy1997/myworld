@@ -48,11 +48,12 @@ async function requestForm(method, path, formData) {
 }
 
 // ─── Feed ─────────────────────────────────────────────────────────────────────
-export const getFeed = (viewer) =>
-  request(
-    "GET",
-    `/feed${viewer ? `?viewer=${encodeURIComponent(viewer)}` : ""}`,
-  );
+export const getFeed = (viewer, { cursor = null, limit = 20 } = {}) => {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (viewer) params.set("viewer", viewer);
+  if (cursor) params.set("cursor", cursor);
+  return request("GET", `/feed?${params.toString()}`);
+};
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 export const getStats = () => request("GET", "/stats");

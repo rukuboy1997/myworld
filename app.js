@@ -12,6 +12,8 @@ import {
   initDb,
   pool,
   getPosts,
+  getPostsPage,
+  getFeedEngagement,
   getPostById,
   savePost,
   updatePost,
@@ -288,30 +290,61 @@ export function buildApp() {
   // ─── Feed ──────────────────────────────────────────────────────────────
   app.get("/api/feed", async (req, res) => {
     try {
-      const viewer = req.query.viewer || null;
-      const posts = await getPosts();
-      const profiles = await getAllProfiles();
-      const enriched = await Promise.all(
-        posts.map(async (p) => {
-          const likes = await getLikes(p.id);
-          const comments = await getComments(p.id);
-          const profile = profiles[p.owner] || defaultProfile(p.owner);
-          const userLiked = viewer
-            ? likes.some((l) => l.owner === viewer)
-            : false;
-          return {
-            ...p,
-            likes: likes.length,
-            commentCount: comments.length,
-            profile,
-            userLiked,
-          };
-        }),
-      );
-      res.json(enriched);
+      const rawLimit = req.query.limit;
+      const limit = rawLimit === undefined ? 20 : Number.parseInt(rawLimit, 10);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+        return res.status(400).json({ error: "limit must be an integer between 1 and 50" });
+      }
+
+      let beforeCreatedAt = null;
+      let beforeId = null;
+      if (req.query.cursor) {
+        try {
+          const decoded = Buffer.from(String(req.query.cursor), "base64url").toString("utf8");
+          const cursor = JSON.parse(decoded);
+          if (
+            typeof cursor.createdAt !== "string" ||
+            Number.isNaN(Date.parse(cursor.createdAt)) ||
+            typeof cursor.id !== "string" ||
+            !cursor.id
+          ) {
+            throw new Error("Invalid cursor");
+          }
+          beforeCreatedAt = cursor.createdAt;
+          beforeId = cursor.id;
+        } catch {
+          return res.status(400).json({ error: "Invalid feed cursor" });
+        }
+      }
+
+      const viewer = typeof req.query.viewer === "string" ? req.query.viewer : null;
+      const posts = await getPostsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
+      const hasMore = posts.length > limit;
+      const page = hasMore ? posts.slice(0, limit) : posts;
+      const [profiles, engagement] = await Promise.all([
+        getAllProfiles(),
+        getFeedEngagement(page.map((post) => post.id), viewer),
+      ]);
+
+      const items = page.map((post) => ({
+        ...post,
+        ...(engagement[post.id] || { likes: 0, commentCount: 0, userLiked: false }),
+        profile: profiles[post.owner] || defaultProfile(post.owner),
+      }));
+
+      const lastPost = page[page.length - 1];
+      const nextCursor = hasMore && lastPost
+        ? Buffer.from(JSON.stringify({
+            createdAt: lastPost.createdAt,
+            id: lastPost.id,
+          })).toString("base64url")
+        : null;
+
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items, nextCursor, hasMore });
     } catch (err) {
       console.error("feed error:", err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Failed to load feed" });
     }
   });
 
