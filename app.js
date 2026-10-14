@@ -491,8 +491,8 @@ export function buildApp() {
     try {
       const status = await getActiveStatusById(req.params.id, req.userAddress);
       if (!status) return res.status(404).json({ error: "Status not found or unavailable" });
-      await recordStatusView(status.id, req.userAddress);
-      res.json({ ok: true });
+      const recorded = await recordStatusView(status.id, req.userAddress);
+      res.json({ ok: true, recorded });
     } catch (err) {
       console.error("view_status error:", err);
       res.status(500).json({ error: "Failed to record status view" });
