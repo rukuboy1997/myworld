@@ -1,12 +1,29 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
-import { getReels, likePost, truncateAddress } from "../lib/api.js";
+import { getReels, likePost, recordReelWatch, truncateAddress } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
+
+function createPlaybackSessionId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
 
 function ReelCard({ post, address, isAuthenticated, openAuthModal }) {
   const cardRef = useRef(null);
   const videoRef = useRef(null);
+  const watchRef = useRef({
+    sessionId: createPlaybackSessionId(),
+    watchedMs: 0,
+    durationMs: 0,
+    completed: false,
+    lastTickAt: null,
+    lastSentMs: 0,
+    sending: false,
+  });
   const [isVisible, setIsVisible] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
@@ -26,16 +43,71 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal }) {
     return () => observer.disconnect();
   }, []);
 
+  const flushWatch = useCallback(async (force = false) => {
+    if (!isAuthenticated) return;
+    const watch = watchRef.current;
+    if (watch.sending || watch.watchedMs < 1000) return;
+    if (!force && watch.watchedMs - watch.lastSentMs < 5000) return;
+    watch.sending = true;
+    try {
+      await recordReelWatch(post.id, {
+        sessionId: watch.sessionId,
+        watchedMs: Math.floor(watch.watchedMs),
+        durationMs: Math.floor(watch.durationMs),
+        completed: watch.completed,
+      });
+      watch.lastSentMs = watch.watchedMs;
+    } catch (err) {
+      // Analytics must never interrupt playback; a later progress event retries.
+      console.debug("Reel watch tracking skipped", err?.message || err);
+    } finally {
+      watch.sending = false;
+    }
+  }, [isAuthenticated, post.id]);
+
+  const handleTimeUpdate = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const watch = watchRef.current;
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      watch.durationMs = Math.min(video.duration * 1000, 4 * 60 * 60 * 1000);
+    }
+    const now = performance.now();
+    if (!video.paused && !video.seeking && watch.lastTickAt !== null) {
+      const elapsed = now - watch.lastTickAt;
+      // Cap intervals so tab suspension or stalls don't inflate watch time.
+      if (elapsed > 0 && elapsed <= 2000) watch.watchedMs += elapsed;
+    }
+    watch.lastTickAt = now;
+    if (watch.durationMs > 0 && watch.watchedMs >= watch.durationMs * 0.9) {
+      watch.completed = true;
+    }
+    if (watch.watchedMs - watch.lastSentMs >= 5000) flushWatch();
+  };
+
+  const handleVideoPlay = () => {
+    watchRef.current.lastTickAt = performance.now();
+    setIsPlaying(true);
+  };
+
+  const handleVideoPause = () => {
+    watchRef.current.lastTickAt = null;
+    setIsPlaying(false);
+    flushWatch(true);
+  };
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     if (isVisible) {
-      video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      video.play().catch(() => setIsPlaying(false));
     } else {
       video.pause();
       setIsPlaying(false);
     }
   }, [isVisible]);
+
+  useEffect(() => () => { flushWatch(true); }, [flushWatch]);
 
   const togglePlayback = () => {
     const video = videoRef.current;
@@ -82,6 +154,9 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal }) {
           muted={isMuted}
           preload="metadata"
           onClick={togglePlayback}
+          onPlay={handleVideoPlay}
+          onPause={handleVideoPause}
+          onTimeUpdate={handleTimeUpdate}
           onError={() => setMediaError(true)}
           aria-label={caption || "myWorld Reel"}
         />
@@ -175,13 +250,14 @@ export default function ReelsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const [sort, setSort] = useState("for-you");
   const scrollRef = useRef(null);
 
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
-      const result = await getReels(address, { limit: 10 });
+      const result = await getReels({ limit: 10, sort });
       setReels(result.items || []);
       setNextCursor(result.nextCursor || null);
       setHasMore(Boolean(result.hasMore));
@@ -190,7 +266,7 @@ export default function ReelsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [address]);
+  }, [address, sort]);
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
 
@@ -198,7 +274,7 @@ export default function ReelsPage() {
     if (!hasMore || !nextCursor || isLoadingMore) return;
     setIsLoadingMore(true);
     try {
-      const result = await getReels(address, { cursor: nextCursor, limit: 10 });
+      const result = await getReels({ cursor: nextCursor, limit: 10, sort });
       setReels((current) => {
         const existing = new Set(current.map((item) => item.id));
         return [...current, ...(result.items || []).filter((item) => !existing.has(item.id))];
@@ -221,6 +297,19 @@ export default function ReelsPage() {
             <p className="mt-1 text-sm text-muted-foreground">Short videos from the myWorld community.</p>
           </div>
           <Link to="/create" className="shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90">Create post</Link>
+        </div>
+
+        <div className="mb-4 flex w-full gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-1">
+          <button
+            type="button"
+            onClick={() => setSort("for-you")}
+            className={"flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition " + (sort === "for-you" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
+          >For You</button>
+          <button
+            type="button"
+            onClick={() => setSort("latest")}
+            className={"flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition " + (sort === "latest" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
+          >Latest</button>
         </div>
 
         {isLoading ? (

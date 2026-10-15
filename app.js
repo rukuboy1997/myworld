@@ -16,6 +16,8 @@ import {
   getPosts,
   getPostsPage,
   getReelsPage,
+  getRankedReelsPage,
+  recordReelWatch,
   getRankedPostsPage,
   getFeedEngagement,
   createStatus,
@@ -60,6 +62,7 @@ import {
 } from "./data/db.js";
 import {
   requireAuth,
+  optionalAuth,
   signup,
   login,
   getCurrentUser,
@@ -369,22 +372,30 @@ export function buildApp() {
     }
   });
 
-  // Dedicated chronological feed containing video posts only.
-  app.get("/api/reels", async (req, res) => {
+  // Dedicated video-only feed. For You ranks by relevance; Latest stays chronological.
+  app.get("/api/reels", optionalAuth, async (req, res) => {
     try {
       const rawLimit = req.query.limit;
       const limit = rawLimit === undefined ? 10 : Number.parseInt(rawLimit, 10);
       if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
         return res.status(400).json({ error: "limit must be an integer between 1 and 20" });
       }
+      const sort = req.query.sort === undefined ? "for-you" : String(req.query.sort);
+      if (sort !== "for-you" && sort !== "latest") {
+        return res.status(400).json({ error: "sort must be for-you or latest" });
+      }
       let beforeCreatedAt = null;
       let beforeId = null;
+      let beforeScore = null;
       if (req.query.cursor) {
         try {
           const decoded = Buffer.from(String(req.query.cursor), "base64url").toString("utf8");
           const cursor = JSON.parse(decoded);
-          if (typeof cursor.createdAt !== "string" || Number.isNaN(Date.parse(cursor.createdAt)) || typeof cursor.id !== "string" || !cursor.id) {
-            throw new Error("Invalid cursor");
+          if (typeof cursor.createdAt !== "string" || Number.isNaN(Date.parse(cursor.createdAt)) ||
+              typeof cursor.id !== "string" || !cursor.id) throw new Error("Invalid cursor");
+          if (sort === "for-you") {
+            if (typeof cursor.score !== "number" || !Number.isFinite(cursor.score)) throw new Error("Invalid ranked cursor");
+            beforeScore = cursor.score;
           }
           beforeCreatedAt = cursor.createdAt;
           beforeId = cursor.id;
@@ -392,8 +403,11 @@ export function buildApp() {
           return res.status(400).json({ error: "Invalid Reels cursor" });
         }
       }
-      const viewer = typeof req.query.viewer === "string" ? req.query.viewer : null;
-      const posts = await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
+      // Never trust a client-supplied viewer ID for personal recommendations.
+      const viewer = req.userAddress || null;
+      const posts = sort === "for-you"
+        ? await getRankedReelsPage({ viewer, limit: limit + 1, beforeScore, beforeCreatedAt, beforeId })
+        : await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
       const hasMore = posts.length > limit;
       const page = hasMore ? posts.slice(0, limit) : posts;
       const [profiles, engagement] = await Promise.all([
@@ -406,12 +420,44 @@ export function buildApp() {
         profile: profiles[post.owner] || defaultProfile(post.owner),
       }));
       const lastPost = page[page.length - 1];
-      const nextCursor = hasMore && lastPost ? Buffer.from(JSON.stringify({ createdAt: lastPost.createdAt, id: lastPost.id })).toString("base64url") : null;
+      const nextCursor = hasMore && lastPost
+        ? Buffer.from(JSON.stringify({
+            ...(sort === "for-you" ? { score: lastPost.score } : {}),
+            createdAt: lastPost.createdAt,
+            id: lastPost.id,
+          })).toString("base64url")
+        : null;
       res.set("Cache-Control", "private, no-store");
-      res.json({ items, nextCursor, hasMore });
+      res.json({ items, nextCursor, hasMore, sort });
     } catch (err) {
       console.error("reels feed error:", err);
       res.status(500).json({ error: "Failed to load Reels" });
+    }
+  });
+
+  app.post("/api/reels/:id/watch", requireAuth, async (req, res) => {
+    try {
+      const { sessionId, watchedMs, durationMs, completed = false } = req.body || {};
+      if (typeof sessionId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
+        return res.status(400).json({ error: "A valid playback sessionId is required" });
+      }
+      const maxDurationMs = 4 * 60 * 60 * 1000;
+      if (!Number.isInteger(watchedMs) || watchedMs < 0 || watchedMs > maxDurationMs ||
+          !Number.isInteger(durationMs) || durationMs < 0 || durationMs > maxDurationMs ||
+          typeof completed !== "boolean") {
+        return res.status(400).json({ error: "Invalid playback measurements" });
+      }
+      const recorded = await recordReelWatch({
+        sessionId, postId: req.params.id, viewer: req.userAddress,
+        watchedMs, durationMs, completed,
+      });
+      if (!recorded) return res.status(404).json({ error: "Video not found or playback session unavailable" });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ ok: true, watch: recorded });
+    } catch (err) {
+      console.error("record_reel_watch error:", err);
+      res.status(500).json({ error: "Failed to record video watch" });
     }
   });
 

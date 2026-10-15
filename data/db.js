@@ -148,6 +148,21 @@ CREATE TABLE IF NOT EXISTS status_views (
 );
 CREATE INDEX IF NOT EXISTS idx_status_views_viewer ON status_views (viewer, viewed_at DESC);
 
+CREATE TABLE IF NOT EXISTS reel_watch_sessions (
+  session_id      TEXT PRIMARY KEY,
+  post_id         TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  viewer          TEXT NOT NULL,
+  watched_ms      INTEGER NOT NULL DEFAULT 0 CHECK (watched_ms >= 0),
+  duration_ms     INTEGER NOT NULL DEFAULT 0 CHECK (duration_ms >= 0),
+  completed       BOOLEAN NOT NULL DEFAULT FALSE,
+  started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_reel_watch_viewer_updated
+  ON reel_watch_sessions (viewer, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reel_watch_post
+  ON reel_watch_sessions (post_id);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id            TEXT PRIMARY KEY,
   recipient     TEXT NOT NULL,
@@ -383,6 +398,96 @@ export async function getReelsPage({ limit = 10, beforeCreatedAt = null, beforeI
     [beforeCreatedAt, beforeId, safeLimit],
   );
   return rows.map(rowToPost);
+}
+
+export async function recordReelWatch({ sessionId, postId, viewer, watchedMs, durationMs, completed }) {
+  const { rows } = await pool.query(
+    `INSERT INTO reel_watch_sessions
+       (session_id, post_id, viewer, watched_ms, duration_ms, completed)
+     SELECT $1, p.id, $3, $4, $5, $6
+     FROM posts p
+     WHERE p.id = $2
+       AND p.is_deleted = false
+       AND p.media_type = 'video'
+       AND ((p.media_url IS NOT NULL AND p.media_url <> '') OR p.media_blob_id LIKE 'posts/%')
+     ON CONFLICT (session_id) DO UPDATE SET
+       watched_ms = GREATEST(reel_watch_sessions.watched_ms, EXCLUDED.watched_ms),
+       duration_ms = GREATEST(reel_watch_sessions.duration_ms, EXCLUDED.duration_ms),
+       completed = reel_watch_sessions.completed OR EXCLUDED.completed,
+       updated_at = NOW()
+     WHERE reel_watch_sessions.viewer = EXCLUDED.viewer
+       AND reel_watch_sessions.post_id = EXCLUDED.post_id
+     RETURNING session_id, watched_ms, duration_ms, completed`,
+    [sessionId, postId, viewer, watchedMs, durationMs, completed],
+  );
+  return rows[0] || null;
+}
+
+// Personalized ranking blends freshness, engagement, follows, creator affinity,
+// and a penalty for videos the viewer has already watched.
+export async function getRankedReelsPage({ viewer = null, limit = 10, beforeScore = null, beforeCreatedAt = null, beforeId = null } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 10, 1), 31);
+  const { rows } = await pool.query(
+    `WITH engagement AS (
+       SELECT p.id AS post_id,
+         COUNT(DISTINCT l.id)::int AS likes,
+         COUNT(DISTINCT c.id)::int AS comment_count
+       FROM posts p
+       LEFT JOIN likes l ON l.post_id = p.id
+       LEFT JOIN comments c ON c.post_id = p.id
+       WHERE p.is_deleted = false AND p.media_type = 'video'
+       GROUP BY p.id
+     ),
+     viewer_post_watch AS (
+       SELECT post_id, MAX(watched_ms)::int AS max_watched_ms,
+         BOOL_OR(completed) AS completed
+       FROM reel_watch_sessions
+       WHERE viewer = $1
+       GROUP BY post_id
+     ),
+     creator_affinity AS (
+       SELECT p.owner,
+         SUM(LEAST(w.watched_ms, 120000))::bigint AS watched_ms,
+         COUNT(*) FILTER (WHERE w.completed)::int AS completed_views
+       FROM reel_watch_sessions w
+       JOIN posts p ON p.id = w.post_id
+       WHERE w.viewer = $1
+       GROUP BY p.owner
+     ),
+     ranked AS (
+       SELECT p.*,
+         (
+           35.0 * EXP(-GREATEST(EXTRACT(EPOCH FROM (NOW() - p.created_at)), 0) / 259200.0)
+           + 4.5 * LN(1.0 + COALESCE(e.likes, 0))
+           + 7.0 * LN(1.0 + COALESCE(e.comment_count, 0))
+           + CASE WHEN EXISTS (
+               SELECT 1 FROM follows f WHERE f.follower = $1 AND f.following = p.owner
+             ) THEN 14.0 ELSE 0.0 END
+           + LEAST(15.0,
+               3.0 * LN(1.0 + COALESCE(ca.watched_ms, 0) / 30000.0)
+               + 2.0 * LN(1.0 + COALESCE(ca.completed_views, 0))
+             )
+           + CASE WHEN p.owner = $1 THEN -12.0 ELSE 0.0 END
+           + CASE WHEN COALESCE(vw.max_watched_ms, 0) > 0 THEN
+               CASE WHEN COALESCE(vw.completed, false) THEN -18.0 ELSE -7.0 END
+             ELSE 0.0 END
+         )::double precision AS reel_score
+       FROM posts p
+       LEFT JOIN engagement e ON e.post_id = p.id
+       LEFT JOIN viewer_post_watch vw ON vw.post_id = p.id
+       LEFT JOIN creator_affinity ca ON ca.owner = p.owner
+       WHERE p.is_deleted = false
+         AND p.media_type = 'video'
+         AND ((p.media_url IS NOT NULL AND p.media_url <> '') OR p.media_blob_id LIKE 'posts/%')
+     )
+     SELECT * FROM ranked
+     WHERE $2::double precision IS NULL
+        OR (reel_score, created_at, id) < ($2::double precision, $3::timestamptz, $4::text)
+     ORDER BY reel_score DESC, created_at DESC, id DESC
+     LIMIT $5`,
+    [viewer, beforeScore, beforeCreatedAt, beforeId, safeLimit],
+  );
+  return rows.map((row) => ({ ...rowToPost(row), score: Number(row.reel_score) }));
 }
 
 export async function getPosts() {

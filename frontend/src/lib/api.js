@@ -55,12 +55,14 @@ export const getFeed = (viewer, { cursor = null, limit = 20, sort = "latest" } =
   return request("GET", `/feed?${params.toString()}`);
 };
 
-export const getReels = (viewer, { cursor = null, limit = 10 } = {}) => {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (viewer) params.set("viewer", viewer);
+export const getReels = ({ cursor = null, limit = 10, sort = "for-you" } = {}) => {
+  const params = new URLSearchParams({ limit: String(limit), sort });
   if (cursor) params.set("cursor", cursor);
   return request("GET", `/reels?${params.toString()}`);
 };
+
+export const recordReelWatch = (postId, data) =>
+  request("POST", `/reels/${encodeURIComponent(postId)}/watch`, data);
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 export const getStats = () => request("GET", "/stats");
