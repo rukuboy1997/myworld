@@ -312,19 +312,27 @@ export default function ReelsPage() {
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Reels</h1>
             <p className="mt-1 text-sm text-muted-foreground">Short videos from the myWorld community.</p>
           </div>
-          <Link to="/create" className="shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90">Create post</Link>
+          <div className="flex shrink-0 items-center gap-2">
+            {isAuthenticated && <Link to="/reels/analytics" className="rounded-full border border-white/10 px-3 py-2 text-sm font-semibold transition hover:bg-white/5">Analytics</Link>}
+            <Link to="/create" className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90">Create post</Link>
+          </div>
         </div>
 
         <div className="mb-4 flex w-full gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-1">
           <button
             type="button"
             onClick={() => setSort("for-you")}
-            className={"flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition " + (sort === "for-you" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
+            className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold transition " + (sort === "for-you" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
           >For You</button>
           <button
             type="button"
+            onClick={() => setSort("trending")}
+            className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold transition " + (sort === "trending" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
+          >Trending</button>
+          <button
+            type="button"
             onClick={() => setSort("latest")}
-            className={"flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold transition " + (sort === "latest" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
+            className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold transition " + (sort === "latest" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
           >Latest</button>
         </div>
 

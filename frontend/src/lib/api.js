@@ -64,6 +64,8 @@ export const getReels = ({ cursor = null, limit = 10, sort = "for-you" } = {}) =
 export const recordReelWatch = (postId, data) =>
   request("POST", `/reels/${encodeURIComponent(postId)}/watch`, data);
 
+export const getReelAnalytics = () => request("GET", "/reels/analytics");
+
 // ─── Stats ────────────────────────────────────────────────────────────────────
 export const getStats = () => request("GET", "/stats");
 

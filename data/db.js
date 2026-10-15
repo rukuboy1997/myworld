@@ -454,6 +454,16 @@ export async function getRankedReelsPage({ viewer = null, limit = 10, beforeScor
        WHERE w.viewer = $1
        GROUP BY p.owner
      ),
+     watch_performance AS (
+       SELECT post_id,
+         COUNT(DISTINCT viewer)::int AS unique_viewers,
+         SUM(watched_ms)::bigint AS total_watched_ms,
+         CASE WHEN COUNT(*) > 0
+           THEN COUNT(*) FILTER (WHERE completed)::double precision / COUNT(*)
+           ELSE 0.0 END AS completion_rate
+       FROM reel_watch_sessions
+       GROUP BY post_id
+     ),
      base_ranked AS (
        SELECT p.*,
          (
@@ -467,6 +477,9 @@ export async function getRankedReelsPage({ viewer = null, limit = 10, beforeScor
                3.0 * LN(1.0 + COALESCE(ca.watched_ms, 0) / 30000.0)
                + 2.0 * LN(1.0 + COALESCE(ca.completed_views, 0))
              )
+           + 2.5 * LN(1.0 + COALESCE(wp.unique_viewers, 0))
+           + 3.0 * COALESCE(wp.completion_rate, 0)
+           + 1.5 * LN(1.0 + COALESCE(wp.total_watched_ms, 0) / 60000.0)
            + CASE WHEN p.owner = $1 THEN -12.0 ELSE 0.0 END
            + CASE WHEN COALESCE(vw.max_watched_ms, 0) > 0 THEN
                CASE WHEN COALESCE(vw.completed, false) THEN -18.0 ELSE -7.0 END
@@ -476,6 +489,7 @@ export async function getRankedReelsPage({ viewer = null, limit = 10, beforeScor
        LEFT JOIN engagement e ON e.post_id = p.id
        LEFT JOIN viewer_post_watch vw ON vw.post_id = p.id
        LEFT JOIN creator_affinity ca ON ca.owner = p.owner
+       LEFT JOIN watch_performance wp ON wp.post_id = p.id
        WHERE p.is_deleted = false
          AND p.media_type = 'video'
          AND ((p.media_url IS NOT NULL AND p.media_url <> '') OR p.media_blob_id LIKE 'posts/%')
@@ -1222,3 +1236,137 @@ export async function initDb() {
   console.log("[db] Postgres ready");
 }
 
+
+
+// Creator-facing analytics. A view is a distinct authenticated viewer per Reel;
+// watch time and completion use the recorded playback sessions.
+export async function getReelCreatorAnalytics(owner) {
+  const { rows } = await pool.query(
+    `WITH owned_reels AS (
+       SELECT p.id, p.title, p.content, p.media_url, p.media_blob_id, p.created_at
+       FROM posts p
+       WHERE p.owner = $1 AND p.is_deleted = false AND p.media_type = 'video'
+     ),
+     watch_stats AS (
+       SELECT w.post_id,
+         COUNT(DISTINCT w.viewer)::int AS views,
+         COALESCE(SUM(w.watched_ms), 0)::bigint AS watch_time_ms,
+         COALESCE(SUM(w.watched_ms) FILTER (WHERE w.updated_at >= NOW() - INTERVAL '7 days'), 0)::bigint AS watch_time_7d_ms,
+         COUNT(*)::int AS play_sessions,
+         COUNT(*) FILTER (WHERE w.completed)::int AS completions,
+         CASE WHEN COUNT(*) > 0
+           THEN COUNT(*) FILTER (WHERE w.completed)::double precision / COUNT(*)
+           ELSE 0.0 END AS completion_rate,
+         CASE WHEN SUM(w.duration_ms) > 0
+           THEN LEAST(1.0, SUM(w.watched_ms)::double precision / SUM(w.duration_ms))
+           ELSE 0.0 END AS average_watch_ratio
+       FROM reel_watch_sessions w
+       JOIN owned_reels p ON p.id = w.post_id
+       GROUP BY w.post_id
+     ),
+     like_stats AS (
+       SELECT l.post_id, COUNT(*)::int AS likes
+       FROM likes l JOIN owned_reels p ON p.id = l.post_id
+       GROUP BY l.post_id
+     ),
+     comment_stats AS (
+       SELECT c.post_id, COUNT(*)::int AS comments
+       FROM comments c JOIN owned_reels p ON p.id = c.post_id
+       GROUP BY c.post_id
+     )
+     SELECT p.*,
+       COALESCE(w.views, 0)::int AS views,
+       COALESCE(w.watch_time_ms, 0)::bigint AS watch_time_ms,
+       COALESCE(w.watch_time_7d_ms, 0)::bigint AS watch_time_7d_ms,
+       COALESCE(w.play_sessions, 0)::int AS play_sessions,
+       COALESCE(w.completions, 0)::int AS completions,
+       COALESCE(w.completion_rate, 0)::double precision AS completion_rate,
+       COALESCE(w.average_watch_ratio, 0)::double precision AS average_watch_ratio,
+       COALESCE(l.likes, 0)::int AS likes,
+       COALESCE(c.comments, 0)::int AS comments
+     FROM owned_reels p
+     LEFT JOIN watch_stats w ON w.post_id = p.id
+     LEFT JOIN like_stats l ON l.post_id = p.id
+     LEFT JOIN comment_stats c ON c.post_id = p.id
+     ORDER BY p.created_at DESC, p.id DESC`,
+    [owner],
+  );
+  const reels = rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    content: r.content,
+    mediaUrl: r.media_url,
+    mediaBlobId: r.media_blob_id,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+    views: Number(r.views || 0),
+    watchTimeMs: Number(r.watch_time_ms || 0),
+    watchTime7dMs: Number(r.watch_time_7d_ms || 0),
+    playSessions: Number(r.play_sessions || 0),
+    completions: Number(r.completions || 0),
+    completionRate: Number(r.completion_rate || 0),
+    averageWatchRatio: Number(r.average_watch_ratio || 0),
+    likes: Number(r.likes || 0),
+    comments: Number(r.comments || 0),
+  }));
+  return {
+    summary: reels.reduce((sum, reel) => ({
+      reelCount: sum.reelCount + 1,
+      views: sum.views + reel.views,
+      watchTimeMs: sum.watchTimeMs + reel.watchTimeMs,
+      watchTime7dMs: sum.watchTime7dMs + reel.watchTime7dMs,
+      completions: sum.completions + reel.completions,
+      playSessions: sum.playSessions + reel.playSessions,
+      likes: sum.likes + reel.likes,
+      comments: sum.comments + reel.comments,
+    }), { reelCount: 0, views: 0, watchTimeMs: 0, watchTime7dMs: 0, completions: 0, playSessions: 0, likes: 0, comments: 0 }),
+    reels,
+  };
+}
+
+export async function getTrendingReelsPage({ limit = 10, beforeScore = null, beforeCreatedAt = null, beforeId = null } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 10, 1), 31);
+  const { rows } = await pool.query(
+    `WITH engagement AS (
+       SELECT p.id AS post_id,
+         COUNT(DISTINCT l.id)::int AS likes,
+         COUNT(DISTINCT c.id)::int AS comments
+       FROM posts p
+       LEFT JOIN likes l ON l.post_id = p.id
+       LEFT JOIN comments c ON c.post_id = p.id
+       WHERE p.is_deleted = false AND p.media_type = 'video'
+       GROUP BY p.id
+     ),
+     performance AS (
+       SELECT post_id, COUNT(DISTINCT viewer)::int AS views,
+         COALESCE(SUM(watched_ms), 0)::bigint AS watch_ms,
+         COUNT(*) FILTER (WHERE completed)::int AS completions,
+         COUNT(*)::int AS sessions
+       FROM reel_watch_sessions
+       WHERE updated_at >= NOW() - INTERVAL '7 days'
+       GROUP BY post_id
+     ),
+     ranked AS (
+       SELECT p.*,
+         (30.0 * EXP(-GREATEST(EXTRACT(EPOCH FROM (NOW() - p.created_at)), 0) / 604800.0)
+          + 5.0 * LN(1.0 + COALESCE(e.likes, 0))
+          + 7.0 * LN(1.0 + COALESCE(e.comments, 0))
+          + 4.0 * LN(1.0 + COALESCE(perf.views, 0))
+          + 3.0 * LN(1.0 + COALESCE(perf.watch_ms, 0) / 60000.0)
+          + 4.0 * CASE WHEN COALESCE(perf.sessions, 0) > 0
+               THEN COALESCE(perf.completions, 0)::double precision / perf.sessions ELSE 0.0 END
+         )::double precision AS reel_score
+       FROM posts p
+       LEFT JOIN engagement e ON e.post_id = p.id
+       LEFT JOIN performance perf ON perf.post_id = p.id
+       WHERE p.is_deleted = false AND p.media_type = 'video'
+         AND ((p.media_url IS NOT NULL AND p.media_url <> '') OR p.media_blob_id LIKE 'posts/%')
+     )
+     SELECT * FROM ranked
+     WHERE $1::double precision IS NULL
+        OR (reel_score, created_at, id) < ($1::double precision, $2::timestamptz, $3::text)
+     ORDER BY reel_score DESC, created_at DESC, id DESC
+     LIMIT $4`,
+    [beforeScore, beforeCreatedAt, beforeId, safeLimit],
+  );
+  return rows.map((row) => ({ ...rowToPost(row), score: Number(row.reel_score) }));
+}

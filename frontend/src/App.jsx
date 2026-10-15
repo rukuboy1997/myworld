@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import LandingPage from "./pages/LandingPage.jsx";
 import FeedPage from "./pages/FeedPage.jsx";
 import ReelsPage from "./pages/ReelsPage.jsx";
+import ReelsAnalyticsPage from "./pages/ReelsAnalyticsPage.jsx";
 import CreatePostPage from "./pages/CreatePostPage.jsx";
 import ProfilePage from "./pages/ProfilePage.jsx";
 import MessagesPage from "./pages/MessagesPage.jsx";
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/feed" element={<FeedPage />} />
         <Route path="/reels" element={<ReelsPage />} />
+        <Route path="/reels/analytics" element={<ReelsAnalyticsPage />} />
         <Route path="/post/:id" element={<PostPage />} />
         <Route path="/create" element={<CreatePostPage />} />
         <Route path="/profile/:address" element={<ProfilePage />} />
