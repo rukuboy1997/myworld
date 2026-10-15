@@ -9,6 +9,7 @@ import {
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import PostActionsMenu from "./PostActionsMenu.jsx";
+import PhotoViewer from "./PhotoViewer.jsx";
 
 const CONTENT_LIMIT = 200;
 const APP_URL = window.location.origin;
@@ -193,6 +194,7 @@ export default function PostCard({ post, onLikeUpdate, onPostDelete }) {
   const [showShare, setShowShare] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
   const [showActions, setShowActions] = useState(false);
+  const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false);
 
   // Sync liked state when the prop changes (e.g. feed re-fetches)
   useEffect(() => {
@@ -361,26 +363,48 @@ export default function PostCard({ post, onLikeUpdate, onPostDelete }) {
         )}
 
         {post.mediaUrl && post.mediaType === "image" && (
-          <a
-            href={post.mediaUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block rounded-2xl overflow-hidden border border-white/5 bg-black/20 mt-1"
-          >
-            <img
-              src={post.mediaUrl}
-              alt={post.title}
-              className="w-full max-h-[400px] md:max-h-[600px] object-contain"
-              loading="lazy"
-            />
-          </a>
+          <>
+            <button
+              type="button"
+              onClick={() => setIsPhotoViewerOpen(true)}
+              aria-label={`View photo: ${post.title || "Post image"}`}
+              className="group relative mt-1 block w-full overflow-hidden rounded-2xl border border-border bg-black/[0.035] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <img
+                src={post.mediaUrl}
+                alt={post.title || "Post image"}
+                className="mx-auto block max-h-[520px] w-full object-contain transition-transform duration-300 group-hover:scale-[1.01] md:max-h-[680px]"
+                loading="lazy"
+                decoding="async"
+              />
+              <span className="pointer-events-none absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-4-4M11 8v6M8 11h6" />
+                </svg>
+              </span>
+            </button>
+            {isPhotoViewerOpen && (
+              <PhotoViewer
+                src={post.mediaUrl}
+                alt={post.title || "Post image"}
+                caption={post.title}
+                onClose={() => setIsPhotoViewerOpen(false)}
+              />
+            )}
+          </>
         )}
         {post.mediaUrl && post.mediaType === "video" && (
-          <video
-            src={post.mediaUrl}
-            controls
-            className="w-full max-h-[400px] md:max-h-[600px] rounded-2xl border border-white/5 bg-black mt-1"
-          />
+          <div className="mt-1 overflow-hidden rounded-2xl border border-border bg-black">
+            <video
+              src={post.mediaUrl}
+              controls
+              playsInline
+              preload="metadata"
+              aria-label={post.title || "Post video"}
+              className="mx-auto block max-h-[520px] w-full object-contain md:max-h-[680px]"
+            />
+          </div>
         )}
       </div>
 
