@@ -55,9 +55,8 @@ export const getFeed = (viewer, { cursor = null, limit = 20, sort = "latest" } =
   return request("GET", `/feed?${params.toString()}`);
 };
 
-export const getReels = (viewer, { cursor = null, limit = 10, sort = "for-you" } = {}) => {
+export const getReels = ({ cursor = null, limit = 10, sort = "for-you" } = {}) => {
   const params = new URLSearchParams({ limit: String(limit), sort });
-  if (viewer) params.set("viewer", viewer);
   if (cursor) params.set("cursor", cursor);
   return request("GET", `/reels?${params.toString()}`);
 };
