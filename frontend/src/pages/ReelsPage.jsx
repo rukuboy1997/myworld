@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import { getReels, likePost, recordReelWatch, truncateAddress } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
@@ -147,7 +147,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
   const caption = [post.title, post.content].filter(Boolean).join(" — ");
 
   return (
-    <article ref={cardRef} className="reel-card relative mx-auto h-full min-h-[430px] w-full max-w-[560px] snap-start overflow-hidden rounded-3xl border border-white/10 bg-black shadow-2xl">
+    <article ref={cardRef} className="reel-card relative h-[100dvh] min-h-[430px] w-full flex-shrink-0 snap-start snap-always overflow-hidden bg-black sm:mx-auto sm:max-w-[560px] sm:rounded-3xl sm:border sm:border-white/10 sm:shadow-2xl">
       {!mediaError && post.mediaUrl ? (
         <video
           ref={videoRef}
@@ -248,6 +248,8 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
 
 export default function ReelsPage() {
   const { address, isAuthenticated, openAuthModal } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [reels, setReels] = useState([]);
   const [nextCursor, setNextCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
@@ -266,6 +268,17 @@ export default function ReelsPage() {
   const handleVisibilityChange = useCallback((id, visible) => {
     if (visible) setActiveReelId(id);
   }, []);
+
+  const closeReels = useCallback(() => {
+    // React Router records the in-app history index. Use Back when there is
+    // an in-app destination; direct links safely fall back to the feed.
+    const historyIndex = window.history.state?.idx;
+    if (typeof historyIndex === "number" && historyIndex > 0) {
+      navigate(-1);
+    } else {
+      navigate("/feed", { replace: true });
+    }
+  }, [navigate]);
 
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
@@ -286,6 +299,13 @@ export default function ReelsPage() {
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
 
+  // On route changes, begin at the top and let the active card's visibility
+  // observer decide which video should play. The route's natural Back action
+  // remains intact; we do not add fake history entries.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [location.key]);
+
   const loadMore = async () => {
     if (!hasMore || !nextCursor || isLoadingMore) return;
     setIsLoadingMore(true);
@@ -305,53 +325,81 @@ export default function ReelsPage() {
   };
 
   return (
-    <Layout>
-      <div className="mx-auto flex w-full max-w-5xl flex-col px-3 pb-5 pt-4 sm:px-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Reels</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Short videos from the myWorld community.</p>
+    <Layout immersive>
+      <section className="relative h-[100dvh] min-h-0 w-full overflow-hidden bg-black text-white">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-40 bg-gradient-to-b from-black/85 via-black/35 to-transparent" />
+        <header className="absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 px-3 pb-5 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:px-5">
+          <div className="min-w-0">
+            <p className="text-lg font-extrabold tracking-tight text-white sm:text-xl">Reels</p>
+            <p className="mt-0.5 text-xs text-white/65 sm:text-sm">Short videos from your world</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {isAuthenticated && <Link to="/reels/analytics" className="rounded-full border border-white/10 px-3 py-2 text-sm font-semibold transition hover:bg-white/5">Analytics</Link>}
-            <Link to="/create" className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90">Create post</Link>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            {isAuthenticated && (
+              <Link to="/reels/analytics" className="rounded-full border border-white/20 bg-black/35 px-3 py-2 text-xs font-semibold text-white backdrop-blur-md transition hover:bg-white/15 sm:text-sm">
+                Analytics
+              </Link>
+            )}
+            <Link to="/create" className="rounded-full bg-white px-3.5 py-2 text-xs font-bold text-black transition hover:bg-white/85 sm:text-sm">
+              + Create
+            </Link>
+            <button
+              type="button"
+              onClick={closeReels}
+              aria-label="Close Reels and return"
+              title="Back"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-md transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m15 18-6-6 6-6M9 12h12" />
+              </svg>
+            </button>
           </div>
-        </div>
+        </header>
 
-        <div className="mb-4 flex w-full gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-1">
-          <button
-            type="button"
-            onClick={() => setSort("for-you")}
-            className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold transition " + (sort === "for-you" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
-          >For You</button>
-          <button
-            type="button"
-            onClick={() => setSort("trending")}
-            className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold transition " + (sort === "trending" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
-          >Trending</button>
-          <button
-            type="button"
-            onClick={() => setSort("latest")}
-            className={"flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold transition " + (sort === "latest" ? "bg-white/10 text-foreground shadow" : "text-muted-foreground hover:bg-white/5")}
-          >Latest</button>
+        <div className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+4.25rem)] z-30 flex max-w-md gap-1 rounded-full border border-white/15 bg-black/45 p-1 backdrop-blur-md sm:left-5 sm:right-auto sm:top-[calc(env(safe-area-inset-top)+4.5rem)]">
+          {[
+            ["for-you", "For You"],
+            ["trending", "Trending"],
+            ["latest", "Latest"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setSort(value)}
+              aria-pressed={sort === value}
+              className={"flex-1 rounded-full px-3 py-2 text-xs font-bold transition sm:text-sm " + (sort === value ? "bg-white text-black shadow" : "text-white/75 hover:bg-white/10 hover:text-white")}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {isLoading ? (
-          <div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">Loading Reels…</div>
+          <div className="flex h-full items-center justify-center bg-black px-6 pt-24 text-center text-sm text-white/65">
+            <div>
+              <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+              Loading Reels…
+            </div>
+          </div>
         ) : error && reels.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 p-6 text-center">
-            <p className="mb-4 text-sm text-muted-foreground">{error}</p>
-            <button onClick={loadInitial} className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Try again</button>
+          <div className="flex h-full flex-col items-center justify-center bg-black px-6 pt-24 text-center">
+            <span className="mb-3 text-4xl">📡</span>
+            <p className="max-w-sm text-sm text-white/75">{error}</p>
+            <button onClick={loadInitial} className="mt-4 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black">Try again</button>
           </div>
         ) : reels.length === 0 ? (
-          <div className="flex min-h-[55vh] flex-col items-center justify-center rounded-3xl border border-dashed border-white/15 px-6 text-center">
+          <div className="flex h-full flex-col items-center justify-center bg-black px-6 pt-24 text-center">
             <span className="mb-4 text-5xl">🎬</span>
             <h2 className="text-xl font-bold">Your Reels feed starts here</h2>
-            <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">Videos shared as posts will appear here automatically. Upload a video with a caption to publish your first Reel.</p>
-            <Link to="/create" className="mt-5 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground">Create a video post</Link>
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-white/65">Videos shared as posts will appear here automatically. Upload a video with a caption to publish your first Reel.</p>
+            <Link to="/create" className="mt-5 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black">Create a video post</Link>
           </div>
         ) : (
-          <div ref={scrollRef} className="flex h-[calc(100svh-14rem)] min-h-[430px] snap-y snap-mandatory flex-col gap-4 overflow-y-auto pb-4 md:h-[calc(100svh-12rem)] md:min-h-[500px]">
+          <div
+            ref={scrollRef}
+            className="absolute inset-0 flex h-full snap-y snap-mandatory flex-col overflow-y-auto overscroll-y-contain bg-black [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            aria-label="Reels video feed"
+          >
             {reels.map((post, index) => (
               <ReelCard
                 key={post.id}
@@ -364,17 +412,17 @@ export default function ReelsPage() {
               />
             ))}
             {hasMore && (
-              <div className="flex justify-center py-5">
-                <button onClick={loadMore} disabled={isLoadingMore} className="rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold transition hover:bg-white/5 disabled:opacity-60">
+              <div className="flex min-h-24 flex-shrink-0 items-center justify-center bg-black pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
+                <button onClick={loadMore} disabled={isLoadingMore} className="rounded-full border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15 disabled:opacity-60">
                   {isLoadingMore ? "Loading more videos…" : "Load more Reels"}
                 </button>
               </div>
             )}
-            {!hasMore && <p className="py-5 text-center text-xs text-muted-foreground">You're all caught up 🎉</p>}
-            {error && <p className="py-2 text-center text-sm text-rose-400">{error}</p>}
+            {!hasMore && <p className="flex min-h-16 flex-shrink-0 items-center justify-center bg-black pb-[calc(env(safe-area-inset-bottom)+1rem)] text-xs text-white/55">You're all caught up 🎉</p>}
+            {error && <p className="flex-shrink-0 bg-black py-3 text-center text-sm text-rose-300">{error}</p>}
           </div>
         )}
-      </div>
+      </section>
     </Layout>
   );
 }
