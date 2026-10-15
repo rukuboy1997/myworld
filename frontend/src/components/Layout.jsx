@@ -163,6 +163,7 @@ export default function Layout({ children }) {
         <nav className="hidden md:flex items-center gap-6">
           {[
             { path: "/feed", label: "Feed" },
+            { path: "/reels", label: "Reels" },
             { path: "/explore", label: "Explore" },
             { path: "/messages", label: "Messages", badge: unreadMsgs },
             {
@@ -371,6 +372,17 @@ export default function Layout({ children }) {
             </svg>
           </Link>
 
+          <Link
+            to="/reels"
+            aria-label="Reels"
+            className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${isActive("/reels") ? "text-primary" : "text-muted-foreground"}`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="4" />
+              <path d="m9 3 6 6M15 3l6 6M3 9l6 6M9 21l6-6M15 21l6-6" />
+              <path d="m10 8 6 4-6 4z" fill="currentColor" stroke="none" />
+            </svg>
+          </Link>
           <Link
             to="/create"
             className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:bg-primary/90 transition-all active:scale-95 border-2 border-background -mt-5"

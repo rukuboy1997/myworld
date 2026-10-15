@@ -365,6 +365,26 @@ export async function getRankedPostsPage({ viewer = null, limit = 20, beforeScor
   return rows.map((row) => ({ ...rowToPost(row), score: Number(row.feed_score) }));
 }
 
+// Dedicated video-only feed for the Reels experience.
+export async function getReelsPage({ limit = 10, beforeCreatedAt = null, beforeId = null } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 10, 1), 31);
+  const { rows } = await pool.query(
+    `SELECT *
+     FROM posts
+     WHERE is_deleted = false
+       AND media_type = 'video'
+       AND ((media_url IS NOT NULL AND media_url <> '') OR media_blob_id LIKE 'posts/%')
+       AND (
+         $1::timestamptz IS NULL
+         OR (created_at, id) < ($1::timestamptz, $2::text)
+       )
+     ORDER BY created_at DESC, id DESC
+     LIMIT $3`,
+    [beforeCreatedAt, beforeId, safeLimit],
+  );
+  return rows.map(rowToPost);
+}
+
 export async function getPosts() {
   const { rows } = await pool.query(
     `SELECT * FROM posts WHERE is_deleted = false ORDER BY created_at DESC, id DESC`,

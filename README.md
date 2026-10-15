@@ -10,6 +10,7 @@ myWorld is being built as an addictive, polished social platform where users can
 
 - Create accounts and secure profiles
 - Publish text, images, and videos
+- Browse a dedicated vertical Reels feed with autoplay, likes, comments links, and sharing
 - Share text, image, and video statuses that expire after 24 hours
 - Control status audience and see unique viewers
 - Like and comment on posts
@@ -71,6 +72,15 @@ Status API routes:
 - `POST /api/statuses/:id/view` — record a unique view
 - `GET /api/statuses/:id/viewers` — list viewers for the owner's active status
 
+## Reels
+
+The web Reels page (`/reels`) uses a dedicated video-only API feed. Videos are ordered newest-first and paginated separately from the Home feed. The player attempts muted inline autoplay while a Reel is in view, pauses videos out of view, and provides mute, like, share, creator profile, and post/comment navigation controls.
+
+Reels API route:
+- `GET /api/reels?limit=10&cursor=...&viewer=...` — paginated video posts with profile and engagement data
+
+Reels are existing video posts, so creators can publish a video through the normal Create Post flow. The Home feed continues to contain text, image, and video posts.
+
 ## Firebase Realtime Database
 
 Firebase Realtime Database powers realtime social features.
@@ -127,6 +137,7 @@ frontend/src/
     theme.jsx
   pages/
     FeedPage.jsx
+    ReelsPage.jsx
     CreatePostPage.jsx
     ProfilePage.jsx
     ExplorePage.jsx

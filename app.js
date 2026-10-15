@@ -15,6 +15,7 @@ import {
   pool,
   getPosts,
   getPostsPage,
+  getReelsPage,
   getRankedPostsPage,
   getFeedEngagement,
   createStatus,
@@ -365,6 +366,52 @@ export function buildApp() {
     } catch (err) {
       console.error("feed error:", err);
       res.status(500).json({ error: "Failed to load feed" });
+    }
+  });
+
+  // Dedicated chronological feed containing video posts only.
+  app.get("/api/reels", async (req, res) => {
+    try {
+      const rawLimit = req.query.limit;
+      const limit = rawLimit === undefined ? 10 : Number.parseInt(rawLimit, 10);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
+        return res.status(400).json({ error: "limit must be an integer between 1 and 20" });
+      }
+      let beforeCreatedAt = null;
+      let beforeId = null;
+      if (req.query.cursor) {
+        try {
+          const decoded = Buffer.from(String(req.query.cursor), "base64url").toString("utf8");
+          const cursor = JSON.parse(decoded);
+          if (typeof cursor.createdAt !== "string" || Number.isNaN(Date.parse(cursor.createdAt)) || typeof cursor.id !== "string" || !cursor.id) {
+            throw new Error("Invalid cursor");
+          }
+          beforeCreatedAt = cursor.createdAt;
+          beforeId = cursor.id;
+        } catch {
+          return res.status(400).json({ error: "Invalid Reels cursor" });
+        }
+      }
+      const viewer = typeof req.query.viewer === "string" ? req.query.viewer : null;
+      const posts = await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
+      const hasMore = posts.length > limit;
+      const page = hasMore ? posts.slice(0, limit) : posts;
+      const [profiles, engagement] = await Promise.all([
+        getAllProfiles(),
+        getFeedEngagement(page.map((post) => post.id), viewer),
+      ]);
+      const items = page.map((post) => ({
+        ...post,
+        ...(engagement[post.id] || { likes: 0, commentCount: 0, userLiked: false }),
+        profile: profiles[post.owner] || defaultProfile(post.owner),
+      }));
+      const lastPost = page[page.length - 1];
+      const nextCursor = hasMore && lastPost ? Buffer.from(JSON.stringify({ createdAt: lastPost.createdAt, id: lastPost.id })).toString("base64url") : null;
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items, nextCursor, hasMore });
+    } catch (err) {
+      console.error("reels feed error:", err);
+      res.status(500).json({ error: "Failed to load Reels" });
     }
   });
 
