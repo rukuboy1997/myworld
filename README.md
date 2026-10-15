@@ -79,8 +79,11 @@ The web Reels page (`/reels`) uses a dedicated video-only API feed. **For You** 
 Authenticated playback sessions report cumulative watch duration and completion signals to PostgreSQL. Session IDs make repeated progress updates idempotent; the API derives viewer identity from the authenticated account rather than trusting client-supplied identity.
 
 Reels API routes:
-- `GET /api/reels?limit=10&sort=for-you|latest&cursor=...` — paginated video posts with profile and engagement data; viewer identity is derived from the optional auth token
+- `GET /api/reels?limit=10&sort=for-you|trending|latest&cursor=...` — paginated video posts with profile and engagement data; viewer identity is derived from the optional auth token
 - `POST /api/reels/:id/watch` — authenticated playback-duration/completion updates used to improve recommendations
+- `GET /api/reels/analytics` — private creator analytics for the signed-in account, including per-Reel distinct authenticated viewers, watch time, completion rate, likes, and comments
+
+The Reels page also includes a **Trending** feed ranked using recent watch activity, completions, likes, comments, and freshness. For You now incorporates aggregate watch performance alongside the existing personalized signals. The private creator dashboard is available at `/reels/analytics`. View counts reflect distinct authenticated viewers recorded by the playback tracker; signed-out plays are not included in creator analytics.
 
 Reels are existing video posts, so creators can publish a video through the normal Create Post flow. The Home feed continues to contain text, image, and video posts.
 
