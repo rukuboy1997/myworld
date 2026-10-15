@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import PostCard from "../components/PostCard.jsx";
 import StatusTray from "../components/StatusTray.jsx";
@@ -27,6 +27,7 @@ function NavIcon({ children }) {
 
 export default function FeedPage() {
   const { address: wallet, user, isAuthenticated, openAuthModal } = useAuth();
+  const navigate = useNavigate();
   const [posts, setPosts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -199,7 +200,7 @@ export default function FeedPage() {
               )}
               <button
                 type="button"
-                onClick={() => (isAuthenticated ? (window.location.href = "/create") : openAuthModal("signin"))}
+                onClick={() => (isAuthenticated ? navigate("/create") : openAuthModal("signin"))}
                 className="interactive-surface min-w-0 flex-1 rounded-full border border-border bg-secondary/60 px-4 py-3 text-left text-sm text-muted-foreground hover:text-foreground"
               >
                 What's happening in your world?
