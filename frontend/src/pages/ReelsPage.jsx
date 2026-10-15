@@ -257,7 +257,7 @@ export default function ReelsPage() {
     setIsLoading(true);
     setError("");
     try {
-      const result = await getReels(address, { limit: 10, sort });
+      const result = await getReels({ limit: 10, sort });
       setReels(result.items || []);
       setNextCursor(result.nextCursor || null);
       setHasMore(Boolean(result.hasMore));
@@ -274,7 +274,7 @@ export default function ReelsPage() {
     if (!hasMore || !nextCursor || isLoadingMore) return;
     setIsLoadingMore(true);
     try {
-      const result = await getReels(address, { cursor: nextCursor, limit: 10, sort });
+      const result = await getReels({ cursor: nextCursor, limit: 10, sort });
       setReels((current) => {
         const existing = new Set(current.map((item) => item.id));
         return [...current, ...(result.items || []).filter((item) => !existing.has(item.id))];
