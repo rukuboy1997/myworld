@@ -454,7 +454,7 @@ export async function getRankedReelsPage({ viewer = null, limit = 10, beforeScor
        WHERE w.viewer = $1
        GROUP BY p.owner
      ),
-     ranked AS (
+     base_ranked AS (
        SELECT p.*,
          (
            35.0 * EXP(-GREATEST(EXTRACT(EPOCH FROM (NOW() - p.created_at)), 0) / 259200.0)
@@ -471,7 +471,7 @@ export async function getRankedReelsPage({ viewer = null, limit = 10, beforeScor
            + CASE WHEN COALESCE(vw.max_watched_ms, 0) > 0 THEN
                CASE WHEN COALESCE(vw.completed, false) THEN -18.0 ELSE -7.0 END
              ELSE 0.0 END
-         )::double precision AS reel_score
+         )::double precision AS base_score
        FROM posts p
        LEFT JOIN engagement e ON e.post_id = p.id
        LEFT JOIN viewer_post_watch vw ON vw.post_id = p.id
@@ -479,6 +479,19 @@ export async function getRankedReelsPage({ viewer = null, limit = 10, beforeScor
        WHERE p.is_deleted = false
          AND p.media_type = 'video'
          AND ((p.media_url IS NOT NULL AND p.media_url <> '') OR p.media_blob_id LIKE 'posts/%')
+     ),
+     creator_diversity AS (
+       SELECT base_ranked.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY owner
+           ORDER BY base_score DESC, created_at DESC, id DESC
+         ) AS creator_position
+       FROM base_ranked
+     ),
+     ranked AS (
+       SELECT creator_diversity.*,
+         (base_score - LEAST(12.0, GREATEST(creator_position - 1, 0) * 2.5))::double precision AS reel_score
+       FROM creator_diversity
      )
      SELECT * FROM ranked
      WHERE $2::double precision IS NULL
@@ -489,7 +502,6 @@ export async function getRankedReelsPage({ viewer = null, limit = 10, beforeScor
   );
   return rows.map((row) => ({ ...rowToPost(row), score: Number(row.reel_score) }));
 }
-
 export async function getPosts() {
   const { rows } = await pool.query(
     `SELECT * FROM posts WHERE is_deleted = false ORDER BY created_at DESC, id DESC`,
