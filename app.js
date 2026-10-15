@@ -395,7 +395,7 @@ export function buildApp() {
           const cursor = JSON.parse(decoded);
           if (typeof cursor.createdAt !== "string" || Number.isNaN(Date.parse(cursor.createdAt)) ||
               typeof cursor.id !== "string" || !cursor.id) throw new Error("Invalid cursor");
-          if (sort === "for-you") {
+          if (sort === "for-you" || sort === "trending") {
             if (typeof cursor.score !== "number" || !Number.isFinite(cursor.score)) throw new Error("Invalid ranked cursor");
             beforeScore = cursor.score;
           }
@@ -426,7 +426,7 @@ export function buildApp() {
       const lastPost = page[page.length - 1];
       const nextCursor = hasMore && lastPost
         ? Buffer.from(JSON.stringify({
-            ...(sort === "for-you" ? { score: lastPost.score } : {}),
+            ...(sort === "for-you" || sort === "trending" ? { score: lastPost.score } : {}),
             createdAt: lastPost.createdAt,
             id: lastPost.id,
           })).toString("base64url")
