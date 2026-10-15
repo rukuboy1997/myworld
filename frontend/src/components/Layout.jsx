@@ -148,7 +148,7 @@ export default function Layout({ children }) {
       )}
 
       {/* Top Header */}
-      <header className="sticky top-0 z-50 glass-panel border-b border-white/10 px-4 h-14 md:h-16 flex items-center justify-between">
+      <header className="sticky top-0 z-50 glass-panel border-b border-border px-4 h-14 md:h-16 flex items-center justify-between">
         <Link to="/feed" className="flex items-center gap-2">
           <img
             src="/logo.png"
@@ -175,7 +175,7 @@ export default function Layout({ children }) {
             <Link
               key={link.path}
               to={link.path}
-              className={`font-medium transition-colors hover:text-primary relative ${isActive(link.path) ? "text-primary" : "text-muted-foreground"}`}
+              className={`relative rounded-full px-3 py-2 text-sm font-semibold transition-colors hover:bg-secondary hover:text-foreground ${isActive(link.path) ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}
             >
               {link.label}
               {link.badge > 0 && (
@@ -350,8 +350,8 @@ export default function Layout({ children }) {
       </header>
 
       {/* Mobile Bottom Nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-panel border-t border-white/10">
-        <div className="h-16 flex items-center justify-around px-2">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-panel border-t border-border pb-[env(safe-area-inset-bottom)]">
+        <div className="flex h-16 items-center justify-around px-2">
           <Link
             to="/feed"
             className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${isActive("/feed") ? "text-primary" : "text-muted-foreground"}`}
@@ -496,7 +496,7 @@ export default function Layout({ children }) {
         </div>
       </nav>
 
-      <main className="flex-1 flex flex-col relative pb-16 md:pb-0">
+      <main className="flex-1 flex flex-col relative pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
         {children}
       </main>
 
