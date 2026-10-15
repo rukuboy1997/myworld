@@ -12,7 +12,7 @@ function createPlaybackSessionId() {
   });
 }
 
-function ReelCard({ post, address, isAuthenticated, openAuthModal }) {
+function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload, onVisibilityChange }) {
   const cardRef = useRef(null);
   const videoRef = useRef(null);
   const watchRef = useRef({
@@ -36,12 +36,16 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal }) {
     const node = cardRef.current;
     if (!node) return undefined;
     const observer = new IntersectionObserver(
-      ([entry]) => setIsVisible(entry.isIntersecting && entry.intersectionRatio >= 0.6),
+      ([entry]) => {
+        const visible = entry.isIntersecting && entry.intersectionRatio >= 0.6;
+        setIsVisible(visible);
+        onVisibilityChange?.(post.id, visible);
+      },
       { threshold: [0, 0.3, 0.6, 0.85, 1] },
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [onVisibilityChange, post.id]);
 
   const flushWatch = useCallback(async (force = false) => {
     if (!isAuthenticated) return;
@@ -152,7 +156,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal }) {
           playsInline
           loop
           muted={isMuted}
-          preload="metadata"
+          preload={isVisible || shouldPreload ? "auto" : "metadata"}
           onClick={togglePlayback}
           onPlay={handleVideoPlay}
           onPause={handleVideoPause}
@@ -251,7 +255,17 @@ export default function ReelsPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [sort, setSort] = useState("for-you");
+  const [activeReelId, setActiveReelId] = useState(null);
   const scrollRef = useRef(null);
+  const activeIndex = Math.max(0, reels.findIndex((item) => item.id === activeReelId));
+  const [canPreloadAhead] = useState(() => {
+    if (typeof navigator === "undefined") return false;
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    return !connection?.saveData && !/^(slow-2g|2g)$/.test(connection?.effectiveType || "");
+  });
+  const handleVisibilityChange = useCallback((id, visible) => {
+    if (visible) setActiveReelId(id);
+  }, []);
 
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
@@ -259,6 +273,8 @@ export default function ReelsPage() {
     try {
       const result = await getReels({ limit: 10, sort });
       setReels(result.items || []);
+      setActiveReelId(null);
+      if (scrollRef.current) scrollRef.current.scrollTop = 0;
       setNextCursor(result.nextCursor || null);
       setHasMore(Boolean(result.hasMore));
     } catch (err) {
@@ -328,7 +344,17 @@ export default function ReelsPage() {
           </div>
         ) : (
           <div ref={scrollRef} className="flex h-[calc(100svh-14rem)] min-h-[430px] snap-y snap-mandatory flex-col gap-4 overflow-y-auto pb-4 md:h-[calc(100svh-12rem)] md:min-h-[500px]">
-            {reels.map((post) => <ReelCard key={post.id} post={post} address={address} isAuthenticated={isAuthenticated} openAuthModal={openAuthModal} />)}
+            {reels.map((post, index) => (
+              <ReelCard
+                key={post.id}
+                post={post}
+                address={address}
+                isAuthenticated={isAuthenticated}
+                openAuthModal={openAuthModal}
+                onVisibilityChange={handleVisibilityChange}
+                shouldPreload={canPreloadAhead && (index === activeIndex || index === activeIndex + 1)}
+              />
+            ))}
             {hasMore && (
               <div className="flex justify-center py-5">
                 <button onClick={loadMore} disabled={isLoadingMore} className="rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold transition hover:bg-white/5 disabled:opacity-60">
