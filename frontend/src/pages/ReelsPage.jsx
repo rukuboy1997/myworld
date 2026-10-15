@@ -71,7 +71,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal }) {
   const caption = [post.title, post.content].filter(Boolean).join(" — ");
 
   return (
-    <article ref={cardRef} className="reel-card relative mx-auto h-[calc(100svh-9.5rem)] min-h-[430px] max-h-[900px] w-full max-w-[560px] snap-start overflow-hidden rounded-3xl border border-white/10 bg-black shadow-2xl">
+    <article ref={cardRef} className="reel-card relative mx-auto h-full min-h-[430px] w-full max-w-[560px] snap-start overflow-hidden rounded-3xl border border-white/10 bg-black shadow-2xl">
       {!mediaError && post.mediaUrl ? (
         <video
           ref={videoRef}
@@ -238,7 +238,7 @@ export default function ReelsPage() {
             <Link to="/create" className="mt-5 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground">Create a video post</Link>
           </div>
         ) : (
-          <div ref={scrollRef} className="flex flex-col snap-y snap-mandatory gap-4 overflow-y-auto pb-4">
+          <div ref={scrollRef} className="flex h-[calc(100svh-14rem)] min-h-[430px] snap-y snap-mandatory flex-col gap-4 overflow-y-auto pb-4 md:h-[calc(100svh-12rem)] md:min-h-[500px]">
             {reels.map((post) => <ReelCard key={post.id} post={post} address={address} isAuthenticated={isAuthenticated} openAuthModal={openAuthModal} />)}
             {hasMore && (
               <div className="flex justify-center py-5">
