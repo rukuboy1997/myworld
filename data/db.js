@@ -373,8 +373,7 @@ export async function getReelsPage({ limit = 10, beforeCreatedAt = null, beforeI
      FROM posts
      WHERE is_deleted = false
        AND media_type = 'video'
-       AND media_url IS NOT NULL
-       AND media_url <> ''
+       AND ((media_url IS NOT NULL AND media_url <> '') OR media_blob_id LIKE 'posts/%')
        AND (
          $1::timestamptz IS NULL
          OR (created_at, id) < ($1::timestamptz, $2::text)
