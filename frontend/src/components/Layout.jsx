@@ -13,7 +13,7 @@ import InviteModal from "./InviteModal.jsx";
 import { updatePresence } from "../lib/firebase.js";
 import ThemeToggle from "./ThemeToggle.jsx";
 
-export default function Layout({ children }) {
+export default function Layout({ children, immersive = false }) {
   const { user, address, isAuthenticated, isLoading, signOut, openAuthModal } =
     useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -109,6 +109,8 @@ export default function Layout({ children }) {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground">
+      {!immersive && (
+        <>
       {/* Email verification banner */}
       {verifyBanner && (
         <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between gap-3 text-xs md:text-sm">
@@ -496,7 +498,10 @@ export default function Layout({ children }) {
         </div>
       </nav>
 
-      <main className="flex-1 flex flex-col relative pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
+        </>
+      )}
+
+      <main className={immersive ? "flex-1 min-h-0 flex flex-col relative pb-0" : "flex-1 flex flex-col relative pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0"}>
         {children}
       </main>
 
