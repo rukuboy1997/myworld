@@ -17,6 +17,8 @@ import {
   getPostsPage,
   getReelsPage,
   getRankedReelsPage,
+  getTrendingReelsPage,
+  getReelCreatorAnalytics,
   recordReelWatch,
   getRankedPostsPage,
   getFeedEngagement,
@@ -328,7 +330,7 @@ export function buildApp() {
             typeof cursor.id !== "string" ||
             !cursor.id
           ) throw new Error("Invalid cursor");
-          if (sort === "for-you") {
+          if (sort === "for-you" || sort === "trending") {
             if (typeof cursor.score !== "number" || !Number.isFinite(cursor.score)) throw new Error("Invalid ranked cursor");
             beforeScore = cursor.score;
           }
@@ -359,7 +361,7 @@ export function buildApp() {
       const lastPost = page[page.length - 1];
       const nextCursor = hasMore && lastPost
         ? Buffer.from(JSON.stringify({
-            ...(sort === "for-you" ? { score: lastPost.score } : {}),
+            ...(sort === "for-you" || sort === "trending" ? { score: lastPost.score } : {}),
             createdAt: lastPost.createdAt,
             id: lastPost.id,
           })).toString("base64url")
@@ -381,8 +383,8 @@ export function buildApp() {
         return res.status(400).json({ error: "limit must be an integer between 1 and 20" });
       }
       const sort = req.query.sort === undefined ? "for-you" : String(req.query.sort);
-      if (sort !== "for-you" && sort !== "latest") {
-        return res.status(400).json({ error: "sort must be for-you or latest" });
+      if (sort !== "for-you" && sort !== "latest" && sort !== "trending") {
+        return res.status(400).json({ error: "sort must be for-you, latest, or trending" });
       }
       let beforeCreatedAt = null;
       let beforeId = null;
@@ -407,7 +409,9 @@ export function buildApp() {
       const viewer = req.userAddress || null;
       const posts = sort === "for-you"
         ? await getRankedReelsPage({ viewer, limit: limit + 1, beforeScore, beforeCreatedAt, beforeId })
-        : await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
+        : sort === "trending"
+          ? await getTrendingReelsPage({ limit: limit + 1, beforeScore, beforeCreatedAt, beforeId })
+          : await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
       const hasMore = posts.length > limit;
       const page = hasMore ? posts.slice(0, limit) : posts;
       const [profiles, engagement] = await Promise.all([
@@ -458,6 +462,18 @@ export function buildApp() {
     } catch (err) {
       console.error("record_reel_watch error:", err);
       res.status(500).json({ error: "Failed to record video watch" });
+    }
+  });
+
+  // Private creator dashboard: only the authenticated creator can view their own Reel analytics.
+  app.get("/api/reels/analytics", requireAuth, async (req, res) => {
+    try {
+      const analytics = await getReelCreatorAnalytics(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json(analytics);
+    } catch (err) {
+      console.error("reel_analytics error:", err);
+      res.status(500).json({ error: "Failed to load Reel analytics" });
     }
   });
 
