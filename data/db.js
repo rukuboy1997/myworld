@@ -1242,29 +1242,53 @@ export async function initDb() {
 // watch time and completion use the recorded playback sessions.
 export async function getReelCreatorAnalytics(owner) {
   const { rows } = await pool.query(
-    `WITH reel_stats AS (
-       SELECT p.id, p.title, p.content, p.media_url, p.media_blob_id, p.created_at,
+    `WITH owned_reels AS (
+       SELECT p.id, p.title, p.content, p.media_url, p.media_blob_id, p.created_at
+       FROM posts p
+       WHERE p.owner = $1 AND p.is_deleted = false AND p.media_type = 'video'
+     ),
+     watch_stats AS (
+       SELECT w.post_id,
          COUNT(DISTINCT w.viewer)::int AS views,
          COALESCE(SUM(w.watched_ms), 0)::bigint AS watch_time_ms,
          COALESCE(SUM(w.watched_ms) FILTER (WHERE w.updated_at >= NOW() - INTERVAL '7 days'), 0)::bigint AS watch_time_7d_ms,
-         COUNT(w.session_id)::int AS play_sessions,
+         COUNT(*)::int AS play_sessions,
          COUNT(*) FILTER (WHERE w.completed)::int AS completions,
-         CASE WHEN COUNT(w.session_id) > 0
-           THEN COUNT(*) FILTER (WHERE w.completed)::double precision / COUNT(w.session_id)
+         CASE WHEN COUNT(*) > 0
+           THEN COUNT(*) FILTER (WHERE w.completed)::double precision / COUNT(*)
            ELSE 0.0 END AS completion_rate,
          CASE WHEN SUM(w.duration_ms) > 0
            THEN LEAST(1.0, SUM(w.watched_ms)::double precision / SUM(w.duration_ms))
-           ELSE 0.0 END AS average_watch_ratio,
-         COUNT(DISTINCT l.id)::int AS likes,
-         COUNT(DISTINCT c.id)::int AS comments
-       FROM posts p
-       LEFT JOIN reel_watch_sessions w ON w.post_id = p.id
-       LEFT JOIN likes l ON l.post_id = p.id
-       LEFT JOIN comments c ON c.post_id = p.id
-       WHERE p.owner = $1 AND p.is_deleted = false AND p.media_type = 'video'
-       GROUP BY p.id
+           ELSE 0.0 END AS average_watch_ratio
+       FROM reel_watch_sessions w
+       JOIN owned_reels p ON p.id = w.post_id
+       GROUP BY w.post_id
+     ),
+     like_stats AS (
+       SELECT l.post_id, COUNT(*)::int AS likes
+       FROM likes l JOIN owned_reels p ON p.id = l.post_id
+       GROUP BY l.post_id
+     ),
+     comment_stats AS (
+       SELECT c.post_id, COUNT(*)::int AS comments
+       FROM comments c JOIN owned_reels p ON p.id = c.post_id
+       GROUP BY c.post_id
      )
-     SELECT * FROM reel_stats ORDER BY created_at DESC, id DESC`,
+     SELECT p.*,
+       COALESCE(w.views, 0)::int AS views,
+       COALESCE(w.watch_time_ms, 0)::bigint AS watch_time_ms,
+       COALESCE(w.watch_time_7d_ms, 0)::bigint AS watch_time_7d_ms,
+       COALESCE(w.play_sessions, 0)::int AS play_sessions,
+       COALESCE(w.completions, 0)::int AS completions,
+       COALESCE(w.completion_rate, 0)::double precision AS completion_rate,
+       COALESCE(w.average_watch_ratio, 0)::double precision AS average_watch_ratio,
+       COALESCE(l.likes, 0)::int AS likes,
+       COALESCE(c.comments, 0)::int AS comments
+     FROM owned_reels p
+     LEFT JOIN watch_stats w ON w.post_id = p.id
+     LEFT JOIN like_stats l ON l.post_id = p.id
+     LEFT JOIN comment_stats c ON c.post_id = p.id
+     ORDER BY p.created_at DESC, p.id DESC`,
     [owner],
   );
   const reels = rows.map((r) => ({
