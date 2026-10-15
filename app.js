@@ -62,6 +62,7 @@ import {
 } from "./data/db.js";
 import {
   requireAuth,
+  optionalAuth,
   signup,
   login,
   getCurrentUser,
@@ -372,7 +373,7 @@ export function buildApp() {
   });
 
   // Dedicated video-only feed. For You ranks by relevance; Latest stays chronological.
-  app.get("/api/reels", async (req, res) => {
+  app.get("/api/reels", optionalAuth, async (req, res) => {
     try {
       const rawLimit = req.query.limit;
       const limit = rawLimit === undefined ? 10 : Number.parseInt(rawLimit, 10);
@@ -402,7 +403,8 @@ export function buildApp() {
           return res.status(400).json({ error: "Invalid Reels cursor" });
         }
       }
-      const viewer = typeof req.query.viewer === "string" ? req.query.viewer : null;
+      // Never trust a client-supplied viewer ID for personal recommendations.
+      const viewer = req.userAddress || null;
       const posts = sort === "for-you"
         ? await getRankedReelsPage({ viewer, limit: limit + 1, beforeScore, beforeCreatedAt, beforeId })
         : await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
