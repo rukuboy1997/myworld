@@ -74,7 +74,7 @@ Status API routes:
 
 ## Reels
 
-The web Reels page (`/reels`) uses a dedicated video-only API feed. **For You** ranks videos using freshness, likes, comments, followed creators, creator affinity from watch history, and a penalty for videos already watched. **Latest** preserves chronological ordering. Both modes use cursor pagination separately from the Home feed. The player attempts muted inline autoplay while a Reel is in view, pauses videos out of view, and provides mute, like, share, creator profile, and post/comment navigation controls.
+The web Reels page (`/reels`) uses a dedicated video-only API feed. **For You** ranks videos using freshness, likes, comments, followed creators, creator affinity from watch history, and a penalty for videos already watched. It also applies a creator-diversity penalty to reduce consecutive recommendations from the same creator. **Latest** preserves chronological ordering. Both modes use cursor pagination separately from the Home feed. The player attempts muted inline autoplay while a Reel is in view, pauses videos out of view, and provides mute, like, share, creator profile, and post/comment navigation controls. The active Reel and the next Reel are preloaded opportunistically on connections that do not signal Data Saver or 2G, while other videos remain metadata-only to limit unnecessary data usage.
 
 Authenticated playback sessions report cumulative watch duration and completion signals to PostgreSQL. Session IDs make repeated progress updates idempotent; the API derives viewer identity from the authenticated account rather than trusting client-supplied identity.
 
