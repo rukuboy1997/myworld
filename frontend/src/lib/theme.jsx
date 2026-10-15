@@ -8,47 +8,35 @@ const ThemeContext = createContext({
 });
 
 const STORAGE_KEY = "myworld_theme";
+const VALID_THEMES = new Set(["dark", "light"]);
+
+function getInitialTheme() {
+  try {
+    const savedTheme = localStorage.getItem(STORAGE_KEY);
+    return VALID_THEMES.has(savedTheme) ? savedTheme : "dark";
+  } catch {
+    return "dark";
+  }
+}
 
 export function ThemeProvider({ children }) {
-  const [theme, setThemeState] = useState(() => {
-    // Try to get saved preference
-    try {
-      return localStorage.getItem(STORAGE_KEY) || "dark";
-    } catch {
-      return "dark";
-    }
-  });
-
-  const [isMounted, setIsMounted] = useState(false);
+  const [theme, setThemeState] = useState(getInitialTheme);
 
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isMounted) return;
-
     const root = document.documentElement;
-
-    if (theme === "light") {
-      root.classList.add("light");
-    } else {
-      root.classList.remove("light");
-    }
+    root.classList.toggle("light", theme === "light");
 
     try {
       localStorage.setItem(STORAGE_KEY, theme);
     } catch {
-      // Silently fail if localStorage not available
+      // The app still works if storage is unavailable.
     }
 
-    sendToNative("theme", {
-      theme,
-    });
-  }, [theme, isMounted]);
+    sendToNative("theme", { theme });
+  }, [theme]);
 
   const setTheme = (newTheme) => {
-    if (newTheme === "light" || newTheme === "dark") {
+    if (VALID_THEMES.has(newTheme)) {
       setThemeState(newTheme);
     }
   };

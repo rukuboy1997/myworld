@@ -5,98 +5,118 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ============================================
-   DARK MODE (DEFAULT)
-   ============================================ */
+/*
+ * myWorld design tokens
+ * Dark mode remains the default visual identity. Light mode is a deliberately
+ * designed palette of warm neutrals, crisp surfaces, and a deeper teal accent.
+ */
 :root {
+  color-scheme: dark;
+
   --background: 240 10% 4%;
   --foreground: 0 0% 98%;
 
-  --card: 240 10% 6%;
+  --card: 240 10% 7%;
   --card-foreground: 0 0% 98%;
 
-  --popover: 240 10% 6%;
+  --popover: 240 10% 8%;
   --popover-foreground: 0 0% 98%;
 
   --primary: 195 100% 50%;
-  --primary-foreground: 240 5.9% 10%;
+  --primary-foreground: 240 10% 5%;
 
-  --secondary: 240 4% 16%;
-  --secondary-foreground: 0 0% 98%;
+  --secondary: 240 5% 13%;
+  --secondary-foreground: 0 0% 96%;
 
-  --muted: 240 4% 16%;
+  --muted: 240 5% 13%;
   --muted-foreground: 240 5% 65%;
 
   --accent: 195 100% 50%;
-  --accent-foreground: 240 5.9% 10%;
+  --accent-foreground: 240 10% 5%;
 
-  --destructive: 0 62.8% 30.6%;
+  --destructive: 0 63% 42%;
   --destructive-foreground: 0 0% 98%;
 
-  --border: 240 4% 16%;
-  --input: 240 4% 16%;
-  --ring: 195 100% 50%;
+  --border: 240 5% 17%;
+  --input: 240 5% 15%;
+  --ring: 190 100% 52%;
+
+  --surface: 240 10% 7%;
+  --surface-elevated: 240 9% 9%;
+  --surface-soft: 240 6% 12%;
+  --text-subtle: 240 5% 65%;
+  --border-strong: 240 5% 24%;
 
   --radius: 1rem;
-
-  /* Glass effect for dark mode */
-  --glass-opacity: 0.05;
-  --glass-border-light: rgba(255, 255, 255, 0.1);
-  --scrollbar-color: rgba(255, 255, 255, 0.15);
+  --glass-background: rgba(255, 255, 255, 0.045);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-shadow: 0 12px 36px rgba(0, 0, 0, 0.16);
+  --scrollbar-color: rgba(255, 255, 255, 0.18);
+  --selection-background: rgba(0, 190, 220, 0.28);
 }
 
-/* ============================================
-   LIGHT MODE
-   ============================================ */
+/* Light mode: warm, readable, and intentionally less translucent. */
 html.light {
-  --background: 240 15% 97%;
-  --foreground: 240 10% 8%;
+  color-scheme: light;
+
+  --background: 220 25% 97%;
+  --foreground: 222 30% 12%;
 
   --card: 0 0% 100%;
-  --card-foreground: 240 10% 8%;
+  --card-foreground: 222 30% 12%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 8%;
+  --popover-foreground: 222 30% 12%;
 
-  --primary: 195 100% 50%;
-  --primary-foreground: 240 5.9% 10%;
+  --primary: 190 92% 34%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 240 14% 93%;
-  --secondary-foreground: 240 10% 20%;
+  --secondary: 220 20% 93%;
+  --secondary-foreground: 222 25% 18%;
 
-  --muted: 240 14% 93%;
-  --muted-foreground: 240 8% 42%;
+  --muted: 220 20% 93%;
+  --muted-foreground: 220 12% 39%;
 
-  --accent: 195 100% 45%;
-  --accent-foreground: 240 5.9% 10%;
+  --accent: 190 92% 34%;
+  --accent-foreground: 0 0% 100%;
 
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 0 0% 98%;
+  --destructive: 0 72% 43%;
+  --destructive-foreground: 0 0% 100%;
 
-  --border: 240 14% 88%;
-  --input: 240 14% 93%;
-  --ring: 195 100% 50%;
+  --border: 220 16% 87%;
+  --input: 220 16% 91%;
+  --ring: 190 92% 34%;
 
-  /* Glass effect for light mode - frosted glass with white base */
-  --glass-opacity: 0.7;
-  --glass-border-light: rgba(0, 0, 0, 0.08);
-  --scrollbar-color: rgba(0, 0, 0, 0.15);
+  --surface: 0 0% 100%;
+  --surface-elevated: 0 0% 100%;
+  --surface-soft: 220 24% 94%;
+  --text-subtle: 220 12% 39%;
+  --border-strong: 220 14% 80%;
+
+  --glass-background: rgba(255, 255, 255, 0.88);
+  --glass-border: rgba(29, 48, 65, 0.09);
+  --glass-shadow: 0 8px 28px rgba(26, 43, 58, 0.07);
+  --scrollbar-color: rgba(35, 56, 72, 0.25);
+  --selection-background: rgba(0, 130, 155, 0.18);
 }
 
 @layer base {
   * {
     @apply border-border;
   }
+
   html {
     font-size: clamp(14px, 3.75vw, 16px);
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
   }
+
   body {
     @apply bg-background text-foreground antialiased min-h-[100dvh] flex flex-col;
     font-family: "Plus Jakarta Sans", sans-serif;
-    transition:
-      background-color 0.3s ease,
-      color 0.3s ease;
+    transition: background-color 0.22s ease, color 0.22s ease;
   }
+
   h1,
   h2,
   h3,
@@ -104,43 +124,87 @@ html.light {
   h5,
   h6 {
     font-family: "Clash Display", sans-serif;
+    text-wrap: balance;
+  }
+
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background: var(--selection-background);
   }
 }
 
 @layer utilities {
-  /* Glass Panel - maintains morphic design in both modes */
+  /* Shared surfaces use tokens so components can look right in either theme. */
   .glass-panel {
-    @apply backdrop-blur-md shadow-xl transition-all duration-300;
-    background-color: rgba(255, 255, 255, var(--glass-opacity));
-    border: 1px solid var(--glass-border-light);
+    background: var(--glass-background);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    @apply backdrop-blur-xl transition-colors duration-200;
   }
 
-  /* Light mode glass adjustments */
-  html.light .glass-panel {
-    background-color: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  .surface-panel {
+    background-color: hsl(var(--surface));
+    border: 1px solid hsl(var(--border));
+    @apply rounded-2xl;
   }
 
-  /* Text Gradients */
+  .surface-elevated {
+    background-color: hsl(var(--surface-elevated));
+    border: 1px solid hsl(var(--border));
+  }
+
+  .surface-soft {
+    background-color: hsl(var(--surface-soft));
+  }
+
+  .interactive-surface {
+    @apply transition-colors duration-200;
+  }
+
+  .interactive-surface:hover {
+    background-color: hsl(var(--muted));
+  }
+
+  .interactive-surface:active {
+    transform: scale(0.985);
+  }
+
+  .text-subtle {
+    color: hsl(var(--text-subtle));
+  }
+
+  .border-strong {
+    border-color: hsl(var(--border-strong));
+  }
+
   .text-gradient {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-teal-400;
   }
 
   html.light .text-gradient {
-    @apply bg-gradient-to-r from-blue-600 to-teal-600;
+    @apply bg-gradient-to-r from-blue-700 to-teal-700;
   }
 
-  /* Brand Gradient */
   .bg-gradient-brand {
     @apply bg-gradient-to-r from-blue-500 to-teal-400;
   }
 
   html.light .bg-gradient-brand {
-    @apply bg-gradient-to-r from-blue-600 to-teal-500;
+    @apply bg-gradient-to-r from-blue-700 to-teal-600;
   }
 
-  /* Custom Scrollbar */
   .custom-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar-color) transparent;
@@ -149,53 +213,62 @@ html.light {
   .custom-scrollbar::-webkit-scrollbar {
     width: 4px;
   }
+
   .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
+
   .custom-scrollbar::-webkit-scrollbar-thumb {
     background: var(--scrollbar-color);
     border-radius: 9999px;
   }
 
-  /* Animations */
   .animate-fade-in {
-    animation: fadeIn 0.5s ease-out forwards;
+    animation: fadeIn 0.35s ease-out both;
   }
+
   .animate-slide-up {
-    animation: slideUp 0.5s ease-out forwards;
+    animation: slideUp 0.35s ease-out both;
   }
+
   .delay-100 {
     animation-delay: 100ms;
   }
+
   .delay-200 {
     animation-delay: 200ms;
   }
+
   .delay-300 {
     animation-delay: 300ms;
   }
 
-  /* Light mode specific hover states */
+  /*
+   * Legacy utility compatibility: existing screens still use white translucent
+   * hover classes. Keep them legible until those screens migrate to tokens.
+   */
   html.light .hover\:bg-white\/10:hover {
-    @apply hover:bg-black/5;
+    background-color: rgba(24, 39, 52, 0.055);
   }
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
