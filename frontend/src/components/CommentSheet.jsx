@@ -43,7 +43,7 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
     return () => {
       cancelled = true;
     };
-  }, [isOpen, post?.id]);
+  }, [isOpen, post?.id, post?.commentCount]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
