@@ -106,13 +106,13 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (isVisible) {
+    if (isVisible && !showComments) {
       video.play().catch(() => setIsPlaying(false));
     } else {
       video.pause();
       setIsPlaying(false);
     }
-  }, [isVisible]);
+  }, [isVisible, showComments]);
 
   useEffect(() => () => { flushWatch(true); }, [flushWatch]);
 
