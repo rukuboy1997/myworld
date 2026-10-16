@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { BackHandler, Linking } from "react-native";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -18,6 +19,7 @@ export default function MyWebView({ setTheme }) {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [canGoBack, setCanGoBack] = useState(false);
 
   // --------------------------------------------------
   // NETWORK MONITOR
@@ -39,6 +41,57 @@ export default function MyWebView({ setTheme }) {
 
     return unsubscribe;
   }, []);
+
+  // --------------------------------------------------
+  // ANDROID BACK BUTTON
+  // Keep back navigation inside myWorld whenever WebView history exists.
+  // Returning false at the root lets Android close/minimize the app normally.
+  // --------------------------------------------------
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (canGoBack && webViewRef.current) {
+        webViewRef.current.goBack();
+        return true;
+      }
+      return false;
+    });
+
+    return () => subscription.remove();
+  }, [canGoBack]);
+
+  // --------------------------------------------------
+  // NAVIGATION SAFETY
+  // Keep myWorld pages in the WebView; open external destinations in the
+  // device's browser/app instead of trapping users inside the wrapper.
+  // --------------------------------------------------
+  const handleShouldStartLoad = (request) => {
+    const url = request?.url || "";
+
+    if (
+      !url ||
+      url === "about:blank" ||
+      url.startsWith("blob:") ||
+      url.startsWith("data:")
+    ) {
+      return true;
+    }
+
+    if (url.startsWith("https://myworld-app.vercel.app/")) {
+      return true;
+    }
+
+    if (url.startsWith("mailto:") || url.startsWith("tel:")) {
+      Linking.openURL(url).catch(() => {});
+      return false;
+    }
+
+    // Never load insecure HTTP pages or arbitrary destinations inside the app.
+    if (url.startsWith("https://")) {
+      Linking.openURL(url).catch(() => {});
+    }
+
+    return false;
+  };
 
   // --------------------------------------------------
   // WEB -> NATIVE MESSAGE BRIDGE
@@ -117,16 +170,22 @@ export default function MyWebView({ setTheme }) {
         ref={webViewRef}
         source={{ uri: APP_URL }}
         onMessage={handleMessage}
+        onNavigationStateChange={(state) => setCanGoBack(Boolean(state.canGoBack))}
+        onShouldStartLoadWithRequest={handleShouldStartLoad}
         onLoadStart={handleLoadStart}
         onLoadEnd={handleLoadEnd}
         onError={handleLoadError}
         javaScriptEnabled
+        javaScriptCanOpenWindowsAutomatically={false}
         domStorageEnabled
         sharedCookiesEnabled
         thirdPartyCookiesEnabled
         cacheEnabled
         cacheMode="LOAD_DEFAULT"
         allowsBackForwardNavigationGestures
+        allowsInlineMediaPlayback
+        mediaPlaybackRequiresUserAction={false}
+        mixedContentMode="never"
         pullToRefreshEnabled
         setSupportMultipleWindows={false}
         injectedJavaScriptBeforeContentLoaded={`
