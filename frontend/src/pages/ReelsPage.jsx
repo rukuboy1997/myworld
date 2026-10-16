@@ -173,21 +173,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
 
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/25" />
 
-      <div className="absolute left-4 right-4 top-4 flex items-center justify-between">
-        <span className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-xs font-semibold text-white backdrop-blur">REELS</span>
-        <button
-          type="button"
-          onClick={() => setIsMuted((current) => !current)}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white backdrop-blur transition hover:bg-black/70"
-          aria-label={isMuted ? "Unmute video" : "Mute video"}
-        >
-          {isMuted ? (
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6m0-6-5 6"/></svg>
-          ) : (
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7m3-10a9 9 0 0 1 0 13"/></svg>
-          )}
-        </button>
-      </div>
+
 
       {!isPlaying && isVisible && !mediaError && (
         <button type="button" onClick={togglePlayback} className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur" aria-label="Play video">
@@ -215,7 +201,20 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col items-center gap-5 pb-1">
+        <div className="flex shrink-0 flex-col items-center gap-4 pb-1">
+          <button
+            type="button"
+            onClick={() => setIsMuted((current) => !current)}
+            className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white backdrop-blur transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            aria-label={isMuted ? "Unmute video" : "Mute video"}
+            title={isMuted ? "Unmute video" : "Mute video"}
+          >
+            {isMuted ? (
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6m0-6-5 6"/></svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7m3-10a9 9 0 0 1 0 13"/></svg>
+            )}
+          </button>
           <button type="button" onClick={handleLike} disabled={isLiking} className="flex flex-col items-center gap-1 text-white transition active:scale-90 disabled:opacity-60" aria-label={liked ? "Unlike Reel" : "Like Reel"}>
             <span className={"flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur " + (liked ? "text-rose-400" : "text-white")}>
               <svg viewBox="0 0 24 24" width="25" height="25" fill={liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg>
@@ -240,6 +239,19 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
             </span>
             <span className="text-xs font-bold">Share</span>
           </button>
+          {isAuthenticated && (
+            <Link
+              to="/reels/analytics"
+              className="flex flex-col items-center gap-1 text-white transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-xl"
+              aria-label="Reels analytics"
+              title="Analytics"
+            >
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur">
+                <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 3 6-7"/></svg>
+              </span>
+              <span className="text-[10px] font-bold">Analytics</span>
+            </Link>
+          )}
         </div>
       </div>
     </article>
@@ -328,26 +340,43 @@ export default function ReelsPage() {
     <Layout immersive>
       <section className="relative h-[100dvh] min-h-0 w-full overflow-hidden bg-black text-white">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-40 bg-gradient-to-b from-black/85 via-black/35 to-transparent" />
-        <header className="absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 px-3 pb-5 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:px-5">
-          <div className="min-w-0">
-            <p className="text-lg font-extrabold tracking-tight text-white sm:text-xl">Reels</p>
-            <p className="mt-0.5 text-xs text-white/65 sm:text-sm">Short videos from your world</p>
-          </div>
-          <div className="flex flex-shrink-0 items-center gap-2">
-            {isAuthenticated && (
-              <Link to="/reels/analytics" className="rounded-full border border-white/20 bg-black/35 px-3 py-2 text-xs font-semibold text-white backdrop-blur-md transition hover:bg-white/15 sm:text-sm">
-                Analytics
-              </Link>
-            )}
-            <Link to="/create" className="rounded-full bg-white px-3.5 py-2 text-xs font-bold text-black transition hover:bg-white/85 sm:text-sm">
-              + Create
+        <header className="absolute inset-x-0 top-0 z-40 px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)] sm:px-5">
+          <div className="mx-auto grid w-full max-w-[560px] grid-cols-[40px_minmax(0,1fr)_40px] items-center gap-2">
+            <Link
+              to="/create"
+              aria-label="Create a post"
+              title="Create"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-md transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
             </Link>
+
+            <div className="mx-auto flex min-w-0 max-w-[300px] items-center gap-0.5 rounded-full border border-white/15 bg-black/50 p-1 backdrop-blur-md">
+              {[
+                ["for-you", "For You"],
+                ["trending", "Trending"],
+                ["latest", "Latest"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setSort(value)}
+                  aria-pressed={sort === value}
+                  className={"min-w-0 flex-1 whitespace-nowrap rounded-full px-2 py-2 text-[11px] font-bold transition sm:px-3 sm:text-xs " + (sort === value ? "bg-white text-black shadow" : "text-white/75 hover:bg-white/10 hover:text-white")}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <button
               type="button"
               onClick={closeReels}
               aria-label="Close Reels and return"
               title="Back"
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-md transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-md transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
               <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="m15 18-6-6 6-6M9 12h12" />
@@ -355,8 +384,6 @@ export default function ReelsPage() {
             </button>
           </div>
         </header>
-
-        <div className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+4.25rem)] z-30 flex max-w-md gap-1 rounded-full border border-white/15 bg-black/45 p-1 backdrop-blur-md sm:left-5 sm:right-auto sm:top-[calc(env(safe-area-inset-top)+4.5rem)]">
           {[
             ["for-you", "For You"],
             ["trending", "Trending"],
