@@ -78,11 +78,10 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
       const comment = await addComment(post.id, address, content);
       setComments((current) => [...current, comment]);
       setDraft("");
-      setCommentCount((current) => {
-        const nextCount = current + 1;
-        onCommentAdded?.(comment, nextCount);
-        return nextCount;
-      });
+      if (inputRef.current) inputRef.current.style.height = "auto";
+      const nextCount = commentCount + 1;
+      setCommentCount(nextCount);
+      onCommentAdded?.(comment, nextCount);
     } catch (error) {
       setLoadError(error?.message || "Couldn't post your comment. Please try again.");
     } finally {
