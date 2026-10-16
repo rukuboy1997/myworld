@@ -548,22 +548,39 @@ export function buildApp() {
         let mediaType = null;
         let mediaMime = null;
         if (req.file) {
-          mediaMime = req.file.mimetype || "";
-          mediaType = detectMediaType(mediaMime);
-          if (!mediaType) {
-            return res.status(400).json({ error: "Only image or video media is allowed" });
-          }
+          mediaMime = (req.file.mimetype || "").toLowerCase();
           const sniffed = sniffMime(req.file.buffer);
+          const declaredType = detectMediaType(mediaMime);
+          const detectedType = detectMediaType(sniffed);
+
+          // Some Android/WebView file pickers report video files as
+          // application/octet-stream or omit the MIME type entirely. Prefer
+          // the file signature in that case, rather than rejecting a valid clip.
+          mediaType = declaredType || detectedType;
+          if (!mediaType) {
+            return res.status(400).json({
+              error: "We couldn't recognize that file. Please choose an image, MP4, or WebM video.",
+            });
+          }
+          if (declaredType && detectedType && declaredType !== detectedType) {
+            return res.status(400).json({
+              error: "The selected file type doesn't match its contents. Please choose another file.",
+            });
+          }
           if (sniffed && !["image/", "video/"].some((prefix) => sniffed.startsWith(prefix))) {
             return res.status(400).json({ error: "The uploaded file does not appear to be an image or video" });
           }
+
+          // Keep the actual detected type when a mobile picker supplies a
+          // generic MIME type, so browsers can play the uploaded status.
+          if (!declaredType && detectedType) mediaMime = sniffed;
           const maxBytes = mediaType === "video" ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
           if (req.file.size > maxBytes) {
             return res.status(400).json({
               error: mediaType === "video" ? "Status videos must be 25 MB or smaller" : "Status images must be 10 MB or smaller",
             });
           }
-          const ext = mediaMime.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || "bin";
+          const ext = mediaMime.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || (mediaType === "video" ? "mp4" : "jpg");
           mediaKey = `statuses/${req.userAddress}/${uuidv4()}.${ext}`;
           const uploaded = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
           mediaUrl = uploaded.url;
