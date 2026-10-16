@@ -1,15 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import {
-  likePost,
-  getComments,
-  addComment,
-  truncateAddress,
-} from "../lib/api.js";
+import { likePost, truncateAddress } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import PostActionsMenu from "./PostActionsMenu.jsx";
 import PhotoViewer from "./PhotoViewer.jsx";
+import CommentSheet from "./CommentSheet.jsx";
 
 const CONTENT_LIMIT = 200;
 const APP_URL = window.location.origin;
@@ -186,10 +182,6 @@ export default function PostCard({ post, onLikeUpdate, onPostDelete }) {
   const [isLiked, setIsLiked] = useState(!!post.userLiked);
   const [likesCount, setLikesCount] = useState(post.likes || 0);
   const [showComments, setShowComments] = useState(false);
-  const [comments, setComments] = useState([]);
-  const [newComment, setNewComment] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
@@ -231,34 +223,8 @@ export default function PostCard({ post, onLikeUpdate, onPostDelete }) {
     }
   };
 
-  const toggleComments = async () => {
-    if (!showComments && comments.length === 0 && post.commentCount > 0) {
-      setIsLoadingComments(true);
-      try {
-        const fetched = await getComments(post.id);
-        setComments(fetched);
-      } catch {
-      } finally {
-        setIsLoadingComments(false);
-      }
-    }
-    setShowComments((s) => !s);
-  };
-
-  const handleAddComment = async (e) => {
-    e.preventDefault();
-    if (!newComment.trim()) return;
-    if (!(await requireAuth())) return;
-    setIsSubmitting(true);
-    try {
-      const comment = await addComment(post.id, wallet, newComment.trim());
-      setComments((prev) => [...prev, comment]);
-      setNewComment("");
-      if (onLikeUpdate) onLikeUpdate(post.id, undefined, post.commentCount + 1);
-    } catch {
-    } finally {
-      setIsSubmitting(false);
-    }
+  const toggleComments = () => {
+    setShowComments((current) => !current);
   };
 
   const timeAgo = post.createdAt
@@ -494,89 +460,14 @@ export default function PostCard({ post, onLikeUpdate, onPostDelete }) {
         </div>
       </div>
 
-      {/* Comments Section */}
-      {showComments && (
-        <div className="pt-3 border-t border-white/5 flex flex-col gap-3 animate-fade-in">
-          {isLoadingComments ? (
-            <div className="flex justify-center p-4">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {comments.length > 0 ? (
-                comments.map((comment) => {
-                  const cAvatar = comment.profile?.avatarUrl;
-                  const cInitial = comment.profile?.username
-                    ? comment.profile.username.charAt(0).toUpperCase()
-                    : truncateAddress(comment.owner).charAt(0);
-                  return (
-                    <div
-                      key={comment.id}
-                      className="flex gap-3 bg-white/5 p-3 rounded-2xl"
-                    >
-                      {cAvatar ? (
-                        <img
-                          src={cAvatar}
-                          alt=""
-                          className="w-7 h-7 rounded-full object-cover flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="w-7 h-7 rounded-full bg-secondary flex-shrink-0 flex items-center justify-center font-bold text-xs">
-                          {cInitial}
-                        </div>
-                      )}
-                      <div className="flex flex-col flex-1 min-w-0">
-                        <div className="flex items-baseline justify-between gap-2 flex-wrap">
-                          <Link
-                            to={`/profile/${comment.owner}`}
-                            className="font-bold text-xs hover:text-primary transition-colors truncate"
-                          >
-                            {comment.profile?.username ||
-                              truncateAddress(comment.owner)}
-                          </Link>
-                          <span className="text-[10px] text-muted-foreground">
-                            {comment.createdAt
-                              ? formatDistanceToNow(
-                                  new Date(comment.createdAt),
-                                  { addSuffix: true },
-                                )
-                              : "just now"}
-                          </span>
-                        </div>
-                        <p className="text-xs md:text-sm mt-0.5 break-words">
-                          {comment.content}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-2">
-                  No comments yet. Be the first!
-                </p>
-              )}
-            </div>
-          )}
-
-          <form onSubmit={handleAddComment} className="flex gap-2 mt-1">
-            <input
-              type="text"
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              placeholder="Add a comment..."
-              className="flex-1 min-w-0 bg-secondary/50 border border-white/10 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              disabled={isSubmitting}
-            />
-            <button
-              type="submit"
-              disabled={!newComment.trim() || isSubmitting}
-              className="bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm font-bold disabled:opacity-50 transition-colors flex-shrink-0"
-            >
-              Post
-            </button>
-          </form>
-        </div>
-      )}
+      <CommentSheet
+        post={post}
+        isOpen={showComments}
+        onClose={() => setShowComments(false)}
+        onCommentAdded={(_comment, nextCount) => {
+          onLikeUpdate?.(post.id, undefined, nextCount);
+        }}
+      />
     </div>
   );
 }
