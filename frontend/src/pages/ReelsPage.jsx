@@ -384,23 +384,6 @@ export default function ReelsPage() {
             </button>
           </div>
         </header>
-          {[
-            ["for-you", "For You"],
-            ["trending", "Trending"],
-            ["latest", "Latest"],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setSort(value)}
-              aria-pressed={sort === value}
-              className={"flex-1 rounded-full px-3 py-2 text-xs font-bold transition sm:text-sm " + (sort === value ? "bg-white text-black shadow" : "text-white/75 hover:bg-white/10 hover:text-white")}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
         {isLoading ? (
           <div className="flex h-full items-center justify-center bg-black px-6 pt-24 text-center text-sm text-white/65">
             <div>
