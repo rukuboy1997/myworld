@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "myWorld",
+    "slug": "myworld-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#09090b"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dakta.myworld",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used to take photos for posts and your profile.",
+        "NSPhotoLibraryUsageDescription": "Used to select photos for posts and your profile."
+      }
+    },
+    "android": {
+      "usesCleartextTraffic": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#09090b"
+      },
+      "package": "com.dakta.myworld",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#00c8ff",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow myWorld to access your photos for posts and profile.",
+          "cameraPermission": "Allow myWorld to use your camera to take photos."
+        }
+      ],
+      "expo-font"
+    ],
+    "scheme": "myworld",
+    "experiments": {},
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1f834214-cff7-447d-bea5-61262335f156"
+      }
+    },
+    "owner": "drsaffas"
+  }
+}
