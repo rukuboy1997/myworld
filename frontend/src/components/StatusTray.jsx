@@ -29,6 +29,44 @@ export default function StatusTray() {
   const [error, setError] = useState("");
   const [viewers, setViewers] = useState(null);
   const [mediaSrc, setMediaSrc] = useState(null);
+  const [filePreview, setFilePreview] = useState(null);
+
+  useEffect(() => {
+    if (!file) {
+      setFilePreview(null);
+      return undefined;
+    }
+    const url = URL.createObjectURL(file);
+    setFilePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const handleFileChange = (event) => {
+    const selected = event.target.files?.[0] || null;
+    setError("");
+    if (!selected) {
+      setFile(null);
+      return;
+    }
+    const isImage = selected.type.startsWith("image/") ||
+      /\.(png|jpe?g|gif|webp|avif|heic|heif|bmp)$/i.test(selected.name);
+    const isVideo = selected.type.startsWith("video/") ||
+      /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(selected.name);
+    if (!isImage && !isVideo) {
+      setError("Choose an image or a video (MP4/WebM recommended).");
+      event.target.value = "";
+      setFile(null);
+      return;
+    }
+    const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (selected.size > maxBytes) {
+      setError(isVideo ? "Videos must be 25 MB or smaller." : "Images must be 10 MB or smaller.");
+      event.target.value = "";
+      setFile(null);
+      return;
+    }
+    setFile(selected);
+  };
 
   const refresh = useCallback(async () => {
     if (!isAuthenticated) {
@@ -128,6 +166,7 @@ export default function StatusTray() {
       setContent("");
       setFile(null);
       setAudience("followers");
+      setError("");
       setComposerOpen(false);
       await refresh();
     } catch (err) {
@@ -217,18 +256,36 @@ export default function StatusTray() {
 
       {composerOpen && (
         <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setComposerOpen(false); }}>
-          <form onSubmit={submit} className="w-full max-w-lg rounded-t-3xl border border-white/10 bg-slate-950 p-5 shadow-2xl sm:rounded-3xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div><h3 className="text-xl font-bold">Create a status</h3><p className="mt-1 text-xs text-muted-foreground">It disappears after 24 hours.</p></div>
+          <form onSubmit={submit} className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-slate-950 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-3xl">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-fuchsia-500/20 to-pink-500/20 text-xl">◉</span><div><h3 className="text-xl font-bold tracking-tight">Create a status</h3><p className="mt-1 text-xs text-muted-foreground">Share a moment. It disappears in 24 hours.</p></div></div>
               <button type="button" onClick={() => setComposerOpen(false)} className="rounded-full px-3 py-2 hover:bg-white/10" aria-label="Close">✕</button>
             </div>
             <textarea value={content} onChange={(e) => setContent(e.target.value.slice(0, 700))} rows={4} placeholder="What's happening?" className="w-full resize-none rounded-2xl border border-white/10 bg-white/5 p-4 outline-none focus:border-pink-400" />
             <div className="mt-2 flex justify-end text-xs text-muted-foreground">{content.length}/700</div>
-            <label className="mt-3 block cursor-pointer rounded-2xl border border-dashed border-white/20 p-4 text-sm hover:bg-white/5">
-              <span className="font-semibold">Add a photo or video</span>
-              <span className="mt-1 block text-xs text-muted-foreground">{file ? file.name : "Images up to 10 MB · Videos up to 25 MB"}</span>
-              <input type="file" accept="image/*,video/*" className="mt-3 block w-full text-xs" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-            </label>
+            <div className="mt-3 rounded-2xl border border-dashed border-white/20 bg-white/[0.03] p-3 transition hover:border-pink-400/60">
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl p-2 text-sm">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500/20 to-pink-500/20 text-xl" aria-hidden="true">
+                  {file?.type?.startsWith("video/") || (file && /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(file.name)) ? "▶" : "▧"}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold">{file ? "Media selected" : "Add a photo or video"}</span>
+                  <span className="mt-1 block truncate text-xs text-muted-foreground">{file ? file.name : "Photos up to 10 MB · Videos up to 25 MB"}</span>
+                </span>
+                <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold">{file ? "Change" : "Browse"}</span>
+                <input key={file?.name || "status-media-input"} type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.heif,.bmp,.mp4,.m4v,.mov,.webm,.3gp,.mkv" className="sr-only" onChange={handleFileChange} />
+              </label>
+              {file && filePreview && (
+                <div className="relative mt-2 overflow-hidden rounded-xl border border-white/10 bg-black">
+                  {file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(file.name) ? (
+                    <video src={filePreview} controls muted playsInline className="max-h-64 w-full object-contain" />
+                  ) : (
+                    <img src={filePreview} alt="Status preview" className="max-h-64 w-full object-contain" />
+                  )}
+                  <button type="button" onClick={() => setFile(null)} className="absolute right-2 top-2 rounded-full bg-black/75 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/20">Remove media</button>
+                </div>
+              )}
+            </div>
             <label className="mt-4 block text-sm"><span className="mb-2 block font-semibold">Who can see this?</span>
               <select value={audience} onChange={(e) => setAudience(e.target.value)} className="w-full rounded-xl border border-white/10 bg-slate-900 p-3">
                 <option value="followers">People who follow me</option>
