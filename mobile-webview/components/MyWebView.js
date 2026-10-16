@@ -76,7 +76,13 @@ export default function MyWebView({ setTheme }) {
       return true;
     }
 
-    if (url.startsWith("https://myworld-app.vercel.app/")) {
+    const appOrigin = "https://myworld-app.vercel.app";
+    if (
+      url === appOrigin ||
+      url.startsWith(`${appOrigin}/`) ||
+      url.startsWith(`${appOrigin}?`) ||
+      url.startsWith(`${appOrigin}#`)
+    ) {
       return true;
     }
 
