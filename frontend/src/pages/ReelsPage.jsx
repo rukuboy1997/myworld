@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import { getReels, likePost, recordReelWatch, truncateAddress } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
+import CommentSheet from "../components/CommentSheet.jsx";
 
 function createPlaybackSessionId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -29,6 +30,8 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
   const [isMuted, setIsMuted] = useState(true);
   const [liked, setLiked] = useState(Boolean(post.userLiked));
   const [likes, setLikes] = useState(Number(post.likes || 0));
+  const [commentCount, setCommentCount] = useState(Number(post.commentCount || 0));
+  const [showComments, setShowComments] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
   const [mediaError, setMediaError] = useState(false);
 
@@ -221,12 +224,12 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
             </span>
             <span className="text-xs font-bold">{likes}</span>
           </button>
-          <Link to={"/post/" + encodeURIComponent(post.id)} className="flex flex-col items-center gap-1 text-white transition hover:scale-105" aria-label="View comments">
+          <button type="button" onClick={() => setShowComments(true)} className="flex flex-col items-center gap-1 text-white transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-xl" aria-label="View comments">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur">
               <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8A8.5 8.5 0 0 1 8.7 3.9a8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg>
             </span>
-            <span className="text-xs font-bold">{Number(post.commentCount || 0)}</span>
-          </Link>
+            <span className="text-xs font-bold">{commentCount}</span>
+          </button>
           <button type="button" onClick={async () => {
             const url = window.location.origin + "/post/" + post.id;
             try {
@@ -254,6 +257,12 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
           )}
         </div>
       </div>
+      <CommentSheet
+        post={{ ...post, commentCount }}
+        isOpen={showComments}
+        onClose={() => setShowComments(false)}
+        onCommentAdded={(_comment, nextCount) => setCommentCount(nextCount)}
+      />
     </article>
   );
 }
