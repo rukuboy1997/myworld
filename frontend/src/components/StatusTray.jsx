@@ -48,7 +48,8 @@ export default function StatusTray() {
       setFile(null);
       return;
     }
-    const isImage = selected.type.startsWith("image/");
+    const isImage = selected.type.startsWith("image/") ||
+      /\.(png|jpe?g|gif|webp|avif|heic|heif|bmp)$/i.test(selected.name);
     const isVideo = selected.type.startsWith("video/") ||
       /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(selected.name);
     if (!isImage && !isVideo) {
@@ -272,7 +273,7 @@ export default function StatusTray() {
                   <span className="mt-1 block truncate text-xs text-muted-foreground">{file ? file.name : "Photos up to 10 MB · Videos up to 25 MB"}</span>
                 </span>
                 <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold">{file ? "Change" : "Browse"}</span>
-                <input type="file" accept="image/*,video/*,.mp4,.m4v,.mov,.webm,.3gp,.mkv" className="sr-only" onChange={handleFileChange} />
+                <input key={file?.name || "status-media-input"} type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.heif,.bmp,.mp4,.m4v,.mov,.webm,.3gp,.mkv" className="sr-only" onChange={handleFileChange} />
               </label>
               {file && filePreview && (
                 <div className="relative mt-2 overflow-hidden rounded-xl border border-white/10 bg-black">
