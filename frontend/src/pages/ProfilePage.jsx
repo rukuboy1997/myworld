@@ -19,7 +19,7 @@ import { useAuth } from "../lib/auth.jsx";
 function ShareProfileButton({ address, username }) {
   const [copied, setCopied] = useState(false);
   const url = `${window.location.origin}/profile/${address}`;
-  const text = `Check out ${username ? "@" + username : "this profile"} on myWorld — the Sui social network!`;
+  const text = `Check out ${username ? "@" + username : "this profile"} on myWorld — a social network!`;
 
   const handleShare = async () => {
     if (navigator.share) {
