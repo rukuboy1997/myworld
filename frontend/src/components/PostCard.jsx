@@ -139,7 +139,7 @@ function ShareMenu({ postId, postTitle, onClose }) {
         onClose();
       },
     },
-    ...(navigator.share
+    ...(window.isNativeApp || navigator.share
       ? [
           {
             label: "More options…",
