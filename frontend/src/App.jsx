@@ -17,6 +17,9 @@ import DeleteAccountPage from "./pages/DeleteAccountPage.jsx";
 import ChildSafetyPage from "./pages/ChildSafetyPage.jsx";
 
 
+import { useEffect } from "react";
+import { registerPushToken } from "./lib/api.js";
+
 export default function App() {
   return (
     <BrowserRouter>
