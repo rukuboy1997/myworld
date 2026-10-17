@@ -32,6 +32,27 @@ export default function StatusTray() {
   const [filePreview, setFilePreview] = useState(null);
 
   useEffect(() => {
+    const handleNativeMedia = (event) => {
+      try {
+        const { base64, mimeType, fileName } = event.detail || {};
+        if (!base64 || !mimeType || !fileName) throw new Error("The selected media could not be read.");
+        const binary = window.atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        const selected = new File([bytes], fileName, { type: mimeType });
+        const isVideo = mimeType.startsWith("video/");
+        const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+        if (selected.size > maxBytes) { setError(isVideo ? "Videos must be 25 MB or smaller." : "Images must be 10 MB or smaller."); return; }
+        setError(""); setFile(selected);
+      } catch (err) { setError(err.message || "Could not use the selected media."); }
+    };
+    const handleNativeMediaError = (event) => setError(event.detail || "Could not open the media picker.");
+    window.addEventListener("myworld-native-media-data", handleNativeMedia);
+    window.addEventListener("myworld-native-media-error", handleNativeMediaError);
+    return () => { window.removeEventListener("myworld-native-media-data", handleNativeMedia); window.removeEventListener("myworld-native-media-error", handleNativeMediaError); };
+  }, []);
+
+  useEffect(() => {
     if (!file) {
       setFilePreview(null);
       return undefined;
@@ -264,6 +285,11 @@ export default function StatusTray() {
             <textarea value={content} onChange={(e) => setContent(e.target.value.slice(0, 700))} rows={4} placeholder="What's happening?" className="w-full resize-none rounded-2xl border border-white/10 bg-white/5 p-4 outline-none focus:border-pink-400" />
             <div className="mt-2 flex justify-end text-xs text-muted-foreground">{content.length}/700</div>
             <div className="mt-3 rounded-2xl border border-dashed border-white/20 bg-white/[0.03] p-3 transition hover:border-pink-400/60">
+              {typeof window !== "undefined" && window.isNativeApp && (
+                <button type="button" onClick={() => window.ReactNativeWebView?.postMessage(JSON.stringify({ type: "pick-status-media" }))} className="mb-2 rounded-full bg-pink-500/15 px-3 py-2 text-xs font-semibold text-pink-200 hover:bg-pink-500/25">
+                  Open phone gallery
+                </button>
+              )}
               <label className="flex cursor-pointer items-center gap-3 rounded-xl p-2 text-sm">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500/20 to-pink-500/20 text-xl" aria-hidden="true">
                   {file?.type?.startsWith("video/") || (file && /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(file.name)) ? "▶" : "▧"}
