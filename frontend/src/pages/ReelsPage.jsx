@@ -232,9 +232,18 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
           </button>
           <button type="button" onClick={async () => {
             const url = window.location.origin + "/post/" + post.id;
+            const title = creator + " on myWorld";
             try {
-              if (navigator.share) await navigator.share({ title: creator + " on myWorld", text: caption, url });
-              else { await navigator.clipboard.writeText(url); }
+              if (window.isNativeApp && window.ReactNativeWebView?.postMessage) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: "native-share",
+                  payload: { title, text: caption || title, url },
+                }));
+              } else if (navigator.share) {
+                await navigator.share({ title, text: caption, url });
+              } else if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(url);
+              }
             } catch {}
           }} className="flex flex-col items-center gap-1 text-white transition hover:scale-105" aria-label="Share Reel">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur">
