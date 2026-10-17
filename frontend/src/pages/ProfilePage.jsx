@@ -426,7 +426,7 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex items-center gap-2 self-start flex-shrink-0 flex-wrap">
-                {!isOwnProfile && isAuthenticated && (
+                {!isOwnProfile && isAuthenticated && !blockStatus.blockedByMe && !blockStatus.hasBlockedMe && (
                   <button
                     onClick={handleFollowToggle}
                     disabled={isFollowLoading}
