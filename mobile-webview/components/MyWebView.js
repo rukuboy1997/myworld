@@ -128,6 +128,11 @@ export default function MyWebView({ setTheme }) {
               const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], allowsEditing: false, quality: 0.9, base64: true });
               if (result.canceled || !result.assets?.[0]) return;
               const asset = result.assets[0];
+              const isVideo = asset.type === "video";
+              const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+              if (typeof asset.fileSize === "number" && asset.fileSize > maxBytes) {
+                throw new Error(isVideo ? "Videos must be 25 MB or smaller." : "Images must be 10 MB or smaller.");
+              }
               let base64 = asset.base64 || null;
               if (!base64 && asset.type === "video" && asset.uri) {
                 const response = await fetch(asset.uri);
