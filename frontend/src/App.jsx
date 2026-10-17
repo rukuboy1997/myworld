@@ -17,7 +17,21 @@ import DeleteAccountPage from "./pages/DeleteAccountPage.jsx";
 import ChildSafetyPage from "./pages/ChildSafetyPage.jsx";
 
 
+import { useEffect } from "react";
+import { registerPushToken } from "./lib/api.js";
+
 export default function App() {
+  useEffect(() => {
+    const submitToken = (event) => {
+      const token = event.detail?.token;
+      const platform = event.detail?.platform || "unknown";
+      if (token) registerPushToken(token, platform).catch((error) => console.warn("Push token registration failed:", error));
+    };
+    window.addEventListener("myworld-push-token", submitToken);
+    if (window.__myWorldPushToken?.token) submitToken({ detail: window.__myWorldPushToken });
+    return () => window.removeEventListener("myworld-push-token", submitToken);
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { BackHandler, Linking, Share } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as Notifications from "expo-notifications";
+import * as Device from "expo-device";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -21,6 +25,75 @@ export default function MyWebView({ setTheme }) {
   const [isOffline, setIsOffline] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [canGoBack, setCanGoBack] = useState(false);
+
+  const notificationResponseListener = useRef(null);
+
+  // Register this installation for Expo push notifications and route notification taps
+  // back into the myWorld WebView.
+  useEffect(() => {
+    let mounted = true;
+
+    const registerForPushNotifications = async () => {
+      try {
+        if (!Device.isDevice) return;
+        if (Platform.OS === "android") {
+          await Notifications.setNotificationChannelAsync("default", {
+            name: "myWorld notifications",
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: "#00C8FF",
+          });
+        }
+        let permission = await Notifications.getPermissionsAsync();
+        if (permission.status !== "granted") {
+          permission = await Notifications.requestPermissionsAsync();
+        }
+        if (permission.status !== "granted") return;
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+        if (!projectId) {
+          console.warn("Expo push notifications require an EAS project ID.");
+          return;
+        }
+        const result = await Notifications.getExpoPushTokenAsync({ projectId });
+        if (!mounted || !result.data) return;
+        webViewRef.current?.injectJavaScript(
+          `window.__myWorldPushToken = ${JSON.stringify({ token: result.data, platform: Platform.OS })};window.dispatchEvent(new CustomEvent("myworld-push-token",{detail:window.__myWorldPushToken}));true;`
+        );
+      } catch (error) {
+        console.warn("Unable to register for push notifications:", error);
+      }
+    };
+
+    registerForPushNotifications();
+
+    notificationResponseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data || {};
+      const target = typeof data.url === "string" ? data.url : typeof data.path === "string" ? data.path : "/notifications";
+      const safeTarget = target.startsWith("/") && !target.startsWith("//") ? target : "/notifications";
+      const encoded = JSON.stringify(safeTarget);
+      webViewRef.current?.injectJavaScript(
+        `window.location.href = "https://myworld-app.vercel.app" + ${encoded};true;`
+      );
+    });
+
+    // Handle a notification that launched the app from a fully closed state.
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!mounted || !response) return;
+      const data = response.notification.request.content.data || {};
+      const target = typeof data.url === "string" ? data.url : typeof data.path === "string" ? data.path : "/notifications";
+      const safeTarget = target.startsWith("/") && !target.startsWith("//") ? target : "/notifications";
+      webViewRef.current?.injectJavaScript(
+        `window.location.href = "https://myworld-app.vercel.app" + ${JSON.stringify(safeTarget)};true;`
+      );
+    }).catch(() => {});
+
+    return () => {
+      mounted = false;
+      notificationResponseListener.current?.remove();
+    };
+  }, []);
+
+
 
   // --------------------------------------------------
   // NETWORK MONITOR
