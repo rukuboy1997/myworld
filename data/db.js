@@ -349,9 +349,10 @@ export async function getPostsPage({ limit = 20, beforeCreatedAt = null, beforeI
          $1::timestamptz IS NULL
          OR (created_at, id) < ($1::timestamptz, $2::text)
        )
+       AND ($4::text IS NULL OR NOT EXISTS (SELECT 1 FROM blocked_users b WHERE (b.blocker = $4 AND b.blocked = posts.owner) OR (b.blocker = posts.owner AND b.blocked = $4)))
      ORDER BY created_at DESC, id DESC
      LIMIT $3`,
-    [beforeCreatedAt, beforeId, safeLimit],
+    [beforeCreatedAt, beforeId, safeLimit, viewer],
   );
   return rows.map(rowToPost);
 }
