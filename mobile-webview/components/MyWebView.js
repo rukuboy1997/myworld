@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { BackHandler, Linking, Share } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as ImagePicker from "expo-image-picker";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -108,6 +109,39 @@ export default function MyWebView({ setTheme }) {
       const { type, payload } = JSON.parse(event.nativeEvent.data);
 
       switch (type) {
+        case "native-media-picker": {
+          (async () => {
+            try {
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ["images", "videos"],
+                allowsEditing: false,
+                quality: 0.9,
+                base64: true,
+                exif: false,
+              });
+              if (result.canceled || !result.assets?.[0]) return;
+              const asset = result.assets[0];
+              const response = {
+                uri: asset.uri,
+                base64: asset.base64 || null,
+                fileName: asset.fileName || asset.uri?.split("/").pop() || "myworld-media",
+                mimeType: asset.mimeType || (asset.type === "video" ? "video/mp4" : "image/jpeg"),
+                fileSize: asset.fileSize || null,
+                type: asset.type || "image",
+              };
+              const encoded = JSON.stringify(response).replace(/</g, "\\u003c");
+              webViewRef.current?.injectJavaScript(
+                `window.dispatchEvent(new CustomEvent("myworld-native-media-selected",{detail:${JSON.stringify(response).replace(/</g, "\\\\u003c")}}));true;`
+              );
+            } catch (error) {
+              console.warn("Unable to open native media picker:", error);
+              webViewRef.current?.injectJavaScript(
+                'window.dispatchEvent(new CustomEvent("myworld-native-media-error"));true;'
+              );
+            }
+          })();
+          break;
+        }
         case "native-share": {
           const title = typeof payload?.title === "string" ? payload.title : "myWorld";
           const message = typeof payload?.text === "string" ? payload.text : "";
