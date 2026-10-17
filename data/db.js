@@ -339,7 +339,7 @@ function rowToNotification(r) {
 }
 
 // ─── Posts ───────────────────────────────────────────────────────────────────
-export async function getPostsPage({ limit = 20, beforeCreatedAt = null, beforeId = null } = {}) {
+export async function getPostsPage({ limit = 20, beforeCreatedAt = null, beforeId = null, viewer = null } = {}) {
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 51);
   const { rows } = await pool.query(
     `SELECT *
@@ -393,7 +393,7 @@ export async function getRankedPostsPage({ viewer = null, limit = 20, beforeScor
 }
 
 // Dedicated video-only feed for the Reels experience.
-export async function getReelsPage({ limit = 10, beforeCreatedAt = null, beforeId = null } = {}) {
+export async function getReelsPage({ limit = 10, beforeCreatedAt = null, beforeId = null, viewer = null } = {}) {
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 10, 1), 31);
   const { rows } = await pool.query(
     `SELECT *
@@ -1422,7 +1422,7 @@ export async function getReelCreatorAnalytics(owner) {
   };
 }
 
-export async function getTrendingReelsPage({ limit = 10, beforeScore = null, beforeCreatedAt = null, beforeId = null } = {}) {
+export async function getTrendingReelsPage({ limit = 10, beforeScore = null, beforeCreatedAt = null, beforeId = null, viewer = null } = {}) {
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 10, 1), 31);
   const { rows } = await pool.query(
     `WITH engagement AS (
@@ -1465,7 +1465,7 @@ export async function getTrendingReelsPage({ limit = 10, beforeScore = null, bef
         OR (reel_score, created_at, id) < ($1::double precision, $2::timestamptz, $3::text)
      ORDER BY reel_score DESC, created_at DESC, id DESC
      LIMIT $4`,
-    [beforeScore, beforeCreatedAt, beforeId, safeLimit],
+    [beforeScore, beforeCreatedAt, beforeId, safeLimit, viewer],
   );
   return rows.map((row) => ({ ...rowToPost(row), score: Number(row.reel_score) }));
 }
