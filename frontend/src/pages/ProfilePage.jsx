@@ -8,6 +8,10 @@ import {
   followUser,
   unfollowUser,
   getFollowStatus,
+  getBlockStatus,
+  blockUser,
+  unblockUser,
+  reportUser,
   truncateAddress,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
@@ -15,7 +19,7 @@ import { useAuth } from "../lib/auth.jsx";
 function ShareProfileButton({ address, username }) {
   const [copied, setCopied] = useState(false);
   const url = `${window.location.origin}/profile/${address}`;
-  const text = `Check out ${username ? "@" + username : "this profile"} on myWorld — the Sui social network!`;
+  const text = `Check out ${username ? "@" + username : "this profile"} on myWorld — a social network!`;
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -139,6 +143,10 @@ export default function ProfilePage() {
   // Follow state
   const [isFollowing, setIsFollowing] = useState(false);
   const [isFollowLoading, setIsFollowLoading] = useState(false);
+  const [blockStatus, setBlockStatus] = useState({ blockedByMe: false, hasBlockedMe: false });
+  const [isBlockLoading, setIsBlockLoading] = useState(false);
+  const [safetyMessage, setSafetyMessage] = useState("");
+  const [safetyError, setSafetyError] = useState("");
 
   const avatarRef = useRef(null);
   const bannerRef = useRef(null);
@@ -181,6 +189,18 @@ export default function ProfilePage() {
     fetchFollowStatus();
   }, [address, isAuthenticated, currentWallet, isOwnProfile]);
 
+  useEffect(() => {
+    let active = true;
+    if (!isAuthenticated || isOwnProfile) {
+      setBlockStatus({ blockedByMe: false, hasBlockedMe: false });
+      return () => { active = false; };
+    }
+    getBlockStatus(address)
+      .then((status) => { if (active) setBlockStatus(status); })
+      .catch(() => { if (active) setBlockStatus({ blockedByMe: false, hasBlockedMe: false }); });
+    return () => { active = false; };
+  }, [address, isAuthenticated, currentWallet, isOwnProfile]);
+
   const handleFollowToggle = async () => {
     if (!isAuthenticated) return;
     setIsFollowLoading(true);
@@ -204,6 +224,72 @@ export default function ProfilePage() {
       console.error("Follow toggle failed", err);
     } finally {
       setIsFollowLoading(false);
+    }
+  };
+
+  const handleBlockToggle = async () => {
+    if (!isAuthenticated || isOwnProfile || isBlockLoading) return;
+    const shouldUnblock = blockStatus.blockedByMe;
+    const confirmed = window.confirm(
+      shouldUnblock
+        ? "Unblock this user? They may be able to follow or message you again."
+        : "Block this user? You will both be prevented from following each other or sending new messages."
+    );
+    if (!confirmed) return;
+    setIsBlockLoading(true);
+    setSafetyError("");
+    setSafetyMessage("");
+    try {
+      if (shouldUnblock) {
+        await unblockUser(address);
+        setBlockStatus((s) => ({ ...s, blockedByMe: false }));
+        setSafetyMessage("User unblocked.");
+      } else {
+        await blockUser(address);
+        setBlockStatus((s) => ({ ...s, blockedByMe: true }));
+        setIsFollowing(false);
+        setProfile((p) => p ? { ...p, followerCount: Math.max(0, (p.followerCount || 0) - (isFollowing ? 1 : 0)) } : p);
+        setSafetyMessage("User blocked. You can unblock them at any time.");
+      }
+    } catch (err) {
+      setSafetyError(err.message || "Could not update block settings.");
+    } finally {
+      setIsBlockLoading(false);
+    }
+  };
+
+  const handleReportUser = async () => {
+    if (!isAuthenticated || isOwnProfile) return;
+    const selection = window.prompt(
+      "Why are you reporting this account? Enter a number:\n1. Spam or scam\n2. Harassment or bullying\n3. Impersonation\n4. Inappropriate content\n5. Child safety concern\n6. Other",
+      "1"
+    );
+    if (selection === null) return;
+    const reasons = {
+      "1": "spam",
+      "2": "harassment",
+      "3": "impersonation",
+      "4": "inappropriate",
+      "5": "child-safety",
+      "6": "other",
+    };
+    const reason = reasons[selection.trim()];
+    if (!reason) {
+      setSafetyError("Please enter a number from 1 to 6.");
+      return;
+    }
+    const description = window.prompt("Add details (optional, up to 1000 characters):", "") || "";
+    if (description.length > 1000) {
+      setSafetyError("Details must be 1000 characters or fewer.");
+      return;
+    }
+    setSafetyError("");
+    setSafetyMessage("");
+    try {
+      const result = await reportUser(address, reason, description);
+      setSafetyMessage(result.message || "Account report submitted.");
+    } catch (err) {
+      setSafetyError(err.message || "Could not submit report.");
     }
   };
 
@@ -340,7 +426,7 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex items-center gap-2 self-start flex-shrink-0 flex-wrap">
-                {!isOwnProfile && isAuthenticated && (
+                {!isOwnProfile && isAuthenticated && !blockStatus.blockedByMe && !blockStatus.hasBlockedMe && (
                   <button
                     onClick={handleFollowToggle}
                     disabled={isFollowLoading}
@@ -356,6 +442,25 @@ export default function ProfilePage() {
                         ? "Following"
                         : "Follow"}
                   </button>
+                )}
+                {!isOwnProfile && isAuthenticated && (
+                  <>
+                    {!blockStatus.hasBlockedMe && (
+                      <button
+                        onClick={handleBlockToggle}
+                        disabled={isBlockLoading}
+                        className="px-4 py-2 rounded-full border border-white/10 bg-secondary text-sm font-medium hover:bg-red-500/10 hover:text-red-400 disabled:opacity-60"
+                      >
+                        {isBlockLoading ? "…" : blockStatus.blockedByMe ? "Unblock" : "Block"}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleReportUser}
+                      className="px-4 py-2 rounded-full border border-amber-500/20 bg-amber-500/5 text-amber-300 text-sm font-medium hover:bg-amber-500/10"
+                    >
+                      Report
+                    </button>
+                  </>
                 )}
                 {isOwnProfile && !isEditing && (
                   <button
@@ -374,7 +479,16 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Follower / following / likes stats */}
+            {(safetyMessage || safetyError || blockStatus.hasBlockedMe || blockStatus.blockedByMe) && (
+              <div className="mt-4 space-y-2" aria-live="polite">
+                {safetyMessage && <p className="text-sm text-green-400">{safetyMessage}</p>}
+                {safetyError && <p className="text-sm text-red-400">{safetyError}</p>}
+                {blockStatus.blockedByMe && <p className="text-sm text-amber-300">You blocked this account. New follows and messages are disabled.</p>}
+                {blockStatus.hasBlockedMe && <p className="text-sm text-muted-foreground">Some interactions with this account are unavailable.</p>}
+              </div>
+            )}
+
+            {/* Follower / following / likes stats */
             {!isEditing && (
               <div className="flex flex-wrap gap-4 mt-4">
                 <div className="text-center">

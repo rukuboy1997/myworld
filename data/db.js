@@ -115,6 +115,15 @@ CREATE TABLE IF NOT EXISTS follows (
   PRIMARY KEY (follower, following)
 );
 
+CREATE TABLE IF NOT EXISTS blocked_users (
+  blocker     TEXT NOT NULL,
+  blocked     TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (blocker, blocked),
+  CHECK (blocker <> blocked)
+);
+CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked ON blocked_users (blocked);
+
 CREATE TABLE IF NOT EXISTS reports (
   id              TEXT PRIMARY KEY,
   post_id         TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -124,6 +133,9 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(post_id, reporter)
 );
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS target_address TEXT;
+ALTER TABLE reports ALTER COLUMN post_id DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_target_reporter ON reports (target_address, reporter) WHERE target_address IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS statuses (
   id              TEXT PRIMARY KEY,
@@ -741,7 +753,16 @@ export async function removeLike(postId, owner) {
 // ─── Messages ────────────────────────────────────────────────────────────────
 export async function getMessages(address) {
   const { rows } = await pool.query(
-    `SELECT * FROM messages WHERE sender = $1 OR receiver = $1 ORDER BY created_at ASC`,
+    `SELECT m.*
+     FROM messages m
+     WHERE (m.sender = $1 OR m.receiver = $1)
+       AND NOT EXISTS (
+         SELECT 1
+         FROM blocked_users b
+         WHERE (b.blocker = $1 AND b.blocked = CASE WHEN m.sender = $1 THEN m.receiver ELSE m.sender END)
+            OR (b.blocker = CASE WHEN m.sender = $1 THEN m.receiver ELSE m.sender END AND b.blocked = $1)
+       )
+     ORDER BY m.created_at ASC`,
     [address],
   );
   return rows.map(rowToMessage);
@@ -825,6 +846,84 @@ export async function getFollowing(address) {
   return rows;
 }
 
+
+// ─── User blocking ────────────────────────────────────────────────────────────
+export async function blockUser(blocker, blocked) {
+  await pool.query(
+    `INSERT INTO blocked_users (blocker, blocked) VALUES ($1, $2)
+     ON CONFLICT (blocker, blocked) DO NOTHING`,
+    [blocker, blocked],
+  );
+  // A block removes the follow relationship in both directions.
+  await pool.query(
+    `DELETE FROM follows
+     WHERE (follower = $1 AND following = $2)
+        OR (follower = $2 AND following = $1)`,
+    [blocker, blocked],
+  );
+  return { blocked: true };
+}
+
+export async function unblockUser(blocker, blocked) {
+  await pool.query(
+    "DELETE FROM blocked_users WHERE blocker = $1 AND blocked = $2",
+    [blocker, blocked],
+  );
+  return { blocked: false };
+}
+
+export async function getBlockStatus(viewer, target) {
+  const { rows } = await pool.query(
+    `SELECT
+       EXISTS(SELECT 1 FROM blocked_users WHERE blocker = $1 AND blocked = $2) AS blocked_by_me,
+       EXISTS(SELECT 1 FROM blocked_users WHERE blocker = $2 AND blocked = $1) AS has_blocked_me`,
+    [viewer, target],
+  );
+  return {
+    blockedByMe: !!rows[0]?.blocked_by_me,
+    hasBlockedMe: !!rows[0]?.has_blocked_me,
+  };
+}
+
+export async function getBlockedUsers(blocker) {
+  const { rows } = await pool.query(
+    `SELECT b.blocked AS address, b.created_at,
+            COALESCE(p.username, u.username, b.blocked) AS username,
+            COALESCE(p.display_name, '') AS display_name,
+            p.avatar_url
+     FROM blocked_users b
+     LEFT JOIN profiles p ON p.address = b.blocked
+     LEFT JOIN users u ON u.address = b.blocked
+     WHERE b.blocker = $1
+     ORDER BY b.created_at DESC`,
+    [blocker],
+  );
+  return rows;
+}
+
+export async function isBlockedEitherWay(a, b) {
+  if (!a || !b) return false;
+  const { rows } = await pool.query(
+    "SELECT EXISTS(SELECT 1 FROM blocked_users WHERE (blocker = $1 AND blocked = $2) OR (blocker = $2 AND blocked = $1)) AS blocked",
+    [a, b],
+  );
+  return !!rows[0]?.blocked;
+}
+
+export async function saveAccountReport({ targetAddress, reporter, reason, description }) {
+  const id = uuidv4();
+  const { rows } = await pool.query(
+    `INSERT INTO reports (id, post_id, target_address, reporter, reason, description, created_at)
+     VALUES ($1, NULL, $2, $3, $4, $5, NOW())
+     ON CONFLICT (target_address, reporter) WHERE target_address IS NOT NULL
+     DO UPDATE SET reason = EXCLUDED.reason,
+                   description = EXCLUDED.description,
+                   created_at = NOW()
+     RETURNING id, target_address, reporter, reason, description, created_at`,
+    [id, targetAddress, reporter, reason, description || ""],
+  );
+  return rows[0];
+}
 
 // ─── Post Reports ─────────────────────────────────────────────────────────────
 export async function saveReport({ postId, reporter, reason, description }) {
