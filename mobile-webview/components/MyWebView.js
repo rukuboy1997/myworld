@@ -56,8 +56,6 @@ export default function MyWebView({ setTheme }) {
         }
         const result = await Notifications.getExpoPushTokenAsync({ projectId });
         if (!mounted || !result.data) return;
-        const tokenData = JSON.stringify({ token: result.data, platform: Platform.OS });
-        const safeTokenData = tokenData.replace(/</g, "\\u003c");
         webViewRef.current?.injectJavaScript(
           `window.__myWorldPushToken = ${JSON.stringify({ token: result.data, platform: Platform.OS })};window.dispatchEvent(new CustomEvent("myworld-push-token",{detail:window.__myWorldPushToken}));true;`
         );
