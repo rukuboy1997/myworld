@@ -160,6 +160,8 @@ export const getFollowing = (address) =>
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 export const getNotifications = () => request("GET", "/notifications");
+export const registerPushToken = (token, platform = "unknown") =>
+  request("POST", "/push-token", { token, platform });
 export const markNotificationsRead = () =>
   request("PUT", "/notifications/read", {});
 export const getUnreadNotificationCount = () =>
