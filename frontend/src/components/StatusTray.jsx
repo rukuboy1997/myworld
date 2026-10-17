@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../lib/auth.jsx";
 import { createStatus, getStatuses, getStatusMedia, getStatusViewers, recordStatusView } from "../lib/api.js";
 
@@ -30,6 +30,7 @@ export default function StatusTray() {
   const [viewers, setViewers] = useState(null);
   const [mediaSrc, setMediaSrc] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
+  const mediaInputRef = useRef(null);
 
   useEffect(() => {
     const handleNativeMedia = (event) => {
@@ -62,6 +63,63 @@ export default function StatusTray() {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  useEffect(() => {
+    const handleNativeMedia = (event) => {
+      const media = event.detail;
+      if (!media?.base64) {
+        setError("Couldn't read the selected media. Please try another file.");
+        return;
+      }
+      try {
+        const binary = atob(media.base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        const mimeType = media.mimeType || "application/octet-stream";
+        const blob = new Blob([bytes], { type: mimeType });
+        const filename = media.fileName || (mimeType.startsWith("video/") ? "status-video.mp4" : "status-image.jpg");
+        const selected = new File([blob], filename, { type: mimeType, lastModified: Date.now() });
+        handleNativeSelectedFile(selected);
+      } catch {
+        setError("Couldn't read the selected media. Please try again.");
+      }
+    };
+    const handleNativeMediaError = () => setError("The media picker couldn't open. Please try again.");
+    window.addEventListener("myworld-native-media-selected", handleNativeMedia);
+    window.addEventListener("myworld-native-media-error", handleNativeMediaError);
+    return () => {
+      window.removeEventListener("myworld-native-media-selected", handleNativeMedia);
+      window.removeEventListener("myworld-native-media-error", handleNativeMediaError);
+    };
+  }, []);
+
+  const handleNativeSelectedFile = (selected) => {
+    setError("");
+    const isImage = selected.type.startsWith("image/") || /\\.(png|jpe?g|gif|webp|avif|heic|heif|bmp)$/i.test(selected.name);
+    const isVideo = selected.type.startsWith("video/") || /\\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(selected.name);
+    if (!isImage && !isVideo) {
+      setError("Choose an image or a video (MP4/WebM recommended).");
+      return;
+    }
+    const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (selected.size > maxBytes) {
+      setError(isVideo ? "Videos must be 25 MB or smaller." : "Images must be 10 MB or smaller.");
+      return;
+    }
+    setFile(selected);
+  };
+
+  const requestMediaSelection = () => {
+    setError("");
+    if (window.isNativeApp && window.ReactNativeWebView?.postMessage) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "native-media-picker",
+        payload: { mediaType: "all" },
+      }));
+      return;
+    }
+    mediaInputRef.current?.click();
+  };
+
   const handleFileChange = (event) => {
     const selected = event.target.files?.[0] || null;
     setError("");
@@ -86,7 +144,7 @@ export default function StatusTray() {
       setFile(null);
       return;
     }
-    setFile(selected);
+    handleNativeSelectedFile(selected);
   };
 
   const refresh = useCallback(async () => {
@@ -290,7 +348,7 @@ export default function StatusTray() {
                   Open phone gallery
                 </button>
               )}
-              <label className="flex cursor-pointer items-center gap-3 rounded-xl p-2 text-sm">
+              <div className="flex items-center gap-3 rounded-xl p-2 text-sm">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500/20 to-pink-500/20 text-xl" aria-hidden="true">
                   {file?.type?.startsWith("video/") || (file && /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(file.name)) ? "▶" : "▧"}
                 </span>
@@ -298,9 +356,9 @@ export default function StatusTray() {
                   <span className="block font-semibold">{file ? "Media selected" : "Add a photo or video"}</span>
                   <span className="mt-1 block truncate text-xs text-muted-foreground">{file ? file.name : "Photos up to 10 MB · Videos up to 25 MB"}</span>
                 </span>
-                <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold">{file ? "Change" : "Browse"}</span>
-                <input key={file?.name || "status-media-input"} type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.heif,.bmp,.mp4,.m4v,.mov,.webm,.3gp,.mkv" className="sr-only" onChange={handleFileChange} />
-              </label>
+                <button type="button" onClick={requestMediaSelection} className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold">{file ? "Change" : "Browse"}</button>
+                <input ref={mediaInputRef} key={file?.name || "status-media-input"} type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.heif,.bmp,.mp4,.m4v,.mov,.webm,.3gp,.mkv" className="sr-only" onChange={handleFileChange} />
+              </div>
               {file && filePreview && (
                 <div className="relative mt-2 overflow-hidden rounded-xl border border-white/10 bg-black">
                   {file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(file.name) ? (
