@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { BackHandler, Linking, Share } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -118,6 +119,33 @@ export default function MyWebView({ setTheme }) {
           ).catch((error) => {
             console.warn("Unable to open native share sheet:", error);
           });
+          break;
+        }
+
+        case "pick-status-media": {
+          (async () => {
+            try {
+              const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], allowsEditing: false, quality: 0.9, base64: true });
+              if (result.canceled || !result.assets?.[0]) return;
+              const asset = result.assets[0];
+              let base64 = asset.base64 || null;
+              if (!base64 && asset.type === "video" && asset.uri) {
+                const response = await fetch(asset.uri);
+                const bytes = new Uint8Array(await response.arrayBuffer());
+                let binary = "";
+                for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+                base64 = globalThis.btoa(binary);
+              }
+              if (!base64) throw new Error("Could not read the selected media. Please try another file.");
+              const mimeType = asset.mimeType || (asset.type === "video" ? "video/mp4" : "image/jpeg");
+              const fileName = asset.fileName || ("myworld-" + Date.now() + "." + (mimeType.split("/")[1] || "jpg"));
+              const encoded = encodeURIComponent(JSON.stringify({ base64, mimeType, fileName }));
+              webViewRef.current?.injectJavaScript('window.dispatchEvent(new CustomEvent("myworld-native-media-data", {detail: JSON.parse(decodeURIComponent("' + encoded + '"))})); true;');
+            } catch (error) {
+              const msg = encodeURIComponent(error?.message || "Could not open media picker.");
+              webViewRef.current?.injectJavaScript('window.dispatchEvent(new CustomEvent("myworld-native-media-error", {detail: decodeURIComponent("' + msg + '")})); true;');
+            }
+          })();
           break;
         }
 
