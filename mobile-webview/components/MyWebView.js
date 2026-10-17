@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { BackHandler, Linking } from "react-native";
+import { BackHandler, Linking, Share } from "react-native";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -107,6 +107,20 @@ export default function MyWebView({ setTheme }) {
       const { type, payload } = JSON.parse(event.nativeEvent.data);
 
       switch (type) {
+        case "native-share": {
+          const title = typeof payload?.title === "string" ? payload.title : "myWorld";
+          const message = typeof payload?.text === "string" ? payload.text : "";
+          const url = typeof payload?.url === "string" ? payload.url : "";
+          const shareMessage = [message, url].filter(Boolean).join("\n");
+          Share.share(
+            { title, message: shareMessage, url },
+            { dialogTitle: title }
+          ).catch((error) => {
+            console.warn("Unable to open native share sheet:", error);
+          });
+          break;
+        }
+
         case "theme":
           if (payload?.theme === "dark" || payload?.theme === "light") {
             setTheme(payload.theme);

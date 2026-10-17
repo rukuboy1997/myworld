@@ -38,6 +38,21 @@ function ShareMenu({ postId, postTitle, onClose }) {
   };
 
   const shareNative = async () => {
+    // Android/iOS WebViews do not consistently expose Web Share API. Route
+    // native-app shares through the React Native bridge when available.
+    if (window.isNativeApp && window.ReactNativeWebView?.postMessage) {
+      try {
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({
+            type: "native-share",
+            payload: { title: text, text, url },
+          }),
+        );
+      } catch {}
+      onClose();
+      return;
+    }
+
     if (navigator.share) {
       try {
         await navigator.share({ title: text, url });
