@@ -1033,7 +1033,7 @@ export function buildApp() {
       if (isPostUnavailable(post))
         return res.status(404).json({ error: "Post not found" });
 
-      const allowedReasons = ["spam", "harassment", "impersonation", "inappropriate", "child-safety", "other"];
+      const allowedReasons = ["spam", "harassment", "impersonation", "inappropriate", "hate", "violence", "child-safety", "other"];
       if (!allowedReasons.includes(reason)) {
         return res.status(400).json({ error: "Choose a valid report reason" });
       }
@@ -1285,7 +1285,7 @@ export function buildApp() {
       const targetAddress = normalizeTextInput(req.params.address);
       const reason = normalizeTextInput(req.body?.reason);
       const description = normalizeTextInput(req.body?.description);
-      const allowedReasons = ["spam", "harassment", "impersonation", "inappropriate", "child-safety", "other"];
+      const allowedReasons = ["spam", "harassment", "impersonation", "inappropriate", "hate", "violence", "child-safety", "other"];
       if (!targetAddress) return res.status(400).json({ error: "User address required" });
       if (targetAddress === req.userAddress) return res.status(400).json({ error: "You cannot report your own account" });
       if (!allowedReasons.includes(reason)) return res.status(400).json({ error: "Choose a valid report reason" });
