@@ -1463,6 +1463,7 @@ export async function getTrendingReelsPage({ limit = 10, beforeScore = null, bef
        LEFT JOIN performance perf ON perf.post_id = p.id
        WHERE p.is_deleted = false AND p.media_type = 'video'
          AND ((p.media_url IS NOT NULL AND p.media_url <> '') OR p.media_blob_id LIKE 'posts/%')
+          AND ($5::text IS NULL OR NOT EXISTS (SELECT 1 FROM blocked_users b WHERE (b.blocker = $5 AND b.blocked = p.owner) OR (b.blocker = p.owner AND b.blocked = $5)))
      )
      SELECT * FROM ranked
      WHERE $1::double precision IS NULL
