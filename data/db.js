@@ -382,6 +382,7 @@ export async function getRankedPostsPage({ viewer = null, limit = 20, beforeScor
        FROM posts p
        LEFT JOIN engagement e ON e.post_id = p.id
        WHERE p.is_deleted = false
+          AND ($1::text IS NULL OR NOT EXISTS (SELECT 1 FROM blocked_users b WHERE (b.blocker = $1 AND b.blocked = p.owner) OR (b.blocker = p.owner AND b.blocked = $1)))
      )
      SELECT * FROM ranked
      WHERE $2::double precision IS NULL
@@ -406,9 +407,10 @@ export async function getReelsPage({ limit = 10, beforeCreatedAt = null, beforeI
          $1::timestamptz IS NULL
          OR (created_at, id) < ($1::timestamptz, $2::text)
        )
+        AND ($4::text IS NULL OR NOT EXISTS (SELECT 1 FROM blocked_users b WHERE (b.blocker = $4 AND b.blocked = posts.owner) OR (b.blocker = posts.owner AND b.blocked = $4)))
      ORDER BY created_at DESC, id DESC
      LIMIT $3`,
-    [beforeCreatedAt, beforeId, safeLimit],
+    [beforeCreatedAt, beforeId, safeLimit, viewer],
   );
   return rows.map(rowToPost);
 }
@@ -506,6 +508,7 @@ export async function getRankedReelsPage({ viewer = null, limit = 10, beforeScor
        WHERE p.is_deleted = false
          AND p.media_type = 'video'
          AND ((p.media_url IS NOT NULL AND p.media_url <> '') OR p.media_blob_id LIKE 'posts/%')
+          AND ($1::text IS NULL OR NOT EXISTS (SELECT 1 FROM blocked_users b WHERE (b.blocker = $1 AND b.blocked = p.owner) OR (b.blocker = p.owner AND b.blocked = $1)))
      ),
      creator_diversity AS (
        SELECT base_ranked.*,
