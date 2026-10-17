@@ -488,7 +488,7 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* Follower / following / likes stats */
+            {/* Follower / following / likes stats */}
             {!isEditing && (
               <div className="flex flex-wrap gap-4 mt-4">
                 <div className="text-center">
