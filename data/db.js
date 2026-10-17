@@ -753,7 +753,16 @@ export async function removeLike(postId, owner) {
 // ─── Messages ────────────────────────────────────────────────────────────────
 export async function getMessages(address) {
   const { rows } = await pool.query(
-    `SELECT * FROM messages WHERE sender = $1 OR receiver = $1 ORDER BY created_at ASC`,
+    `SELECT m.*
+     FROM messages m
+     WHERE (m.sender = $1 OR m.receiver = $1)
+       AND NOT EXISTS (
+         SELECT 1
+         FROM blocked_users b
+         WHERE (b.blocker = $1 AND b.blocked = CASE WHEN m.sender = $1 THEN m.receiver ELSE m.sender END)
+            OR (b.blocker = CASE WHEN m.sender = $1 THEN m.receiver ELSE m.sender END AND b.blocked = $1)
+       )
+     ORDER BY m.created_at ASC`,
     [address],
   );
   return rows.map(rowToMessage);
