@@ -412,7 +412,7 @@ export function buildApp() {
   });
 
   // ─── Feed ──────────────────────────────────────────────────────────────
-  app.get("/api/feed", async (req, res) => {
+  app.get("/api/feed", optionalAuth, async (req, res) => {
     try {
       const rawLimit = req.query.limit;
       const limit = rawLimit === undefined ? 20 : Number.parseInt(rawLimit, 10);
@@ -448,10 +448,10 @@ export function buildApp() {
         }
       }
 
-      const viewer = typeof req.query.viewer === "string" ? req.query.viewer : null;
+      const viewer = req.userAddress || null;
       const posts = sort === "for-you"
         ? await getRankedPostsPage({ viewer, limit: limit + 1, beforeScore, beforeCreatedAt, beforeId })
-        : await getPostsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
+        : await getPostsPage({ limit: limit + 1, beforeCreatedAt, beforeId, viewer });
       const hasMore = posts.length > limit;
       const page = hasMore ? posts.slice(0, limit) : posts;
       const [profiles, engagement] = await Promise.all([
@@ -517,8 +517,8 @@ export function buildApp() {
       const posts = sort === "for-you"
         ? await getRankedReelsPage({ viewer, limit: limit + 1, beforeScore, beforeCreatedAt, beforeId })
         : sort === "trending"
-          ? await getTrendingReelsPage({ limit: limit + 1, beforeScore, beforeCreatedAt, beforeId })
-          : await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId });
+          ? await getTrendingReelsPage({ limit: limit + 1, beforeScore, beforeCreatedAt, beforeId, viewer })
+          : await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId, viewer });
       const hasMore = posts.length > limit;
       const page = hasMore ? posts.slice(0, limit) : posts;
       const [profiles, engagement] = await Promise.all([
