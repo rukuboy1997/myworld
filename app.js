@@ -896,6 +896,8 @@ export function buildApp() {
       const post = await getPostById(postId);
       if (isPostUnavailable(post))
         return res.status(404).json({ error: "Not found" });
+      if (await isBlockedEitherWay(effectiveOwner, post.owner))
+        return res.status(403).json({ error: "You cannot interact with this post because one of these users has blocked the other" });
       if (await hasLiked(postId, effectiveOwner)) {
         await removeLike(postId, effectiveOwner);
         const likes = await getLikes(postId);
@@ -959,6 +961,8 @@ export function buildApp() {
       const post = await getPostById(postId);
       if (isPostUnavailable(post))
         return res.status(404).json({ error: "Not found" });
+      if (await isBlockedEitherWay(effectiveOwner, post.owner))
+        return res.status(403).json({ error: "You cannot comment here because one of these users has blocked the other" });
       const comment = await saveComment({
         id: uuidv4(),
         postId,
@@ -1029,24 +1033,24 @@ export function buildApp() {
       if (isPostUnavailable(post))
         return res.status(404).json({ error: "Post not found" });
 
-      // Log the report (you can store this in DB if needed)
-      console.log(`[Report] Post ${postId} reported by ${reporterAddress}`, {
-        reason,
-        description,
-      });
-
-      // Optionally notify post owner
-      if (post.owner !== reporterAddress) {
-        await createNotificationAndPush({
-          recipient: post.owner,
-          type: "report",
-          actorAddress: reporterAddress,
-          postId,
-          excerpt: `Your post was reported for: ${reason}`,
-        });
+      const allowedReasons = ["spam", "harassment", "impersonation", "inappropriate", "child-safety", "other"];
+      if (!allowedReasons.includes(reason)) {
+        return res.status(400).json({ error: "Choose a valid report reason" });
+      }
+      const safeDescription = normalizeTextInput(description);
+      if (safeDescription.length > 1000) {
+        return res.status(400).json({ error: "Description must be 1000 characters or fewer" });
       }
 
-      res.json({ success: true, message: "Post reported successfully" });
+      await saveReport({
+        postId,
+        reporter: reporterAddress,
+        reason,
+        description: safeDescription,
+      });
+      // Reports are confidential; never notify the reported account that a specific user filed one.
+      console.info("[Safety] Post report received", { postId, reason });
+      res.json({ success: true, message: "Post reported. Thank you for helping keep myWorld safe." });
     } catch (err) {
       console.error("report_post error:", err);
       res.status(500).json({ error: err.message });
