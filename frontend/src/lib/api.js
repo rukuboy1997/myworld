@@ -158,6 +158,17 @@ export const getFollowers = (address) =>
 export const getFollowing = (address) =>
   request("GET", `/profile/${address}/following`);
 
+// ─── Safety & Privacy ────────────────────────────────────────────────────────
+export const getBlockStatus = (address) =>
+  request("GET", `/users/${encodeURIComponent(address)}/block-status`);
+export const getBlockedUsers = () => request("GET", "/blocks");
+export const blockUser = (address) =>
+  request("POST", `/users/${encodeURIComponent(address)}/block`, {});
+export const unblockUser = (address) =>
+  request("DELETE", `/users/${encodeURIComponent(address)}/block`);
+export const reportUser = (address, reason, description = "") =>
+  request("POST", `/users/${encodeURIComponent(address)}/report`, { reason, description });
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 export const getNotifications = () => request("GET", "/notifications");
 export const registerPushToken = (token, platform = "unknown") =>
