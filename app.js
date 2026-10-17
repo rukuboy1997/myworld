@@ -61,6 +61,12 @@ import {
   getBatchPresence,
   getUserByAddress,
   saveReport,
+  blockUser,
+  unblockUser,
+  getBlockStatus,
+  getBlockedUsers,
+  isBlockedEitherWay,
+  saveAccountReport,
 } from "./data/db.js";
 import {
   requireAuth,
@@ -1215,6 +1221,82 @@ export function buildApp() {
     }
   });
 
+  // ─── Safety & Privacy: user blocks ──────────────────────────────────────
+  app.get("/api/users/:address/block-status", requireAuth, async (req, res) => {
+    try {
+      const target = normalizeTextInput(req.params.address);
+      if (!target) return res.status(400).json({ error: "User address required" });
+      if (target === req.userAddress) {
+        return res.status(400).json({ error: "Cannot check block status for yourself" });
+      }
+      const status = await getBlockStatus(req.userAddress, target);
+      res.set("Cache-Control", "private, no-store");
+      res.json(status);
+    } catch (err) {
+      console.error("block_status error:", err);
+      res.status(500).json({ error: "Failed to load block status" });
+    }
+  });
+
+  app.get("/api/blocks", requireAuth, async (req, res) => {
+    try {
+      const items = await getBlockedUsers(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items });
+    } catch (err) {
+      console.error("get_blocks error:", err);
+      res.status(500).json({ error: "Failed to load blocked users" });
+    }
+  });
+
+  app.post("/api/users/:address/block", requireAuth, async (req, res) => {
+    try {
+      const target = normalizeTextInput(req.params.address);
+      if (!target) return res.status(400).json({ error: "User address required" });
+      if (target === req.userAddress) return res.status(400).json({ error: "You cannot block yourself" });
+      const exists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [target]);
+      if (!exists.rowCount) return res.status(404).json({ error: "User not found" });
+      await blockUser(req.userAddress, target);
+      res.json({ ok: true, blocked: true });
+    } catch (err) {
+      console.error("block_user error:", err);
+      res.status(500).json({ error: "Failed to block user" });
+    }
+  });
+
+  app.delete("/api/users/:address/block", requireAuth, async (req, res) => {
+    try {
+      const target = normalizeTextInput(req.params.address);
+      if (!target) return res.status(400).json({ error: "User address required" });
+      await unblockUser(req.userAddress, target);
+      res.json({ ok: true, blocked: false });
+    } catch (err) {
+      console.error("unblock_user error:", err);
+      res.status(500).json({ error: "Failed to unblock user" });
+    }
+  });
+
+  app.post("/api/users/:address/report", requireAuth, async (req, res) => {
+    try {
+      const targetAddress = normalizeTextInput(req.params.address);
+      const reason = normalizeTextInput(req.body?.reason);
+      const description = normalizeTextInput(req.body?.description);
+      const allowedReasons = ["spam", "harassment", "impersonation", "inappropriate", "child-safety", "other"];
+      if (!targetAddress) return res.status(400).json({ error: "User address required" });
+      if (targetAddress === req.userAddress) return res.status(400).json({ error: "You cannot report your own account" });
+      if (!allowedReasons.includes(reason)) return res.status(400).json({ error: "Choose a valid report reason" });
+      if (description.length > 1000) return res.status(400).json({ error: "Description must be 1000 characters or fewer" });
+      const exists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [targetAddress]);
+      if (!exists.rowCount) return res.status(404).json({ error: "User not found" });
+      const report = await saveAccountReport({ targetAddress, reporter: req.userAddress, reason, description });
+      console.info("[Safety] Account report received", { reportId: report.id, reason });
+      res.status(201).json({ ok: true, message: "Account reported. Thank you for helping keep myWorld safe." });
+    } catch (err) {
+      console.error("report_account error:", err);
+      res.status(500).json({ error: "Failed to submit account report" });
+    }
+  });
+
   // ─── Follows ────────────────────────────────────────────────────────────
   app.post("/api/follow", requireAuth, async (req, res) => {
     try {
@@ -1224,6 +1306,8 @@ export function buildApp() {
         return res.status(400).json({ error: "following address required" });
       if (follower === following)
         return res.status(400).json({ error: "Cannot follow yourself" });
+      if (await isBlockedEitherWay(follower, following))
+        return res.status(403).json({ error: "This action is unavailable because one of these users has blocked the other" });
       await createFollow(follower, following);
       await createNotificationAndPush({
         recipient: following,
@@ -1365,6 +1449,12 @@ export function buildApp() {
           .status(400)
           .json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
       const effectiveSender = req.userAddress;
+      if (receiver === effectiveSender)
+        return res.status(400).json({ error: "You cannot message yourself" });
+      const receiverExists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [receiver]);
+      if (!receiverExists.rowCount) return res.status(404).json({ error: "User not found" });
+      if (await isBlockedEitherWay(effectiveSender, receiver))
+        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
       const message = await saveMessage({
         id: uuidv4(),
         sender: effectiveSender,
@@ -1429,6 +1519,8 @@ export function buildApp() {
         return res.status(400).json({ error: "a and b addresses required" });
       if (a !== req.userAddress && b !== req.userAddress)
         return res.status(403).json({ error: "Forbidden" });
+      if (await isBlockedEitherWay(a, b))
+        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
       const messages = await getConversation(a, b);
       res.json(messages);
     } catch (err) {
