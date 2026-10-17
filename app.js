@@ -120,6 +120,107 @@ async function fireEmailNotif({ type, recipientAddress, actorAddress, extra }) {
   }
 }
 
+// Expo push delivery is best-effort: notification records remain the source of truth,
+// and a push provider outage must never fail the user's social action.
+async function deliverExpoPush({ recipient, type, actorAddress, postId, excerpt }) {
+  try {
+    // Reports stay in the in-app notification centre; do not push them to users.
+    if (type === "report") return;
+
+    const { rows } = await pool.query(
+      "SELECT token FROM push_tokens WHERE user_address = $1",
+      [recipient],
+    );
+    const tokens = [...new Set(rows.map((row) => row.token).filter(Boolean))];
+    if (!tokens.length) return;
+
+    let actorProfile = null;
+    try {
+      actorProfile = await getProfile(actorAddress);
+    } catch (err) {
+      console.warn("[push] actor profile lookup failed:", err.message);
+    }
+    const actorName =
+      actorProfile?.displayName?.trim() ||
+      actorProfile?.username ||
+      (actorAddress ? `${actorAddress.slice(0, 6)}…${actorAddress.slice(-4)}` : "Someone");
+
+    const copy = {
+      like: { title: "New like on myWorld", body: `${actorName} liked your post.` },
+      comment: { title: "New comment on myWorld", body: `${actorName} commented: ${excerpt || "Open myWorld to view it."}` },
+      follow: { title: "New follower on myWorld", body: `${actorName} started following you.` },
+      message: { title: "New message on myWorld", body: `${actorName}: ${excerpt || "Sent you a message."}` },
+    }[type] || { title: "myWorld notification", body: excerpt || "You have a new notification." };
+
+    const path = type === "message"
+      ? "/messages"
+      : type === "follow"
+        ? `/profile/${encodeURIComponent(actorAddress || "")}`
+        : postId
+          ? `/post/${encodeURIComponent(postId)}`
+          : "/notifications";
+
+    // Expo accepts up to 100 messages per request.
+    for (let offset = 0; offset < tokens.length; offset += 100) {
+      const batch = tokens.slice(offset, offset + 100);
+      const messages = batch.map((token) => ({
+        to: token,
+        title: copy.title,
+        body: copy.body.slice(0, 220),
+        sound: "default",
+        priority: "high",
+        channelId: "default",
+        data: { url: path, path, type },
+      }));
+
+      try {
+        const response = await fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(messages),
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok) {
+          console.warn("[push] Expo request failed:", response.status, result?.errors || "");
+          continue;
+        }
+
+        const tickets = Array.isArray(result?.data) ? result.data : [result?.data];
+        const invalidTokens = tickets.flatMap((ticket, index) =>
+          ticket?.status === "error" &&
+          ticket?.details?.error === "DeviceNotRegistered" &&
+          batch[index]
+            ? [batch[index]]
+            : [],
+        );
+        if (invalidTokens.length) {
+          await pool.query(
+            "DELETE FROM push_tokens WHERE user_address = $1 AND token = ANY($2::text[])",
+            [recipient, invalidTokens],
+          );
+        }
+        const providerErrors = tickets.filter((ticket) => ticket?.status === "error");
+        if (providerErrors.length) {
+          console.warn("[push] Expo rejected one or more messages:", providerErrors.map((ticket) => ticket.message || ticket.details?.error || "unknown error"));
+        }
+      } catch (err) {
+        console.warn("[push] delivery request failed:", err.message);
+      }
+    }
+  } catch (err) {
+    console.warn("[push] delivery preparation failed:", err.message);
+  }
+}
+
+async function createNotificationAndPush(notification) {
+  await createNotification(notification);
+  // Deliberately do not await provider delivery; social actions should stay responsive.
+  void deliverExpoPush(notification);
+}
+
 let dbReady = null;
 export function ensureDb() {
   if (!dbReady)
@@ -802,7 +903,7 @@ export function buildApp() {
         });
         // Notify post owner (skip self-notification)
         if (post.owner !== effectiveOwner) {
-          await createNotification({
+          await createNotificationAndPush({
             recipient: post.owner,
             type: "like",
             actorAddress: effectiveOwner,
@@ -861,7 +962,7 @@ export function buildApp() {
       });
       // Notify post owner (skip self-notification)
       if (post.owner !== effectiveOwner) {
-        await createNotification({
+        await createNotificationAndPush({
           recipient: post.owner,
           type: "comment",
           actorAddress: effectiveOwner,
@@ -930,7 +1031,7 @@ export function buildApp() {
 
       // Optionally notify post owner
       if (post.owner !== reporterAddress) {
-        await createNotification({
+        await createNotificationAndPush({
           recipient: post.owner,
           type: "report",
           actorAddress: reporterAddress,
@@ -1124,7 +1225,7 @@ export function buildApp() {
       if (follower === following)
         return res.status(400).json({ error: "Cannot follow yourself" });
       await createFollow(follower, following);
-      await createNotification({
+      await createNotificationAndPush({
         recipient: following,
         type: "follow",
         actorAddress: follower,
@@ -1284,7 +1385,7 @@ export function buildApp() {
       );
       // Notify the receiver of the new message
       if (receiver !== effectiveSender) {
-        await createNotification({
+        await createNotificationAndPush({
           recipient: receiver,
           type: "message",
           actorAddress: effectiveSender,
