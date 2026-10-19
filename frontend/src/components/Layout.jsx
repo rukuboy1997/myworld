@@ -24,7 +24,7 @@ export default function Layout({ children, immersive = false }) {
   const [showInvite, setShowInvite] = useState(false);
   const location = useLocation();
 
-  const isOnMessages = location.pathname === "/messages";
+  const isOnMessages = location.pathname === "/messages" || location.pathname === "/";
   const isOnNotifications = location.pathname === "/notifications";
 
   // Unread messages badge
@@ -105,7 +105,8 @@ export default function Layout({ children, immersive = false }) {
     } catch {}
   };
 
-  const isActive = (path) => location.pathname === path;
+  const isActive = (path) =>
+    location.pathname === path || (path === "/messages" && location.pathname === "/");
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground">
