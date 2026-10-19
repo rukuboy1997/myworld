@@ -649,7 +649,7 @@ export default function AdminModerationPage() {
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Assigned administrator</dt>
-                      <dd className="mt-1 break-all">{incident.assigned_username ? "@" + incident.assigned_username : shortAddress(incident.assigned_to) || "Unassigned"}</dd>
+                      <dd className="mt-1 break-all">{incident.assigned_username ? "@" + incident.assigned_username : incident.assigned_to ? shortAddress(incident.assigned_to) : "Unassigned"}</dd>
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Last updated</dt>
