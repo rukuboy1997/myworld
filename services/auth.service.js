@@ -156,6 +156,9 @@ export async function login({ username, password }) {
   if (!user) throw new Error("Invalid username or password");
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) throw new Error("Invalid username or password");
+  if (user.accountStatus === "suspended") {
+    throw new Error("This account is suspended. Contact myWorld support if you believe this is a mistake.");
+  }
   return { user: publicUser(user), token: signToken(user) };
 }
 
@@ -179,7 +182,7 @@ export async function optionalAuth(req, res, next) {
   const token = extractToken(req);
   if (token) {
     const user = await verifyToken(token);
-    if (user) {
+    if (user && user.accountStatus !== "suspended") {
       req.user = user;
       req.userAddress = user.address;
     }
@@ -193,6 +196,9 @@ export async function requireAuth(req, res, next) {
   const user = await verifyToken(token);
   if (!user)
     return res.status(401).json({ error: "Invalid or expired session" });
+  if (user.accountStatus === "suspended") {
+    return res.status(403).json({ error: "Your myWorld account is suspended. Sign-in and account actions are disabled." });
+  }
   req.user = user;
   req.userAddress = user.address;
   next();
@@ -267,6 +273,9 @@ export async function resetPassword({ email, code, newPassword, ip }) {
   if (!emailOk || !ipOk)
     throw new Error("Too many attempts. Please try again later.");
   const user = await getUserByEmail(email);
+  if (user?.accountStatus === "suspended") {
+    throw new Error("This account is suspended. Contact myWorld support if you believe this is a mistake.");
+  }
   const reset = user ? await findActiveResetByEmail(email) : null;
   const candidateHash = reset?.code_hash || DUMMY_HASH;
   const codeMatches = await bcrypt.compare(code, candidateHash);
@@ -282,5 +291,5 @@ export async function getCurrentUser(req, res) {
   const token = extractToken(req);
   if (!token) return res.json({ user: null });
   const user = await verifyToken(token);
-  res.json({ user: publicUser(user) });
+  res.json({ user: publicUser(user && user.accountStatus !== "suspended" ? user : null) });
 }
