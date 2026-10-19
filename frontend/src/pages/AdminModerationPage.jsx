@@ -8,6 +8,8 @@ import {
   getAdminAuditLog,
   moderateReportPriority,
   getAdminAlertDeliveries,
+  getAdminIncidents,
+  updateAdminIncident,
 } from "../lib/api.js";
 
 const REPORT_FILTERS = [
@@ -57,6 +59,8 @@ export default function AdminModerationPage() {
   const [accounts, setAccounts] = useState([]);
   const [auditItems, setAuditItems] = useState([]);
   const [alertItems, setAlertItems] = useState([]);
+  const [incidents, setIncidents] = useState([]);
+  const [incidentStatus, setIncidentStatus] = useState("active");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
@@ -118,19 +122,35 @@ export default function AdminModerationPage() {
     }
   }, []);
 
+  const loadIncidents = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await getAdminIncidents(incidentStatus, 100);
+      setIncidents(Array.isArray(data.items) ? data.items : []);
+    } catch (err) {
+      setError(err.message || "Couldn't load the incident response queue.");
+      setIncidents([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [incidentStatus]);
+
   useEffect(() => {
     if (view === "reports") loadReports();
     else if (view === "accounts") loadAccounts();
     else if (view === "audit") loadAudit();
-    else loadAlerts();
-  }, [view, loadReports, loadAccounts, loadAudit, loadAlerts]);
+    else if (view === "alerts") loadAlerts();
+    else loadIncidents();
+  }, [view, loadReports, loadAccounts, loadAudit, loadAlerts, loadIncidents]);
 
   const refreshCurrentView = () => {
     setNotice("");
     if (view === "reports") void loadReports();
     else if (view === "accounts") void loadAccounts();
     else if (view === "audit") void loadAudit();
-    else void loadAlerts();
+    else if (view === "alerts") void loadAlerts();
+    else void loadIncidents();
   };
 
   const actOnReport = async (report, action) => {
@@ -145,6 +165,46 @@ export default function AdminModerationPage() {
       await loadReports();
     } catch (err) {
       setError(err.message || "Moderation action failed.");
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const actOnIncident = async (incident, action) => {
+    const labels = {
+      acknowledge: "acknowledge this incident",
+      start: "mark this incident as in progress",
+      escalate: "escalate this incident",
+      resolve: "resolve this incident",
+      reopen: "reopen this incident",
+      assign: "assign this incident to an administrator",
+    };
+    let note = "";
+    let assignedTo = null;
+    if (action === "resolve" || action === "escalate") {
+      note = window.prompt(action === "resolve"
+        ? "Record the resolution and any follow-up needed:"
+        : "Explain why this incident is being escalated:");
+      if (note === null) return;
+      if (note.trim().length < 3) {
+        setError("Please enter a note of at least 3 characters.");
+        return;
+      }
+    } else if (action === "assign") {
+      assignedTo = window.prompt("Enter the administrator's account address. It must be listed in ADMIN_USER_ADDRESSES:");
+      if (assignedTo === null || !assignedTo.trim()) return;
+      assignedTo = assignedTo.trim();
+    }
+    if (!window.confirm("Are you sure you want to " + labels[action] + "?")) return;
+    setBusyId(incident.report_id);
+    setError("");
+    setNotice("");
+    try {
+      await updateAdminIncident(incident.report_id, action, note, assignedTo);
+      setNotice("Incident updated. The action was recorded in the moderation audit log.");
+      await loadIncidents();
+    } catch (err) {
+      setError(err.message || "Couldn't update the incident.");
     } finally {
       setBusyId("");
     }
@@ -232,6 +292,7 @@ export default function AdminModerationPage() {
             { value: "accounts", label: "Accounts" },
             { value: "audit", label: "Audit log" },
             { value: "alerts", label: "Critical alerts" },
+            { value: "incidents", label: "Incident response" },
           ].map((item) => (
             <button
               key={item.value}
@@ -287,6 +348,22 @@ export default function AdminModerationPage() {
             <div>
               <h2 className="font-semibold">Critical alert delivery history</h2>
               <p className="mt-1 text-sm text-muted-foreground">Showing the latest 100 delivery records.</p>
+            </div>
+          )}
+          {view === "incidents" && (
+            <div className="flex flex-col gap-1">
+              <h2 className="font-semibold">Incident response queue</h2>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                Show
+                <select value={incidentStatus} onChange={(event) => setIncidentStatus(event.target.value)} className="rounded-lg border border-border bg-background px-2 py-1 text-foreground">
+                  <option value="active">All active incidents</option>
+                  <option value="open">Open</option>
+                  <option value="acknowledged">Acknowledged</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="escalated">Escalated</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+              </label>
             </div>
           )}
           <button type="button" onClick={refreshCurrentView} disabled={loading} className="shrink-0 rounded-xl border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary disabled:opacity-50">
@@ -523,6 +600,86 @@ export default function AdminModerationPage() {
           <div className="rounded-2xl border border-dashed border-border p-10 text-center">
             <h2 className="font-display text-lg font-semibold">No critical alert attempts yet</h2>
             <p className="mt-2 text-sm text-muted-foreground">When a critical report arrives, its email delivery status will appear here.</p>
+          </div>
+        )}
+
+
+        {view === "incidents" && (
+          <section className="mb-5 rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <h2 className="font-semibold">How incident response works</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Critical reports create an incident record. Acknowledge receipt, assign it to a configured administrator, record work or escalation, and resolve it only after documenting the outcome. A priority flag is not proof of an allegation.
+            </p>
+          </section>
+        )}
+
+        {!loading && !error && view === "incidents" && incidents.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-border p-10 text-center">
+            <h2 className="font-display text-lg font-semibold">No incidents in this view</h2>
+            <p className="mt-2 text-sm text-muted-foreground">New critical reports will appear here for follow-up.</p>
+          </div>
+        )}
+
+        {!loading && view === "incidents" && (
+          <div className="space-y-3">
+            {incidents.map((incident) => {
+              const target = incident.target_username ? "@" + incident.target_username : shortAddress(incident.target_address || incident.post_owner);
+              const incidentStatusClass = incident.status === "escalated"
+                ? "border-red-500/30 bg-red-500/10 text-red-600"
+                : incident.status === "resolved"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-700";
+              return (
+                <article key={incident.id} className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs font-bold uppercase text-red-600">Critical</span>
+                        <span className={"rounded-full border px-3 py-1 text-xs font-bold uppercase " + incidentStatusClass}>{statusLabel(incident.status)}</span>
+                      </div>
+                      <h2 className="mt-3 font-semibold">{incident.reason === "child-safety" ? "Child-safety concern" : "Violence or threat concern"}</h2>
+                      <p className="mt-1 text-xs text-muted-foreground">Report #{shortAddress(incident.report_id)} · Opened {displayDate(incident.created_at)}</p>
+                    </div>
+                    <a href={"/admin/moderation"} className="text-sm font-semibold text-primary underline underline-offset-4">Open report queue</a>
+                  </div>
+                  <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Reported account</dt>
+                      <dd className="mt-1 break-all">{target}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Assigned administrator</dt>
+                      <dd className="mt-1 break-all">{incident.assigned_username ? "@" + incident.assigned_username : shortAddress(incident.assigned_to) || "Unassigned"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Last updated</dt>
+                      <dd className="mt-1">{displayDate(incident.updated_at)}{incident.updated_by_username ? " by @" + incident.updated_by_username : ""}</dd>
+                    </div>
+                    {incident.acknowledged_at && <div>
+                      <dt className="text-xs text-muted-foreground">Acknowledged</dt>
+                      <dd className="mt-1">{displayDate(incident.acknowledged_at)} · {shortAddress(incident.acknowledged_by)}</dd>
+                    </div>}
+                  </dl>
+                  {incident.resolution_note && (
+                    <div className="mt-4 rounded-xl bg-secondary/50 p-3 text-sm">
+                      <p className="font-semibold">Resolution record</p>
+                      <p className="mt-1 whitespace-pre-wrap">{incident.resolution_note}</p>
+                      {incident.resolved_at && <p className="mt-2 text-xs text-muted-foreground">Resolved {displayDate(incident.resolved_at)} by {shortAddress(incident.resolved_by)}</p>}
+                    </div>
+                  )}
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {incident.status !== "resolved" && <>
+                      <button type="button" disabled={busyId === incident.report_id} onClick={() => actOnIncident(incident, "acknowledge")} className="rounded-xl border border-border px-3 py-2 text-sm font-semibold hover:bg-secondary disabled:opacity-50">Acknowledge</button>
+                      <button type="button" disabled={busyId === incident.report_id} onClick={() => actOnIncident(incident, "start")} className="rounded-xl border border-border px-3 py-2 text-sm font-semibold hover:bg-secondary disabled:opacity-50">Start work</button>
+                      <button type="button" disabled={busyId === incident.report_id} onClick={() => actOnIncident(incident, "assign")} className="rounded-xl border border-border px-3 py-2 text-sm font-semibold hover:bg-secondary disabled:opacity-50">Assign admin</button>
+                      <button type="button" disabled={busyId === incident.report_id} onClick={() => actOnIncident(incident, "escalate")} className="rounded-xl border border-amber-500/40 px-3 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-500/10 disabled:opacity-50">Escalate</button>
+                      <button type="button" disabled={busyId === incident.report_id} onClick={() => actOnIncident(incident, "resolve")} className="rounded-xl border border-emerald-500/40 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-500/10 disabled:opacity-50">Resolve</button>
+                    </>}
+                    {incident.status === "resolved" && <button type="button" disabled={busyId === incident.report_id} onClick={() => actOnIncident(incident, "reopen")} className="rounded-xl border border-border px-3 py-2 text-sm font-semibold hover:bg-secondary disabled:opacity-50">Reopen incident</button>}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
 
