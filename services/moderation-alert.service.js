@@ -1,4 +1,4 @@
-import { claimModerationAlert, finishModerationAlert } from "../data/db.js";
+import { claimModerationAlert, finishModerationAlert, ensureModerationIncident } from "../data/db.js";
 import { isEmailConfigured, sendEmail } from "./email.service.js";
 
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "https://myworld-app.vercel.app").replace(/\/$/, "");
@@ -45,6 +45,13 @@ export async function sendCriticalModerationAlert({
 }) {
   if (!reportId || !["child-safety", "violence"].includes(reason)) {
     return { skipped: true, reason: "not_critical" };
+  }
+
+  // Incident records must exist even if email delivery is unavailable.
+  try {
+    await ensureModerationIncident(reportId);
+  } catch (error) {
+    console.error("[moderation-alert] failed to create incident record", error?.message || error);
   }
 
   let claim;
