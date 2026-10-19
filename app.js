@@ -73,6 +73,7 @@ import {
   updateAdminUserStatus,
   getModerationAuditLog,
   updateAdminReportPriority,
+  getAdminAlertDeliveries,
 } from "./data/db.js";
 import {
   requireAuth,
@@ -87,6 +88,7 @@ import {
 } from "./services/auth.service.js";
 import { getClientIp } from "./utils/clientIp.js";
 import { sendNotificationEmail } from "./services/notification-email.service.js";
+import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
 import { asyncWrapProviders } from "async_hooks";
 import { timeStamp } from "console";
 
@@ -1162,6 +1164,21 @@ export function buildApp() {
     }
   });
 
+  app.get("/api/admin/alerts", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const limit = req.query.limit === undefined ? 100 : Number.parseInt(req.query.limit, 10);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+        return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
+      }
+      const items = await getAdminAlertDeliveries({ limit });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items });
+    } catch (err) {
+      console.error("admin_alert_deliveries error:", err);
+      res.status(500).json({ error: "Failed to load critical alert delivery history" });
+    }
+  });
+
   // ─── Report Post ────────────────────────────────────────────────────────
   app.post("/api/post/:id/report", requireAuth, async (req, res) => {
     try {
@@ -1186,12 +1203,22 @@ export function buildApp() {
         return res.status(400).json({ error: "Description must be 1000 characters or fewer" });
       }
 
-      await saveReport({
+      const savedReport = await saveReport({
         postId,
         reporter: reporterAddress,
         reason,
         description: safeDescription,
       });
+      // Critical alerts go only to configured moderation contacts. The alert
+      // omits reporter identity and the submitted description/content.
+      if (savedReport?.triage_priority === "critical") {
+        await sendCriticalModerationAlert({
+          reportId: savedReport.id,
+          reason: savedReport.reason,
+          targetAddress: post.owner,
+          reportType: "post",
+        });
+      }
       // Reports are confidential; never notify the reported account that a specific user filed one.
       console.info("[Safety] Post report received", { postId, reason });
       res.json({ success: true, message: "Post reported. Thank you for helping keep myWorld safe." });
@@ -1437,6 +1464,16 @@ export function buildApp() {
       const exists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [targetAddress]);
       if (!exists.rowCount) return res.status(404).json({ error: "User not found" });
       const report = await saveAccountReport({ targetAddress, reporter: req.userAddress, reason, description });
+      // Critical alerts go only to configured moderation contacts. The alert
+      // omits reporter identity and the submitted description/content.
+      if (report?.triage_priority === "critical") {
+        await sendCriticalModerationAlert({
+          reportId: report.id,
+          reason: report.reason,
+          targetAddress,
+          reportType: "account",
+        });
+      }
       console.info("[Safety] Account report received", { reportId: report.id, reason });
       res.status(201).json({ ok: true, message: "Account reported. Thank you for helping keep myWorld safe." });
     } catch (err) {
