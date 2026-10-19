@@ -7,6 +7,9 @@ import {
   sendMessage,
   getAllProfiles,
   getConversation,
+  markConversationRead,
+  setConversationTyping,
+  getConversationTyping,
   truncateAddress,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
@@ -131,9 +134,12 @@ export default function MessagesPage() {
   const [newChatSearch, setNewChatSearch] = useState("");
   const [readConvs, setReadConvs] = useState({});
   const [presence, setPresence] = useState({});
+  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const markReadTimerRef = useRef(null);
+  const typingStopTimerRef = useRef(null);
+  const typingActiveRef = useRef(false);
 
   const loadConversations = useCallback(async () => {
     if (!wallet) return;
@@ -210,6 +216,47 @@ export default function MessagesPage() {
     return () => unsub();
   }, [selectedUser?.address]);
 
+  // Poll the authenticated conversation partner's short-lived typing state.
+  useEffect(() => {
+    const otherAddress = selectedUser?.address;
+    if (!otherAddress || !wallet || !isAuthenticated) {
+      setIsPartnerTyping(false);
+      return;
+    }
+
+    let active = true;
+    const checkTyping = async () => {
+      try {
+        const status = await getConversationTyping(otherAddress);
+        if (active) setIsPartnerTyping(status?.isTyping === true);
+      } catch {
+        if (active) setIsPartnerTyping(false);
+      }
+    };
+
+    checkTyping();
+    const intervalId = setInterval(checkTyping, 2000);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [selectedUser?.address, wallet, isAuthenticated]);
+
+  // Stop typing updates when a conversation changes or the component unmounts.
+  useEffect(() => {
+    const otherAddress = selectedUser?.address;
+    return () => {
+      if (typingStopTimerRef.current) {
+        clearTimeout(typingStopTimerRef.current);
+        typingStopTimerRef.current = null;
+      }
+      if (typingActiveRef.current && otherAddress && isAuthenticated) {
+        typingActiveRef.current = false;
+        setConversationTyping(otherAddress, false).catch(() => {});
+      }
+    };
+  }, [selectedUser?.address, isAuthenticated]);
+
   // ─── Firebase real-time message listener (with Neon DB history fallback) ─────────────────────────────────
   useEffect(() => {
     if (!selectedUser || !wallet) return;
@@ -282,6 +329,9 @@ export default function MessagesPage() {
     markReadTimerRef.current = setTimeout(() => {
       setConvLastRead(wallet, selectedUser.address);
       setReadConvs((prev) => ({ ...prev, [selectedUser.address]: true }));
+      markConversationRead(selectedUser.address).catch((err) => {
+        console.warn("Failed to sync conversation read receipt:", err);
+      });
     }, 1500);
 
     return () => {
@@ -295,6 +345,42 @@ export default function MessagesPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
+  const stopTyping = (otherAddress = selectedUser?.address) => {
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+    if (typingActiveRef.current && otherAddress) {
+      typingActiveRef.current = false;
+      setConversationTyping(otherAddress, false).catch(() => {});
+    }
+  };
+
+  const handleMessageChange = (event) => {
+    const value = event.target.value;
+    setNewMessage(value);
+    const otherAddress = selectedUser?.address;
+    if (!otherAddress || !isAuthenticated) return;
+
+    if (!value.trim()) {
+      stopTyping(otherAddress);
+      return;
+    }
+
+    if (!typingActiveRef.current) {
+      typingActiveRef.current = true;
+      setConversationTyping(otherAddress, true).catch(() => {
+        typingActiveRef.current = false;
+      });
+    }
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+    typingStopTimerRef.current = setTimeout(() => {
+      typingActiveRef.current = false;
+      setConversationTyping(otherAddress, false).catch(() => {});
+      typingStopTimerRef.current = null;
+    }, 1800);
+  };
+
   const handleSend = async (e) => {
     e.preventDefault();
     const text = newMessage.trim();
@@ -304,6 +390,7 @@ export default function MessagesPage() {
       return;
     }
 
+    stopTyping(selectedUser.address);
     setNewMessage("");
 
     try {
@@ -683,6 +770,13 @@ export default function MessagesPage() {
                     {(() => {
                       const lastSeenAt = presence[selectedUser.address];
                       const online = isOnline(lastSeenAt);
+                      if (isPartnerTyping) {
+                        return (
+                          <p className="text-[11px] text-primary font-semibold animate-pulse">
+                            typing…
+                          </p>
+                        );
+                      }
                       if (online) {
                         return (
                           <p className="text-[11px] text-green-400 font-medium flex items-center gap-1">
@@ -776,12 +870,23 @@ export default function MessagesPage() {
                             >
                               {msg.content}
                             </div>
-                            <span className="text-[10px] text-muted-foreground mt-0.5 px-1">
-                              {msg.createdAt
-                                ? formatDistanceToNow(new Date(msg.createdAt), {
-                                    addSuffix: true,
-                                  })
-                                : "just now"}
+                            <span className="text-[10px] text-muted-foreground mt-0.5 px-1 flex items-center gap-1">
+                              <span>
+                                {msg.createdAt
+                                  ? formatDistanceToNow(new Date(msg.createdAt), {
+                                      addSuffix: true,
+                                    })
+                                  : "just now"}
+                              </span>
+                              {isMe && (
+                                <span
+                                  className={msg.readAt ? "text-sky-300 font-bold" : "text-primary-foreground/70"}
+                                  aria-label={msg.readAt ? "Read" : "Sent"}
+                                  title={msg.readAt ? "Read" : "Sent"}
+                                >
+                                  {msg.readAt ? "✓✓" : "✓"}
+                                </span>
+                              )}
                             </span>
                           </div>
                         </div>
@@ -800,7 +905,7 @@ export default function MessagesPage() {
                     ref={inputRef}
                     type="text"
                     value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
+                    onChange={handleMessageChange}
                     placeholder="Message..."
                     className="flex-1 bg-secondary/50 border border-white/10 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all"
                   />
