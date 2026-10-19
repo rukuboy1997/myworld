@@ -140,6 +140,7 @@ export default function MessagesPage() {
   const markReadTimerRef = useRef(null);
   const typingStopTimerRef = useRef(null);
   const typingActiveRef = useRef(false);
+  const typingLastSentAtRef = useRef(0);
 
   const loadConversations = useCallback(async () => {
     if (!wallet) return;
@@ -352,6 +353,7 @@ export default function MessagesPage() {
     }
     if (typingActiveRef.current && otherAddress) {
       typingActiveRef.current = false;
+      typingLastSentAtRef.current = 0;
       setConversationTyping(otherAddress, false).catch(() => {});
     }
   };
@@ -367,15 +369,22 @@ export default function MessagesPage() {
       return;
     }
 
+    const now = Date.now();
     if (!typingActiveRef.current) {
       typingActiveRef.current = true;
+      typingLastSentAtRef.current = now;
       setConversationTyping(otherAddress, true).catch(() => {
         typingActiveRef.current = false;
       });
+    } else if (now - typingLastSentAtRef.current >= 3000) {
+      // Refresh the short-lived server indicator while the user keeps typing.
+      typingLastSentAtRef.current = now;
+      setConversationTyping(otherAddress, true).catch(() => {});
     }
     if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
     typingStopTimerRef.current = setTimeout(() => {
       typingActiveRef.current = false;
+      typingLastSentAtRef.current = 0;
       setConversationTyping(otherAddress, false).catch(() => {});
       typingStopTimerRef.current = null;
     }, 1800);
