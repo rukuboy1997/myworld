@@ -6,6 +6,7 @@ import {
   getAdminUsers,
   moderateAdminUser,
   getAdminAuditLog,
+  moderateReportPriority,
 } from "../lib/api.js";
 
 const REPORT_FILTERS = [
@@ -20,6 +21,13 @@ const ACCOUNT_FILTERS = [
   { value: "all", label: "All accounts" },
   { value: "active", label: "Active accounts" },
   { value: "suspended", label: "Suspended accounts" },
+];
+
+const PRIORITY_FILTERS = [
+  { value: "all", label: "All priorities" },
+  { value: "urgent", label: "Urgent & critical" },
+  { value: "critical", label: "Critical only" },
+  { value: "standard", label: "Standard" },
 ];
 
 function displayDate(value) {
@@ -40,6 +48,7 @@ function statusLabel(value) {
 export default function AdminModerationPage() {
   const [view, setView] = useState("reports");
   const [status, setStatus] = useState("pending");
+  const [reportPriority, setReportPriority] = useState("all");
   const [accountStatus, setAccountStatus] = useState("all");
   const [searchInput, setSearchInput] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
@@ -55,7 +64,7 @@ export default function AdminModerationPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await getAdminReports(status);
+      const data = await getAdminReports(status, reportPriority);
       setReports(Array.isArray(data.items) ? data.items : []);
     } catch (err) {
       setError(err.message || "Couldn't load reports.");
@@ -63,7 +72,7 @@ export default function AdminModerationPage() {
     } finally {
       setLoading(false);
     }
-  }, [status]);
+  }, [status, reportPriority]);
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
@@ -118,6 +127,36 @@ export default function AdminModerationPage() {
       await loadReports();
     } catch (err) {
       setError(err.message || "Moderation action failed.");
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const actOnPriority = async (report, priority) => {
+    const currentPriority = report.triage_priority || "standard";
+    if (priority === currentPriority) return;
+    const note = priority === "standard"
+      ? (window.prompt("Optional note explaining why the priority is being lowered:", "") ?? null)
+      : window.prompt("Explain why this report needs " + priority.toUpperCase() + " handling:", "");
+    if (note === null) return;
+    if (priority !== "standard" && note.trim().length < 3) {
+      setError("Please add a short reason of at least 3 characters for urgent escalation.");
+      return;
+    }
+    if (note.trim().length > 1000) {
+      setError("Escalation note must be 1000 characters or fewer.");
+      return;
+    }
+    if (!window.confirm("Change this report priority from " + currentPriority + " to " + priority + "?")) return;
+    setBusyId(report.id);
+    setError("");
+    setNotice("");
+    try {
+      await moderateReportPriority(report.id, priority, note.trim());
+      setNotice("Report priority updated. The change was recorded in the audit log.");
+      await loadReports();
+    } catch (err) {
+      setError(err.message || "Couldn't update report priority.");
     } finally {
       setBusyId("");
     }
@@ -189,12 +228,20 @@ export default function AdminModerationPage() {
 
         <section className="mb-5 flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-end sm:justify-between">
           {view === "reports" && (
-            <label className="flex flex-col gap-1 text-sm font-medium">
-              Report queue
-              <select value={status} onChange={(event) => setStatus(event.target.value)} className="min-w-48 rounded-xl border border-border bg-background px-3 py-2 text-sm">
-                {REPORT_FILTERS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-            </label>
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="flex flex-col gap-1 text-sm font-medium">
+                Report queue
+                <select value={status} onChange={(event) => setStatus(event.target.value)} className="min-w-44 rounded-xl border border-border bg-background px-3 py-2 text-sm">
+                  {REPORT_FILTERS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-sm font-medium">
+                Triage priority
+                <select value={reportPriority} onChange={(event) => setReportPriority(event.target.value)} className="min-w-44 rounded-xl border border-border bg-background px-3 py-2 text-sm">
+                  {PRIORITY_FILTERS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </label>
+            </div>
           )}
           {view === "accounts" && (
             <form className="flex w-full flex-col gap-3 sm:flex-row sm:items-end" onSubmit={(event) => { event.preventDefault(); setAppliedSearch(searchInput.trim()); }}>
@@ -232,6 +279,28 @@ export default function AdminModerationPage() {
         )}
         {notice && <p role="status" className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">{notice}</p>}
 
+        {view === "reports" && (
+          <section className="mb-5 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 sm:p-5">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+                <span aria-hidden="true" className="text-lg font-bold">!</span>
+              </span>
+              <div>
+                <h2 className="font-semibold">High-risk report handling</h2>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Child-safety and violence reports are automatically marked critical; harassment and hate reports are marked urgent. This is triage for fast human review, not an automatic finding that a report is proven.
+                </p>
+                <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                  <li>Review urgent reports promptly and record the action taken.</li>
+                  <li>Do not download, copy, or forward suspected illegal sexual material involving minors. Restrict access and preserve only necessary report metadata through approved procedures.</li>
+                  <li>Where a report suggests imminent danger or child exploitation, follow myWorld's documented incident process and applicable law and refer to the appropriate official child-protection or law-enforcement channel when required.</li>
+                  <li>Keep reporter details confidential and do not personally investigate or contact a potentially affected child.</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+        )}
+
         {loading && <p className="py-8 text-center text-sm text-muted-foreground">Loading moderation data…</p>}
 
         {!loading && !error && view === "reports" && reports.length === 0 && (
@@ -246,17 +315,32 @@ export default function AdminModerationPage() {
             {reports.map((report) => {
               const accountReport = !report.post_id;
               const reportedAddress = report.target_address || report.post_owner;
+              const priority = report.triage_priority || "standard";
+              const isHighPriority = priority === "critical" || priority === "urgent";
               return (
                 <article key={report.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <span className="inline-flex rounded-full bg-secondary px-3 py-1 text-xs font-semibold">{accountReport ? "Account report" : "Post report"}</span>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="inline-flex rounded-full bg-secondary px-3 py-1 text-xs font-semibold">{accountReport ? "Account report" : "Post report"}</span>
+                        <span className={"inline-flex rounded-full border px-3 py-1 text-xs font-bold uppercase " + (priority === "critical" ? "border-red-500/40 bg-red-500/10 text-red-600" : priority === "urgent" ? "border-amber-500/40 bg-amber-500/10 text-amber-700" : "border-border text-muted-foreground")}>{priority}</span>
+                      </div>
                       <h2 className="mt-3 text-lg font-semibold">{report.reason || "Unspecified reason"}</h2>
                       <p className="mt-1 text-xs text-muted-foreground">Submitted {displayDate(report.created_at)}</p>
                     </div>
-                    <span className="rounded-full border border-border px-3 py-1 text-xs capitalize">{statusLabel(report.moderation_status)}</span>
+                    <div className="flex flex-col items-start gap-2 sm:items-end">
+                      {isHighPriority && <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white">PRIORITY REVIEW</span>}
+                      <span className="rounded-full border border-border px-3 py-1 text-xs capitalize">{statusLabel(report.moderation_status)}</span>
+                    </div>
                   </div>
                   {report.description && <p className="mt-4 whitespace-pre-wrap rounded-xl bg-secondary/50 p-3 text-sm">{report.description}</p>}
+                  {isHighPriority && (
+                    <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+                      <p className="font-semibold">Escalation recorded</p>
+                      {report.escalated_at && <p className="mt-1 text-xs text-muted-foreground">{displayDate(report.escalated_at)}{report.escalated_by ? " by " + shortAddress(report.escalated_by) : " · automatically prioritized from the report reason"}</p>}
+                      {report.escalation_note && <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{report.escalation_note}</p>}
+                    </div>
+                  )}
                   <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                     <div>
                       <dt className="text-xs text-muted-foreground">Reported account</dt>
@@ -278,8 +362,23 @@ export default function AdminModerationPage() {
                     </div>
                   )}
                   {report.reviewed_at && <p className="mt-3 text-xs text-muted-foreground">Reviewed {displayDate(report.reviewed_at)} by {shortAddress(report.reviewed_by)}</p>}
+                  <div className="mt-5 flex flex-wrap items-end gap-3">
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-muted-foreground">
+                      Change triage priority
+                      <select
+                        value={priority}
+                        disabled={busyId === report.id}
+                        onChange={(event) => actOnPriority(report, event.target.value)}
+                        className="min-w-40 rounded-xl border border-border bg-background px-3 py-2 text-sm font-normal text-foreground disabled:opacity-50"
+                      >
+                        <option value="critical">Critical</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="standard">Standard</option>
+                      </select>
+                    </label>
+                  </div>
                   {report.moderation_status === "pending" && (
-                    <div className="mt-5 flex flex-wrap gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {!accountReport && !report.post_is_deleted && (
                         <button type="button" disabled={busyId === report.id} onClick={() => actOnReport(report, "removed")} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">
                           {busyId === report.id ? "Saving…" : "Remove post"}
