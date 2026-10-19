@@ -69,6 +69,9 @@ import {
   saveAccountReport,
   getAdminReports,
   updateAdminReport,
+  getAdminUsers,
+  updateAdminUserStatus,
+  getModerationAuditLog,
 } from "./data/db.js";
 import {
   requireAuth,
@@ -1064,6 +1067,70 @@ export function buildApp() {
     } catch (err) {
       console.error("admin_moderate_report error:", err);
       res.status(500).json({ error: "Failed to update report" });
+    }
+  });
+
+  app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const status = typeof req.query.status === "string" ? req.query.status : "all";
+      const search = typeof req.query.search === "string" ? req.query.search : "";
+      if (!["active", "suspended", "all"].includes(status)) {
+        return res.status(400).json({ error: "Invalid account status filter" });
+      }
+      if (search.length > 100) {
+        return res.status(400).json({ error: "Search must be 100 characters or fewer" });
+      }
+      const items = await getAdminUsers({ status, search, limit: req.query.limit });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items });
+    } catch (err) {
+      console.error("admin_users error:", err);
+      res.status(500).json({ error: "Failed to load accounts" });
+    }
+  });
+
+  app.patch("/api/admin/users/:address", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const targetAddress = normalizeTextInput(req.params.address).toLowerCase();
+      const { action } = req.body || {};
+      const reason = normalizeTextInput(req.body?.reason);
+      if (!/^0x[a-f0-9]{64}$/.test(targetAddress)) {
+        return res.status(400).json({ error: "A valid account address is required" });
+      }
+      if (!["suspend", "restore"].includes(action)) {
+        return res.status(400).json({ error: "Choose suspend or restore" });
+      }
+      if (action === "suspend" && adminAddressSet.has(targetAddress)) {
+        return res.status(400).json({ error: "Administrator accounts cannot be suspended through this dashboard" });
+      }
+      if (action === "suspend" && (reason.length < 3 || reason.length > 1000)) {
+        return res.status(400).json({ error: "A suspension reason of 3 to 1000 characters is required" });
+      }
+      if (reason.length > 1000) {
+        return res.status(400).json({ error: "Reason must be 1000 characters or fewer" });
+      }
+      const result = await updateAdminUserStatus(targetAddress, action, reason, req.userAddress);
+      if (!result) return res.status(404).json({ error: "Account not found" });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ success: true, unchanged: !!result.unchanged, account: result });
+    } catch (err) {
+      console.error("admin_moderate_user error:", err);
+      res.status(500).json({ error: "Failed to update account status" });
+    }
+  });
+
+  app.get("/api/admin/audit", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const limit = req.query.limit === undefined ? 100 : Number.parseInt(req.query.limit, 10);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+        return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
+      }
+      const items = await getModerationAuditLog({ limit });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items });
+    } catch (err) {
+      console.error("admin_audit error:", err);
+      res.status(500).json({ error: "Failed to load moderation audit log" });
     }
   });
 
