@@ -138,7 +138,24 @@ ALTER TABLE reports ALTER COLUMN post_id DROP NOT NULL;
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS moderation_status TEXT NOT NULL DEFAULT 'pending';
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS triage_priority TEXT NOT NULL DEFAULT 'standard';
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ;
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS escalated_by TEXT;
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS escalation_note TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_target_reporter ON reports (target_address, reporter) WHERE target_address IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reports_priority_status_created ON reports (triage_priority, moderation_status, created_at DESC);
+UPDATE reports
+SET triage_priority = CASE
+  WHEN LOWER(reason) IN ('child-safety', 'violence') THEN 'critical'
+  WHEN LOWER(reason) IN ('harassment', 'hate') THEN 'urgent'
+  ELSE 'standard'
+END
+WHERE triage_priority = 'standard'
+  AND LOWER(reason) IN ('child-safety', 'violence', 'harassment', 'hate');
+UPDATE reports
+SET escalated_at = COALESCE(escalated_at, created_at),
+    escalation_note = COALESCE(escalation_note, 'Automatically prioritized for urgent human review from the report reason.')
+WHERE triage_priority IN ('critical', 'urgent') AND escalated_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS statuses (
   id              TEXT PRIMARY KEY,
@@ -941,17 +958,42 @@ export async function isBlockedEitherWay(a, b) {
   return !!rows[0]?.blocked;
 }
 
+function getTriagePriority(reason) {
+  if (reason === "child-safety" || reason === "violence") return "critical";
+  if (reason === "harassment" || reason === "hate") return "urgent";
+  return "standard";
+}
+
+function escalationNoteForPriority(priority) {
+  return priority === "critical" || priority === "urgent"
+    ? "Automatically prioritized for urgent human review from the report reason."
+    : null;
+}
+
 export async function saveAccountReport({ targetAddress, reporter, reason, description }) {
   const id = uuidv4();
+  const priority = getTriagePriority(reason);
+  const escalationNote = escalationNoteForPriority(priority);
   const { rows } = await pool.query(
-    `INSERT INTO reports (id, post_id, target_address, reporter, reason, description, created_at)
-     VALUES ($1, NULL, $2, $3, $4, $5, NOW())
+    `INSERT INTO reports
+       (id, post_id, target_address, reporter, reason, description, triage_priority,
+        escalated_at, escalation_note, created_at)
+     VALUES ($1, NULL, $2, $3, $4, $5, $6,
+       CASE WHEN $6 IN ('critical', 'urgent') THEN NOW() ELSE NULL END,
+       $7, NOW())
      ON CONFLICT (target_address, reporter) WHERE target_address IS NOT NULL
      DO UPDATE SET reason = EXCLUDED.reason,
-                   description = EXCLUDED.description,
-                   created_at = NOW()
-     RETURNING id, target_address, reporter, reason, description, created_at`,
-    [id, targetAddress, reporter, reason, description || ""],
+       description = EXCLUDED.description,
+       triage_priority = CASE
+         WHEN reports.triage_priority = 'critical' THEN 'critical'
+         ELSE EXCLUDED.triage_priority
+       END,
+       escalated_at = COALESCE(reports.escalated_at, EXCLUDED.escalated_at),
+       escalation_note = COALESCE(reports.escalation_note, EXCLUDED.escalation_note),
+       created_at = NOW()
+     RETURNING id, target_address, reporter, reason, description, triage_priority,
+       escalated_at, escalated_by, escalation_note, created_at`,
+    [id, targetAddress, reporter, reason, description || "", priority, escalationNote],
   );
   return rows[0];
 }
@@ -959,29 +1001,43 @@ export async function saveAccountReport({ targetAddress, reporter, reason, descr
 // ─── Post Reports ─────────────────────────────────────────────────────────────
 export async function saveReport({ postId, reporter, reason, description }) {
   const id = uuidv4();
+  const priority = getTriagePriority(reason);
+  const escalationNote = escalationNoteForPriority(priority);
   const { rows } = await pool.query(
-    `INSERT INTO reports (id, post_id, reporter, reason, description, created_at)
-     VALUES ($1,$2,$3,$4,$5,NOW())
+    `INSERT INTO reports
+       (id, post_id, reporter, reason, description, triage_priority, escalated_at, escalation_note, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,
+       CASE WHEN $6 IN ('critical', 'urgent') THEN NOW() ELSE NULL END,
+       $7, NOW())
      ON CONFLICT (post_id, reporter)
      DO UPDATE SET reason = EXCLUDED.reason,
-                   description = EXCLUDED.description,
-                   created_at = NOW()
-     RETURNING id, post_id, reporter, reason, description, created_at`,
-    [id, postId, reporter, reason, description || ""],
+       description = EXCLUDED.description,
+       triage_priority = CASE
+         WHEN reports.triage_priority = 'critical' THEN 'critical'
+         ELSE EXCLUDED.triage_priority
+       END,
+       escalated_at = COALESCE(reports.escalated_at, EXCLUDED.escalated_at),
+       escalation_note = COALESCE(reports.escalation_note, EXCLUDED.escalation_note),
+       created_at = NOW()
+     RETURNING id, post_id, reporter, reason, description, triage_priority,
+       escalated_at, escalated_by, escalation_note, created_at`,
+    [id, postId, reporter, reason, description || "", priority, escalationNote],
   );
   return rows[0];
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
-export async function getAdminReports({ status = "pending", limit = 100 } = {}) {
+export async function getAdminReports({ status = "pending", priority = "all", limit = 100 } = {}) {
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
   const validStatus = ["pending", "reviewed", "dismissed", "removed"].includes(status)
     ? status
     : "pending";
+  const validPriority = ["critical", "urgent", "standard"].includes(priority) ? priority : "all";
   const { rows } = await pool.query(
     `SELECT r.id, r.post_id, r.target_address, r.reporter, r.reason,
        r.description, r.created_at, r.moderation_status, r.reviewed_by,
-       r.reviewed_at, p.title AS post_title, p.content AS post_content,
+       r.reviewed_at, r.triage_priority, r.escalated_at, r.escalated_by,
+       r.escalation_note, p.title AS post_title, p.content AS post_content,
        p.owner AS post_owner, p.is_deleted AS post_is_deleted,
        target.username AS target_username, reporter_profile.username AS reporter_username
      FROM reports r
@@ -989,10 +1045,14 @@ export async function getAdminReports({ status = "pending", limit = 100 } = {}) 
      LEFT JOIN profiles target ON target.address = COALESCE(r.target_address, p.owner)
      LEFT JOIN profiles reporter_profile ON reporter_profile.address = r.reporter
      WHERE ($1 = 'all' OR r.moderation_status = $1)
-     ORDER BY CASE WHEN r.moderation_status = 'pending' THEN 0 ELSE 1 END,
+       AND ($2 = 'all'
+         OR ($2 = 'urgent' AND r.triage_priority IN ('critical', 'urgent'))
+         OR r.triage_priority = $2)
+     ORDER BY CASE r.triage_priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END,
+       CASE WHEN r.moderation_status = 'pending' THEN 0 ELSE 1 END,
        r.created_at DESC
-     LIMIT $2`,
-    [status === "all" ? "all" : validStatus, safeLimit],
+     LIMIT $3`,
+    [status === "all" ? "all" : validStatus, priority === "all" || priority === "urgent" ? priority : validPriority, safeLimit],
   );
   return rows;
 }
@@ -1029,6 +1089,55 @@ export async function updateAdminReport(reportId, action, reviewer) {
        VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
       [uuidv4(), reviewer, `report_${action}`, rows[0].target_address || rows[0].post_owner || null, reportId,
        JSON.stringify({ reason: rows[0].reason, postId: rows[0].post_id || null })],
+    );
+    await client.query("COMMIT");
+    return updated.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateAdminReportPriority(reportId, priority, note, reviewer) {
+  if (!["standard", "urgent", "critical"].includes(priority)) {
+    throw new Error("Invalid triage priority");
+  }
+  const safeNote = String(note || "").trim().slice(0, 1000);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query(
+      `SELECT r.id, r.post_id, r.target_address, r.reason, r.triage_priority,
+         p.owner AS post_owner
+       FROM reports r LEFT JOIN posts p ON p.id = r.post_id
+       WHERE r.id = $1 FOR UPDATE OF r`,
+      [reportId],
+    );
+    const report = selected.rows[0];
+    if (!report) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const updated = await client.query(
+      `UPDATE reports
+       SET triage_priority = $2,
+           escalated_at = CASE WHEN $2 IN ('critical', 'urgent') THEN NOW() ELSE NULL END,
+           escalated_by = CASE WHEN $2 IN ('critical', 'urgent') THEN $3 ELSE NULL END,
+           escalation_note = CASE WHEN $2 IN ('critical', 'urgent') THEN NULLIF($4, '') ELSE NULL END
+       WHERE id = $1
+       RETURNING id, triage_priority, escalated_at, escalated_by, escalation_note`,
+      [reportId, priority, reviewer, safeNote],
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+         (id, actor_address, action, target_address, report_id, details)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+      [uuidv4(), reviewer, priority === "standard" ? "report_priority_lowered" : "report_escalated",
+       report.target_address || report.post_owner || null, reportId,
+       JSON.stringify({ reason: report.reason, previousPriority: report.triage_priority,
+         newPriority: priority, note: safeNote || null })],
     );
     await client.query("COMMIT");
     return updated.rows[0];
