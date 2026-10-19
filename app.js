@@ -74,6 +74,8 @@ import {
   getModerationAuditLog,
   updateAdminReportPriority,
   getAdminAlertDeliveries,
+  getAdminIncidents,
+  updateAdminIncident,
 } from "./data/db.js";
 import {
   requireAuth,
@@ -1176,6 +1178,55 @@ export function buildApp() {
     } catch (err) {
       console.error("admin_alert_deliveries error:", err);
       res.status(500).json({ error: "Failed to load critical alert delivery history" });
+    }
+  });
+  app.get("/api/admin/incidents", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const status = typeof req.query.status === "string" ? req.query.status : "active";
+      const allowed = ["active", "open", "acknowledged", "in_progress", "escalated", "resolved"];
+      if (!allowed.includes(status)) {
+        return res.status(400).json({ error: "Choose a valid incident status" });
+      }
+      const limit = req.query.limit === undefined ? 100 : Number.parseInt(req.query.limit, 10);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+        return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
+      }
+      const items = await getAdminIncidents({ status, limit });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items });
+    } catch (err) {
+      console.error("admin_incidents error:", err);
+      res.status(500).json({ error: "Failed to load incident response queue" });
+    }
+  });
+
+  app.patch("/api/admin/incidents/:reportId", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { action } = req.body || {};
+      const note = normalizeTextInput(req.body?.note);
+      const assignedTo = typeof req.body?.assignedTo === "string" ? req.body.assignedTo.trim() : null;
+      if (!["acknowledge", "start", "escalate", "resolve", "reopen", "assign"].includes(action)) {
+        return res.status(400).json({ error: "Choose a valid incident action" });
+      }
+      if (note.length > 1000) {
+        return res.status(400).json({ error: "Incident note must be 1000 characters or fewer" });
+      }
+      if (["resolve", "escalate"].includes(action) && note.length < 3) {
+        return res.status(400).json({ error: "Add a short note for resolution or escalation" });
+      }
+      if (action === "assign" && !assignedTo) {
+        return res.status(400).json({ error: "Choose an administrator to assign this incident to" });
+      }
+      const incident = await updateAdminIncident(req.params.reportId, action, note, req.userAddress, assignedTo);
+      if (!incident) return res.status(404).json({ error: "Incident not found" });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ incident });
+    } catch (err) {
+      if (/required|invalid|resolved|choose|reopen|short note/i.test(err?.message || "")) {
+        return res.status(400).json({ error: err.message });
+      }
+      console.error("admin_incident_update error:", err);
+      res.status(500).json({ error: "Failed to update incident" });
     }
   });
 
