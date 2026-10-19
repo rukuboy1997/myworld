@@ -175,6 +175,8 @@ export const moderateAdminUser = (address, action, reason = "") =>
   request("PATCH", `/admin/users/${encodeURIComponent(address)}`, { action, reason });
 export const getAdminAuditLog = (limit = 100) =>
   request("GET", `/admin/audit?limit=${encodeURIComponent(limit)}`);
+export const getAdminAlertDeliveries = (limit = 100) =>
+  request("GET", `/admin/alerts?limit=${encodeURIComponent(limit)}`);
 
 
 // ─── Safety & Privacy ────────────────────────────────────────────────────────
