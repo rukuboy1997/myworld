@@ -158,6 +158,12 @@ export const getFollowers = (address) =>
 export const getFollowing = (address) =>
   request("GET", `/profile/${address}/following`);
 
+// ─── Admin moderation ─────────────────────────────────────────────────────────
+export const getAdminReports = (status = "pending") =>
+  request("GET", `/admin/reports?status=${encodeURIComponent(status)}`);
+export const moderateReport = (id, action) =>
+  request("PATCH", `/admin/reports/${encodeURIComponent(id)}`, { action });
+
 // ─── Safety & Privacy ────────────────────────────────────────────────────────
 export const getBlockStatus = (address) =>
   request("GET", `/users/${encodeURIComponent(address)}/block-status`);
