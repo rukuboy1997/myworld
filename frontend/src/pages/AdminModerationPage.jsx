@@ -7,6 +7,7 @@ import {
   moderateAdminUser,
   getAdminAuditLog,
   moderateReportPriority,
+  getAdminAlertDeliveries,
 } from "../lib/api.js";
 
 const REPORT_FILTERS = [
@@ -55,6 +56,7 @@ export default function AdminModerationPage() {
   const [reports, setReports] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [auditItems, setAuditItems] = useState([]);
+  const [alertItems, setAlertItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
@@ -102,17 +104,33 @@ export default function AdminModerationPage() {
     }
   }, []);
 
+  const loadAlerts = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await getAdminAlertDeliveries(100);
+      setAlertItems(Array.isArray(data.items) ? data.items : []);
+    } catch (err) {
+      setError(err.message || "Couldn't load critical alert delivery history.");
+      setAlertItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (view === "reports") loadReports();
     else if (view === "accounts") loadAccounts();
-    else loadAudit();
-  }, [view, loadReports, loadAccounts, loadAudit]);
+    else if (view === "audit") loadAudit();
+    else loadAlerts();
+  }, [view, loadReports, loadAccounts, loadAudit, loadAlerts]);
 
   const refreshCurrentView = () => {
     setNotice("");
     if (view === "reports") void loadReports();
     else if (view === "accounts") void loadAccounts();
-    else void loadAudit();
+    else if (view === "audit") void loadAudit();
+    else void loadAlerts();
   };
 
   const actOnReport = async (report, action) => {
@@ -213,6 +231,7 @@ export default function AdminModerationPage() {
             { value: "reports", label: "Reports" },
             { value: "accounts", label: "Accounts" },
             { value: "audit", label: "Audit log" },
+            { value: "alerts", label: "Critical alerts" },
           ].map((item) => (
             <button
               key={item.value}
@@ -262,6 +281,12 @@ export default function AdminModerationPage() {
             <div>
               <h2 className="font-semibold">Recent moderation actions</h2>
               <p className="mt-1 text-sm text-muted-foreground">Showing the latest 100 actions.</p>
+            </div>
+          )}
+          {view === "alerts" && (
+            <div>
+              <h2 className="font-semibold">Critical alert delivery history</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Showing the latest 100 delivery records.</p>
             </div>
           )}
           <button type="button" onClick={refreshCurrentView} disabled={loading} className="shrink-0 rounded-xl border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary disabled:opacity-50">
@@ -479,6 +504,67 @@ export default function AdminModerationPage() {
                 )}
               </article>
             ))}
+          </div>
+        )}
+
+        {!loading && view === "alerts" && (
+          <section className="mb-5 rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <h2 className="font-semibold">Email alert configuration</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Critical email alerts require both API environment variables: <code>ADMIN_ALERT_EMAILS</code> (comma-separated moderator inboxes) and <code>RESEND_API_KEY</code>. If configuration or delivery fails, the attempt is recorded below; reports remain in the moderation queue.
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Alert emails intentionally omit reporter identity and the report's text/media. A failed alert does not mean the report was lost.
+            </p>
+          </section>
+        )}
+
+        {!loading && !error && view === "alerts" && alertItems.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-border p-10 text-center">
+            <h2 className="font-display text-lg font-semibold">No critical alert attempts yet</h2>
+            <p className="mt-2 text-sm text-muted-foreground">When a critical report arrives, its email delivery status will appear here.</p>
+          </div>
+        )}
+
+        {!loading && view === "alerts" && (
+          <div className="space-y-3">
+            {alertItems.map((item) => {
+              const label = item.delivery_status || "pending";
+              const statusClass = label === "sent"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+                : label === "failed"
+                  ? "border-red-500/30 bg-red-500/10 text-red-600"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-700";
+              return (
+                <article key={item.id} className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="font-semibold">{item.reason === "child-safety" ? "Child-safety concern" : "Violence or threat concern"}</h2>
+                      <p className="mt-1 text-xs text-muted-foreground">Report #{shortAddress(item.report_id)} · Updated {displayDate(item.updated_at)}</p>
+                    </div>
+                    <span className={"rounded-full border px-3 py-1 text-xs font-bold uppercase " + statusClass}>{statusLabel(label)}</span>
+                  </div>
+                  <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Reported account</dt>
+                      <dd className="mt-1 break-all">{item.target_username ? "@" + item.target_username : shortAddress(item.target_address || item.post_owner)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Delivery details</dt>
+                      <dd className="mt-1">{item.attempts || 0} attempt(s) · {item.recipient_count || 0} recipient(s)</dd>
+                      {item.sent_at && <dd className="mt-1 text-xs text-muted-foreground">Sent {displayDate(item.sent_at)}</dd>}
+                      {!item.sent_at && <dd className="mt-1 text-xs text-muted-foreground">Last attempt {displayDate(item.updated_at)}</dd>}
+                    </div>
+                  </dl>
+                  {item.last_error && (
+                    <div role="alert" className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-sm">
+                      <p className="font-semibold text-red-600">Delivery issue</p>
+                      <p className="mt-1 break-words text-muted-foreground">{item.last_error}</p>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
           </div>
         )}
       </main>
