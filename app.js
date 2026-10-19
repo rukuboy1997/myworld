@@ -1798,13 +1798,20 @@ export function buildApp() {
 
       const readMessages = await markConversationMessagesRead(req.userAddress, otherAddress);
       const conversationId = fbConvId(req.userAddress, otherAddress);
-      await Promise.all(
-        readMessages.map((message) =>
-          firebasePatch(`conversations/${conversationId}/messages/${message.id}`, {
-            readAt: message.readAt,
-          }),
-        ),
-      );
+      if (readMessages.length) {
+        const readUpdates = Object.fromEntries(
+          readMessages.map((message) => [
+            message.id,
+            { readAt: message.readAt },
+          ]),
+        );
+        // One multi-location PATCH keeps realtime receipt sync efficient for
+        // conversations with many unread messages.
+        await firebasePatch(
+          `conversations/${conversationId}/messages`,
+          readUpdates,
+        );
+      }
       res.json({ ok: true, updated: readMessages.length });
     } catch (err) {
       console.error("mark_conversation_read error:", err);
