@@ -177,6 +177,10 @@ export const getAdminAuditLog = (limit = 100) =>
   request("GET", `/admin/audit?limit=${encodeURIComponent(limit)}`);
 export const getAdminAlertDeliveries = (limit = 100) =>
   request("GET", `/admin/alerts?limit=${encodeURIComponent(limit)}`);
+export const getAdminIncidents = (status = "active", limit = 100) =>
+  request("GET", `/admin/incidents?status=${encodeURIComponent(status)}&limit=${encodeURIComponent(limit)}`);
+export const updateAdminIncident = (reportId, action, note = "", assignedTo = null) =>
+  request("PATCH", `/admin/incidents/${encodeURIComponent(reportId)}`, { action, note, assignedTo });
 
 
 // ─── Safety & Privacy ────────────────────────────────────────────────────────
