@@ -219,6 +219,12 @@ export const getConversation = (a, b) =>
     "GET",
     `/conversation?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
   );
+export const markConversationRead = (otherAddress) =>
+  request("PUT", "/conversation/read", { otherAddress });
+export const setConversationTyping = (otherAddress, typing) =>
+  request("POST", "/conversation/typing", { otherAddress, typing });
+export const getConversationTyping = (otherAddress) =>
+  request("GET", `/conversation/typing?otherAddress=${encodeURIComponent(otherAddress)}`);
 
 // ─── Email verification ───────────────────────────────────────────────────────
 export const verifyEmail = (token) =>
