@@ -151,7 +151,7 @@ export default function Layout({ children, immersive = false }) {
 
       {/* Top Header */}
       <header className="sticky top-0 z-50 glass-panel border-b border-border px-4 h-14 md:h-16 flex items-center justify-between">
-        <Link to="/feed" className="flex items-center gap-2">
+        <Link to="/messages" className="flex items-center gap-2">
           <img
             src="/logo.png"
             alt="myWorld"
@@ -162,12 +162,11 @@ export default function Layout({ children, immersive = false }) {
           </span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-6">
+        <nav className="hidden md:flex items-center gap-3">
           {[
-            { path: "/feed", label: "Feed" },
-            { path: "/reels", label: "Reels" },
-            { path: "/explore", label: "Explore" },
             { path: "/messages", label: "Messages", badge: unreadMsgs },
+            { path: "/reels", label: "Reels" },
+            { path: "/feed", label: "Updates" },
             {
               path: "/notifications",
               label: "Notifications",
@@ -187,6 +186,21 @@ export default function Layout({ children, immersive = false }) {
               )}
             </Link>
           ))}
+          {isAuthenticated ? (
+            <Link
+              to={`/profile/${address}`}
+              className={`rounded-full px-3 py-2 text-sm font-semibold transition-colors hover:bg-secondary hover:text-foreground ${location.pathname.startsWith("/profile") ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}
+            >
+              Profile
+            </Link>
+          ) : (
+            <button
+              onClick={() => openAuthModal("signin")}
+              className="rounded-full px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              Profile
+            </button>
+          )}
         </nav>
 
         <div className="flex items-center gap-2 md:gap-3">
@@ -351,105 +365,63 @@ export default function Layout({ children, immersive = false }) {
         </div>
       </header>
 
-      {/* Mobile Bottom Nav */}
+      {/* Messaging-first mobile navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-panel border-t border-border pb-[env(safe-area-inset-bottom)]">
-        <div className="flex h-16 items-center justify-around px-2">
+        <div className="flex h-16 items-center justify-around px-1">
           <Link
-            to="/feed"
-            className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${isActive("/feed") ? "text-primary" : "text-muted-foreground"}`}
+            to="/messages"
+            aria-label="Messages"
+            className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold transition-colors ${isActive("/messages") ? "text-primary" : "text-muted-foreground"}`}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
+            <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-          </Link>
-
-          <Link
-            to="/reels"
-            aria-label="Reels"
-            className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${isActive("/reels") ? "text-primary" : "text-muted-foreground"}`}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="4" />
-              <path d="m9 3 6 6M15 3l6 6M3 9l6 6M9 21l6-6M15 21l6-6" />
-              <path d="m10 8 6 4-6 4z" fill="currentColor" stroke="none" />
-            </svg>
-          </Link>
-          <Link
-            to="/create"
-            className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:bg-primary/90 transition-all active:scale-95 border-2 border-background -mt-5"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M5 12h14" />
-              <path d="M12 5v14" />
-            </svg>
-          </Link>
-
-          <Link
-            to="/notifications"
-            className={`relative flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${isActive("/notifications") ? "text-primary" : "text-muted-foreground"}`}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-            </svg>
-            {unreadNotifs > 0 && (
-              <span className="absolute top-1 right-1 min-w-[16px] h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center px-1 pointer-events-none">
-                {unreadNotifs > 9 ? "9+" : unreadNotifs}
+            <span>Messages</span>
+            {unreadMsgs > 0 && (
+              <span className="absolute top-0 right-[calc(50%-19px)] min-w-[16px] h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center px-1 pointer-events-none">
+                {unreadMsgs > 9 ? "9+" : unreadMsgs}
               </span>
             )}
           </Link>
 
           <Link
-            to="/messages"
-            className={`relative flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${isActive("/messages") ? "text-primary" : "text-muted-foreground"}`}
+            to="/reels"
+            aria-label="Reels"
+            className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold transition-colors ${isActive("/reels") ? "text-primary" : "text-muted-foreground"}`}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="4" />
+              <path d="m9 3 6 6M15 3l6 6M3 9l6 6M9 21l6-6M15 21l6-6" />
+              <path d="m10 8 6 4-6 4z" fill="currentColor" stroke="none" />
             </svg>
-            {unreadMsgs > 0 && (
-              <span className="absolute top-1 right-1 min-w-[16px] h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center px-1 pointer-events-none">
-                {unreadMsgs > 9 ? "9+" : unreadMsgs}
+            <span>Reels</span>
+          </Link>
+
+          <Link
+            to="/feed"
+            aria-label="Updates"
+            className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold transition-colors ${isActive("/feed") ? "text-primary" : "text-muted-foreground"}`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="17" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18M7 14h4M7 17h7" />
+            </svg>
+            <span>Updates</span>
+          </Link>
+
+          <Link
+            to="/notifications"
+            aria-label="Notifications"
+            className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold transition-colors ${isActive("/notifications") ? "text-primary" : "text-muted-foreground"}`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+            <span>Notifications</span>
+            {unreadNotifs > 0 && (
+              <span className="absolute top-0 right-[calc(50%-19px)] min-w-[16px] h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center px-1 pointer-events-none">
+                {unreadNotifs > 9 ? "9+" : unreadNotifs}
               </span>
             )}
           </Link>
@@ -457,42 +429,26 @@ export default function Layout({ children, immersive = false }) {
           {isAuthenticated ? (
             <Link
               to={`/profile/${address}`}
-              className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${location.pathname.startsWith("/profile") ? "text-primary" : "text-muted-foreground"}`}
+              aria-label="Profile"
+              className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold transition-colors ${location.pathname.startsWith("/profile") ? "text-primary" : "text-muted-foreground"}`}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
                 <circle cx="12" cy="7" r="4" />
               </svg>
+              <span>Profile</span>
             </Link>
           ) : (
             <button
               onClick={() => openAuthModal("signin")}
-              className="flex flex-col items-center justify-center w-12 h-12 rounded-xl text-muted-foreground"
+              aria-label="Profile"
+              className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold text-muted-foreground"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
                 <circle cx="12" cy="7" r="4" />
               </svg>
+              <span>Profile</span>
             </button>
           )}
         </div>
