@@ -67,6 +67,8 @@ import {
   getBlockedUsers,
   isBlockedEitherWay,
   saveAccountReport,
+  getAdminReports,
+  updateAdminReport,
 } from "./data/db.js";
 import {
   requireAuth,
@@ -239,6 +241,22 @@ export function ensureDb() {
 
 export function buildApp() {
   const app = express();
+
+  const adminAddressSet = new Set(
+    (process.env.ADMIN_USER_ADDRESSES || "")
+      .split(",")
+      .map((address) => address.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  function requireAdmin(req, res, next) {
+    if (!adminAddressSet.size) {
+      return res.status(503).json({ error: "Admin access is not configured. Set ADMIN_USER_ADDRESSES in the API environment." });
+    }
+    if (!adminAddressSet.has(String(req.userAddress || "").toLowerCase())) {
+      return res.status(403).json({ error: "Administrator access required" });
+    }
+    next();
+  }
 
   const PROFILE_USERNAME_MAX_LENGTH = 32;
   const PROFILE_DISPLAY_NAME_MAX_LENGTH = 80;
@@ -1015,6 +1033,37 @@ export function buildApp() {
     } catch (err) {
       console.error("get_comments error:", err);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── Admin moderation ───────────────────────────────────────────────────
+  app.get("/api/admin/reports", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const status = typeof req.query.status === "string" ? req.query.status : "pending";
+      if (!["pending", "reviewed", "dismissed", "removed", "all"].includes(status)) {
+        return res.status(400).json({ error: "Invalid report status" });
+      }
+      const items = await getAdminReports({ status, limit: req.query.limit });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ items });
+    } catch (err) {
+      console.error("admin_reports error:", err);
+      res.status(500).json({ error: "Failed to load reports" });
+    }
+  });
+
+  app.patch("/api/admin/reports/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { action } = req.body || {};
+      if (!["reviewed", "dismissed", "removed"].includes(action)) {
+        return res.status(400).json({ error: "Choose reviewed, dismissed, or removed" });
+      }
+      const result = await updateAdminReport(req.params.id, action, req.userAddress);
+      if (!result) return res.status(404).json({ error: "Report not found" });
+      res.json({ success: true, report: result });
+    } catch (err) {
+      console.error("admin_moderate_report error:", err);
+      res.status(500).json({ error: "Failed to update report" });
     }
   });
 
