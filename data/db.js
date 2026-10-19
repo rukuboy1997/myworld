@@ -278,6 +278,13 @@ CREATE TABLE IF NOT EXISTS moderation_incidents (
 CREATE INDEX IF NOT EXISTS idx_moderation_incidents_status_updated
   ON moderation_incidents (status, updated_at DESC);
 
+INSERT INTO moderation_incidents (id, report_id, status, created_at, updated_at)
+SELECT gen_random_uuid()::text, r.id, 'open', NOW(), NOW()
+FROM reports r
+WHERE r.triage_priority = 'critical'
+ON CONFLICT (report_id) DO NOTHING;
+
+
 
 `;
 
