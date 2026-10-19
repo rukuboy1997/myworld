@@ -206,7 +206,25 @@ CREATE TABLE IF NOT EXISTS presence (
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspension_reason TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_by TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS restored_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS restored_by TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS profession TEXT DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS moderation_audit_log (
+  id TEXT PRIMARY KEY,
+  actor_address TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_address TEXT,
+  report_id TEXT,
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_moderation_audit_created ON moderation_audit_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_moderation_audit_target ON moderation_audit_log (target_address, created_at DESC);
 `;
 
 // ─── Row → object mapping ────────────────────────────────────────────────────
@@ -317,6 +335,12 @@ function rowToUser(r) {
     address: r.address,
     emailVerified: !!r.email_verified_at,
     emailVerifyToken: r.email_verify_token,
+    accountStatus: r.account_status || "active",
+    suspendedAt: r.suspended_at || null,
+    suspensionReason: r.suspension_reason || null,
+    suspendedBy: r.suspended_by || null,
+    restoredAt: r.restored_at || null,
+    restoredBy: r.restored_by || null,
     createdAt:
       r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
   };
@@ -981,7 +1005,9 @@ export async function updateAdminReport(reportId, action, reviewer) {
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
-      "SELECT id, post_id FROM reports WHERE id = $1 FOR UPDATE",
+      `SELECT r.id, r.post_id, r.target_address, r.reason, p.owner AS post_owner
+       FROM reports r LEFT JOIN posts p ON p.id = r.post_id
+       WHERE r.id = $1 FOR UPDATE OF r`,
       [reportId],
     );
     if (!rows[0]) {
@@ -997,6 +1023,13 @@ export async function updateAdminReport(reportId, action, reviewer) {
        RETURNING id, post_id, target_address, moderation_status, reviewed_by, reviewed_at`,
       [reportId, action, reviewer],
     );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+         (id, actor_address, action, target_address, report_id, details)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+      [uuidv4(), reviewer, `report_${action}`, rows[0].target_address || rows[0].post_owner || null, reportId,
+       JSON.stringify({ reason: rows[0].reason, postId: rows[0].post_id || null })],
+    );
     await client.query("COMMIT");
     return updated.rows[0];
   } catch (error) {
@@ -1005,6 +1038,109 @@ export async function updateAdminReport(reportId, action, reviewer) {
   } finally {
     client.release();
   }
+}
+
+export async function getAdminUsers({ status = "all", search = "", limit = 100 } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+  const validStatus = ["active", "suspended"].includes(status) ? status : "all";
+  const safeSearch = String(search || "").trim().slice(0, 100);
+  const { rows } = await pool.query(
+    `SELECT u.address, u.username, u.email, u.account_status, u.created_at,
+       u.suspended_at, u.suspension_reason, u.suspended_by,
+       u.restored_at, u.restored_by,
+       p.display_name
+     FROM users u
+     LEFT JOIN profiles p ON p.address = u.address
+     WHERE ($1 = 'all' OR u.account_status = $1)
+       AND ($2 = '' OR u.username ILIKE '%' || $2 || '%'
+         OR COALESCE(u.email, '') ILIKE '%' || $2 || '%'
+         OR u.address ILIKE '%' || $2 || '%')
+     ORDER BY CASE WHEN u.account_status = 'suspended' THEN 0 ELSE 1 END,
+       u.created_at DESC
+     LIMIT $3`,
+    [validStatus, safeSearch, safeLimit],
+  );
+  return rows;
+}
+
+export async function updateAdminUserStatus(targetAddress, action, reason, reviewer) {
+  if (!["suspend", "restore"].includes(action)) {
+    throw new Error("Invalid account moderation action");
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query(
+      `SELECT address, username, email, account_status, suspended_at,
+         suspension_reason, suspended_by, restored_at, restored_by
+       FROM users WHERE address = $1 FOR UPDATE`,
+      [targetAddress],
+    );
+    const user = selected.rows[0];
+    if (!user) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const alreadyInState = action === "suspend"
+      ? user.account_status === "suspended"
+      : user.account_status !== "suspended";
+    if (alreadyInState) {
+      await client.query("ROLLBACK");
+      return { ...user, unchanged: true };
+    }
+
+    const updated = action === "suspend"
+      ? await client.query(
+          `UPDATE users
+           SET account_status = 'suspended', suspended_at = NOW(),
+               suspension_reason = $2, suspended_by = $3,
+               restored_at = NULL, restored_by = NULL
+           WHERE address = $1
+           RETURNING address, username, email, account_status, created_at,
+             suspended_at, suspension_reason, suspended_by, restored_at, restored_by`,
+          [targetAddress, reason, reviewer],
+        )
+      : await client.query(
+          `UPDATE users SET account_status = 'active',
+             restored_at = NOW(), restored_by = $2
+           WHERE address = $1
+           RETURNING address, username, email, account_status, created_at,
+             suspended_at, suspension_reason, suspended_by, restored_at, restored_by`,
+          [targetAddress, reviewer],
+        );
+
+    await client.query(
+      `INSERT INTO moderation_audit_log
+         (id, actor_address, action, target_address, details)
+       VALUES ($1, $2, $3, $4, $5::jsonb)`,
+      [uuidv4(), reviewer, action === "suspend" ? "account_suspended" : "account_restored",
+       targetAddress, JSON.stringify({ reason: action === "suspend" ? reason : (reason || "") })],
+    );
+    await client.query("COMMIT");
+    return { ...updated.rows[0], unchanged: false };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getModerationAuditLog({ limit = 100 } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+  const { rows } = await pool.query(
+    `SELECT a.id, a.actor_address, a.action, a.target_address, a.report_id,
+       a.details, a.created_at,
+       actor.username AS actor_username,
+       target.username AS target_username
+     FROM moderation_audit_log a
+     LEFT JOIN profiles actor ON actor.address = a.actor_address
+     LEFT JOIN profiles target ON target.address = a.target_address
+     ORDER BY a.created_at DESC
+     LIMIT $1`,
+    [safeLimit],
+  );
+  return rows;
 }
 
 export async function createNotification({
