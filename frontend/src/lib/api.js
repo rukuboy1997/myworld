@@ -159,10 +159,12 @@ export const getFollowing = (address) =>
   request("GET", `/profile/${address}/following`);
 
 // ─── Admin moderation ─────────────────────────────────────────────────────────
-export const getAdminReports = (status = "pending") =>
-  request("GET", `/admin/reports?status=${encodeURIComponent(status)}`);
+export const getAdminReports = (status = "pending", priority = "all") =>
+  request("GET", `/admin/reports?status=${encodeURIComponent(status)}&priority=${encodeURIComponent(priority)}`);
 export const moderateReport = (id, action) =>
   request("PATCH", `/admin/reports/${encodeURIComponent(id)}`, { action });
+export const moderateReportPriority = (id, priority, note = "") =>
+  request("PATCH", `/admin/reports/${encodeURIComponent(id)}/priority`, { priority, note });
 
 export const getAdminUsers = ({ status = "all", search = "", limit = 100 } = {}) => {
   const params = new URLSearchParams({ status, limit: String(limit) });
