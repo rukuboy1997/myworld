@@ -135,6 +135,9 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 ALTER TABLE reports ADD COLUMN IF NOT EXISTS target_address TEXT;
 ALTER TABLE reports ALTER COLUMN post_id DROP NOT NULL;
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS moderation_status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_target_reporter ON reports (target_address, reporter) WHERE target_address IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS statuses (
@@ -946,6 +949,64 @@ export async function saveReport({ postId, reporter, reason, description }) {
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
+export async function getAdminReports({ status = "pending", limit = 100 } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+  const validStatus = ["pending", "reviewed", "dismissed", "removed"].includes(status)
+    ? status
+    : "pending";
+  const { rows } = await pool.query(
+    `SELECT r.id, r.post_id, r.target_address, r.reporter, r.reason,
+       r.description, r.created_at, r.moderation_status, r.reviewed_by,
+       r.reviewed_at, p.title AS post_title, p.content AS post_content,
+       p.owner AS post_owner, p.is_deleted AS post_is_deleted,
+       target.username AS target_username, reporter_profile.username AS reporter_username
+     FROM reports r
+     LEFT JOIN posts p ON p.id = r.post_id
+     LEFT JOIN profiles target ON target.address = COALESCE(r.target_address, p.owner)
+     LEFT JOIN profiles reporter_profile ON reporter_profile.address = r.reporter
+     WHERE ($1 = 'all' OR r.moderation_status = $1)
+     ORDER BY CASE WHEN r.moderation_status = 'pending' THEN 0 ELSE 1 END,
+       r.created_at DESC
+     LIMIT $2`,
+    [status === "all" ? "all" : validStatus, safeLimit],
+  );
+  return rows;
+}
+
+export async function updateAdminReport(reportId, action, reviewer) {
+  if (!["reviewed", "dismissed", "removed"].includes(action)) {
+    throw new Error("Invalid moderation action");
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      "SELECT id, post_id FROM reports WHERE id = $1 FOR UPDATE",
+      [reportId],
+    );
+    if (!rows[0]) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    if (action === "removed" && rows[0].post_id) {
+      await client.query("UPDATE posts SET is_deleted = TRUE WHERE id = $1", [rows[0].post_id]);
+    }
+    const updated = await client.query(
+      `UPDATE reports SET moderation_status = $2, reviewed_by = $3,
+         reviewed_at = NOW() WHERE id = $1
+       RETURNING id, post_id, target_address, moderation_status, reviewed_by, reviewed_at`,
+      [reportId, action, reviewer],
+    );
+    await client.query("COMMIT");
+    return updated.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function createNotification({
   recipient,
   type,
