@@ -1225,7 +1225,7 @@ export function buildApp() {
       res.set("Cache-Control", "private, no-store");
       res.json({ incident });
     } catch (err) {
-      if (/required|invalid|resolved|choose|reopen|short note/i.test(err?.message || "")) {
+      if (/required|invalid|resolved|choose|reopen|short note|only be assigned/i.test(err?.message || "")) {
         return res.status(400).json({ error: err.message });
       }
       console.error("admin_incident_update error:", err);
