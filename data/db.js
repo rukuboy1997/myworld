@@ -260,6 +260,25 @@ CREATE TABLE IF NOT EXISTS moderation_alert_deliveries (
 CREATE INDEX IF NOT EXISTS idx_moderation_alerts_status_updated
   ON moderation_alert_deliveries (delivery_status, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS moderation_incidents (
+  id TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL UNIQUE REFERENCES reports(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open', 'acknowledged', 'in_progress', 'escalated', 'resolved')),
+  assigned_to TEXT,
+  acknowledged_by TEXT,
+  acknowledged_at TIMESTAMPTZ,
+  resolved_by TEXT,
+  resolved_at TIMESTAMPTZ,
+  resolution_note TEXT,
+  last_updated_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_moderation_incidents_status_updated
+  ON moderation_incidents (status, updated_at DESC);
+
+
 `;
 
 // ─── Row → object mapping ────────────────────────────────────────────────────
@@ -1225,6 +1244,127 @@ export async function getAdminAlertDeliveries({ limit = 100 } = {}) {
     [safeLimit],
   );
   return rows;
+}
+
+
+export async function ensureModerationIncident(reportId) {
+  const { rows } = await pool.query(
+    `INSERT INTO moderation_incidents (id, report_id, status, created_at, updated_at)
+     VALUES ($1, $2, 'open', NOW(), NOW())
+     ON CONFLICT (report_id) DO UPDATE SET updated_at = moderation_incidents.updated_at
+     RETURNING *`,
+    [uuidv4(), reportId],
+  );
+  return rows[0] || null;
+}
+
+export async function getAdminIncidents({ status = "active", limit = 100 } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+  const validStatus = ["open", "acknowledged", "in_progress", "escalated", "resolved"].includes(status) ? status : "active";
+  const { rows } = await pool.query(
+    `SELECT i.id, i.report_id, i.status, i.assigned_to, i.acknowledged_by,
+       i.acknowledged_at, i.resolved_by, i.resolved_at, i.resolution_note,
+       i.last_updated_by, i.created_at, i.updated_at,
+       r.reason, r.triage_priority, r.moderation_status, r.target_address,
+       r.post_id, p.owner AS post_owner, target.username AS target_username,
+       assignee.username AS assigned_username, updater.username AS updated_by_username
+     FROM moderation_incidents i
+     JOIN reports r ON r.id = i.report_id
+     LEFT JOIN posts p ON p.id = r.post_id
+     LEFT JOIN profiles target ON target.address = COALESCE(r.target_address, p.owner)
+     LEFT JOIN profiles assignee ON assignee.address = i.assigned_to
+     LEFT JOIN profiles updater ON updater.address = i.last_updated_by
+     WHERE ($1 = 'active' AND i.status <> 'resolved') OR i.status = $1
+     ORDER BY CASE i.status WHEN 'escalated' THEN 0 WHEN 'open' THEN 1 WHEN 'acknowledged' THEN 2 WHEN 'in_progress' THEN 3 ELSE 4 END,
+       i.updated_at DESC
+     LIMIT $2`,
+    [validStatus, safeLimit],
+  );
+  return rows;
+}
+
+export async function updateAdminIncident(reportId, action, note, reviewer, assignedTo = null) {
+  const actions = ["acknowledge", "start", "escalate", "resolve", "reopen", "assign"];
+  if (!actions.includes(action)) throw new Error("Invalid incident action");
+  const safeNote = String(note || "").trim().slice(0, 1000);
+  if (["resolve", "escalate"].includes(action) && safeNote.length < 3) {
+    throw new Error("A short note is required for this incident action");
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query(
+      `SELECT i.*, r.reason, r.target_address, p.owner AS post_owner
+       FROM moderation_incidents i
+       JOIN reports r ON r.id = i.report_id
+       LEFT JOIN posts p ON p.id = r.post_id
+       WHERE i.report_id = $1 FOR UPDATE OF i`,
+      [reportId],
+    );
+    const incident = selected.rows[0];
+    if (!incident) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    let status = incident.status;
+    let nextAssigned = incident.assigned_to;
+    let ackBy = incident.acknowledged_by;
+    let ackAt = incident.acknowledged_at;
+    let resolvedBy = incident.resolved_by;
+    let resolvedAt = incident.resolved_at;
+    let resolutionNote = incident.resolution_note;
+    if (action === "acknowledge") {
+      if (status === "resolved") throw new Error("Reopen a resolved incident before acknowledging it");
+      status = "acknowledged";
+      ackBy = reviewer;
+      ackAt = new Date();
+      if (!nextAssigned) nextAssigned = reviewer;
+    } else if (action === "start") {
+      if (status === "resolved") throw new Error("Reopen a resolved incident before starting work");
+      status = "in_progress";
+      if (!nextAssigned) nextAssigned = reviewer;
+    } else if (action === "escalate") {
+      if (status === "resolved") throw new Error("Reopen a resolved incident before escalating it");
+      status = "escalated";
+      if (!nextAssigned) nextAssigned = reviewer;
+    } else if (action === "resolve") {
+      status = "resolved";
+      resolvedBy = reviewer;
+      resolvedAt = new Date();
+      resolutionNote = safeNote;
+    } else if (action === "reopen") {
+      status = "open";
+      resolvedBy = null;
+      resolvedAt = null;
+      resolutionNote = null;
+    } else if (action === "assign") {
+      if (status === "resolved") throw new Error("Reopen a resolved incident before assigning it");
+      if (!assignedTo || !String(assignedTo).trim()) throw new Error("Choose an administrator to assign this incident to");
+      nextAssigned = String(assignedTo).trim();
+    }
+    const updated = await client.query(
+      `UPDATE moderation_incidents
+       SET status = $2, assigned_to = $3, acknowledged_by = $4,
+           acknowledged_at = $5, resolved_by = $6, resolved_at = $7,
+           resolution_note = $8, last_updated_by = $9, updated_at = NOW()
+       WHERE report_id = $1 RETURNING *`,
+      [reportId, status, nextAssigned, ackBy, ackAt, resolvedBy, resolvedAt, resolutionNote, reviewer],
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log (id, actor_address, action, target_address, report_id, details)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+      [uuidv4(), reviewer, "incident_" + action, incident.target_address || incident.post_owner || null,
+       reportId, JSON.stringify({ previousStatus: incident.status, newStatus: status,
+         assignedTo: nextAssigned, note: safeNote || null })],
+    );
+    await client.query("COMMIT");
+    return updated.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getAdminUsers({ status = "all", search = "", limit = 100 } = {}) {
