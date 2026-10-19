@@ -1217,6 +1217,9 @@ export function buildApp() {
       if (action === "assign" && !assignedTo) {
         return res.status(400).json({ error: "Choose an administrator to assign this incident to" });
       }
+      if (action === "assign" && !adminAddressSet.has(assignedTo.toLowerCase())) {
+        return res.status(400).json({ error: "Incidents can only be assigned to an address in ADMIN_USER_ADDRESSES" });
+      }
       const incident = await updateAdminIncident(req.params.reportId, action, note, req.userAddress, assignedTo);
       if (!incident) return res.status(404).json({ error: "Incident not found" });
       res.set("Cache-Control", "private, no-store");
