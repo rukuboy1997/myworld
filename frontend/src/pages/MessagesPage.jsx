@@ -132,6 +132,8 @@ export default function MessagesPage() {
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
+  const [conversationSearch, setConversationSearch] = useState("");
+  const [conversationFilter, setConversationFilter] = useState("all");
   const [readConvs, setReadConvs] = useState({});
   const [presence, setPresence] = useState({});
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
@@ -281,10 +283,19 @@ export default function MessagesPage() {
     function mergeAndSet() {
       if (!active || !dbDone || !fbDone) return;
       const map = new Map();
-      // DB messages first (historical baseline)
+      // DB messages provide the complete historical record. Firebase may send
+      // partial updates (for example, a read receipt), so merge rather than
+      // replacing a complete DB message with an incomplete realtime payload.
       dbMsgs.forEach((m) => map.set(m.id, m));
-      // Firebase messages overwrite on conflict (most up-to-date)
-      fbMsgs.forEach((m) => map.set(m.id, m));
+      fbMsgs.forEach((m) => {
+        const previous = map.get(m.id) || {};
+        map.set(m.id, {
+          ...previous,
+          ...m,
+          id: m.id,
+          readAt: m.readAt ?? previous.readAt ?? null,
+        });
+      });
       const sorted = Array.from(map.values()).sort((a, b) =>
         (a.createdAt || "").localeCompare(b.createdAt || ""),
       );
@@ -518,6 +529,27 @@ export default function MessagesPage() {
     groupedWithSeparator.push(item);
   });
 
+  const filteredConversations = conversations.filter((conv) => {
+    const profile = profiles[conv.address] || {};
+    const lastMsg = conv.messages[conv.messages.length - 1];
+    const query = conversationSearch.trim().toLowerCase();
+    const searchableText = [
+      profile.displayName,
+      profile.username,
+      conv.address,
+      lastMsg?.content,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    const matchesSearch = !query || searchableText.includes(query);
+    const matchesFilter =
+      conversationFilter === "all" ||
+      (conversationFilter === "unread" && unreadCount(conv.address) > 0) ||
+      (conversationFilter === "online" && isOnline(presence[conv.address]));
+    return matchesSearch && matchesFilter;
+  });
+
   return (
     <Layout>
       <div
@@ -532,9 +564,14 @@ export default function MessagesPage() {
             className={`w-full md:w-80 glass-panel rounded-2xl md:rounded-3xl flex flex-col overflow-hidden flex-shrink-0 ${selectedUser ? "hidden md:flex" : "flex"}`}
           >
             <div className="px-4 md:px-5 py-4 border-b border-white/10 flex-shrink-0 flex items-center justify-between gap-3">
-              <h2 className="text-lg md:text-xl font-bold tracking-tight">
-                Messages
-              </h2>
+              <div className="min-w-0">
+                <h2 className="text-lg md:text-xl font-bold tracking-tight">
+                  Chats
+                </h2>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Conversations, without the noise.
+                </p>
+              </div>
               <button
                 onClick={() => setShowNewChat((v) => !v)}
                 title="New conversation"
@@ -555,6 +592,51 @@ export default function MessagesPage() {
                   <path d="M12 5v14" />
                 </svg>
               </button>
+            </div>
+
+            <div className="px-3 py-3 border-b border-white/5 flex-shrink-0">
+              <div className="relative">
+                <svg
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.35-4.35" />
+                </svg>
+                <input
+                  type="search"
+                  value={conversationSearch}
+                  onChange={(e) => setConversationSearch(e.target.value)}
+                  placeholder="Search chats or messages"
+                  aria-label="Search chats or messages"
+                  className="w-full bg-secondary/50 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div className="flex items-center gap-2 mt-3">
+                {[
+                  { id: "all", label: "All" },
+                  { id: "unread", label: "Unread" },
+                  { id: "online", label: "Online" },
+                ].map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setConversationFilter(filter.id)}
+                    className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition-colors ${conversationFilter === filter.id ? "bg-primary text-primary-foreground" : "bg-secondary/70 text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* New Chat Search Panel */}
@@ -649,8 +731,12 @@ export default function MessagesPage() {
                     one.
                   </p>
                 </div>
+              ) : filteredConversations.length === 0 ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  No chats match this search or filter.
+                </div>
               ) : (
-                conversations.map((conv) => {
+                filteredConversations.map((conv) => {
                   const p = profiles[conv.address];
                   const lastMsg = conv.messages[conv.messages.length - 1];
                   const unread = unreadCount(conv.address);
