@@ -242,6 +242,24 @@ CREATE TABLE IF NOT EXISTS moderation_audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_moderation_audit_created ON moderation_audit_log (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_moderation_audit_target ON moderation_audit_log (target_address, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS moderation_alert_deliveries (
+  id TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+  priority TEXT NOT NULL CHECK (priority IN ('critical')),
+  delivery_status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (delivery_status IN ('pending', 'sending', 'sent', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  recipient_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_at TIMESTAMPTZ,
+  UNIQUE (report_id, priority)
+);
+CREATE INDEX IF NOT EXISTS idx_moderation_alerts_status_updated
+  ON moderation_alert_deliveries (delivery_status, updated_at DESC);
+
 `;
 
 // ─── Row → object mapping ────────────────────────────────────────────────────
@@ -1147,6 +1165,66 @@ export async function updateAdminReportPriority(reportId, priority, note, review
   } finally {
     client.release();
   }
+}
+
+export async function claimModerationAlert(reportId, priority = "critical") {
+  if (priority !== "critical") throw new Error("Only critical alerts can be dispatched here");
+  const { rows } = await pool.query(
+    `INSERT INTO moderation_alert_deliveries
+       (id, report_id, priority, delivery_status, attempts, created_at, updated_at)
+     VALUES ($1, $2, $3, 'sending', 1, NOW(), NOW())
+     ON CONFLICT (report_id, priority) DO UPDATE SET
+       delivery_status = 'sending',
+       attempts = moderation_alert_deliveries.attempts + 1,
+       last_error = NULL,
+       updated_at = NOW()
+     WHERE moderation_alert_deliveries.delivery_status <> 'sent'
+       AND (moderation_alert_deliveries.delivery_status <> 'sending'
+         OR moderation_alert_deliveries.updated_at < NOW() - INTERVAL '5 minutes')
+     RETURNING id, attempts`,
+    [uuidv4(), reportId, priority],
+  );
+  return rows[0] || null;
+}
+
+export async function finishModerationAlert(alertId, {
+  success,
+  recipientCount = 0,
+  error = null,
+} = {}) {
+  const status = success ? "sent" : "failed";
+  const safeError = error ? String(error).slice(0, 500) : null;
+  const { rows } = await pool.query(
+    `UPDATE moderation_alert_deliveries
+     SET delivery_status = $2,
+         recipient_count = $3,
+         last_error = $4,
+         sent_at = CASE WHEN $2 = 'sent' THEN NOW() ELSE NULL END,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, report_id, delivery_status, attempts, recipient_count, last_error, sent_at, updated_at`,
+    [alertId, status, recipientCount, safeError],
+  );
+  return rows[0] || null;
+}
+
+export async function getAdminAlertDeliveries({ limit = 100 } = {}) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+  const { rows } = await pool.query(
+    `SELECT d.id, d.report_id, d.priority, d.delivery_status, d.attempts,
+       d.recipient_count, d.last_error, d.created_at, d.updated_at, d.sent_at,
+       r.reason, r.moderation_status, r.target_address, p.owner AS post_owner,
+       target.username AS target_username
+     FROM moderation_alert_deliveries d
+     JOIN reports r ON r.id = d.report_id
+     LEFT JOIN posts p ON p.id = r.post_id
+     LEFT JOIN profiles target ON target.address = COALESCE(r.target_address, p.owner)
+     ORDER BY CASE d.delivery_status WHEN 'failed' THEN 0 WHEN 'sending' THEN 1 WHEN 'pending' THEN 2 ELSE 3 END,
+       d.updated_at DESC
+     LIMIT $1`,
+    [safeLimit],
+  );
+  return rows;
 }
 
 export async function getAdminUsers({ status = "all", search = "", limit = 100 } = {}) {
