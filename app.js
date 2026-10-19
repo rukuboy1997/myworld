@@ -46,6 +46,9 @@ import {
   getMessages,
   getConversation,
   saveMessage,
+  markConversationMessagesRead,
+  setMessageTyping,
+  getMessageTyping,
   createFollow,
   deleteFollow,
   isFollowing,
@@ -113,6 +116,20 @@ async function firebaseWrite(path, data) {
       console.warn(`[firebase] write to ${path} failed: ${res.status}`);
   } catch (err) {
     console.warn("[firebase] write error:", err.message);
+  }
+}
+
+async function firebasePatch(path, data) {
+  try {
+    const res = await fetch(`${FIREBASE_DB_URL}/${path}.json`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok)
+      console.warn(`[firebase] patch to ${path} failed: ${res.status}`);
+  } catch (err) {
+    console.warn("[firebase] patch error:", err.message);
   }
 }
 
@@ -1710,6 +1727,7 @@ export function buildApp() {
           receiver,
           content,
           createdAt: message.createdAt,
+          readAt: message.readAt || null,
         },
       );
       // Notify the receiver of the new message
@@ -1764,6 +1782,67 @@ export function buildApp() {
       res.json(messages);
     } catch (err) {
       console.error("get_conversation error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/conversation/read", requireAuth, async (req, res) => {
+    try {
+      const otherAddress = normalizeTextInput(req.body?.otherAddress);
+      if (!otherAddress)
+        return res.status(400).json({ error: "otherAddress required" });
+      if (otherAddress === req.userAddress)
+        return res.status(400).json({ error: "Invalid conversation" });
+      if (await isBlockedEitherWay(req.userAddress, otherAddress))
+        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+
+      const readMessages = await markConversationMessagesRead(req.userAddress, otherAddress);
+      const conversationId = fbConvId(req.userAddress, otherAddress);
+      await Promise.all(
+        readMessages.map((message) =>
+          firebasePatch(`conversations/${conversationId}/messages/${message.id}`, {
+            readAt: message.readAt,
+          }),
+        ),
+      );
+      res.json({ ok: true, updated: readMessages.length });
+    } catch (err) {
+      console.error("mark_conversation_read error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/conversation/typing", requireAuth, async (req, res) => {
+    try {
+      const otherAddress = normalizeTextInput(req.body?.otherAddress);
+      if (!otherAddress)
+        return res.status(400).json({ error: "otherAddress required" });
+      if (otherAddress === req.userAddress)
+        return res.status(400).json({ error: "Invalid conversation" });
+      if (await isBlockedEitherWay(req.userAddress, otherAddress))
+        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+
+      await setMessageTyping(req.userAddress, otherAddress, req.body?.typing === true);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("set_conversation_typing error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/conversation/typing", requireAuth, async (req, res) => {
+    try {
+      const otherAddress = normalizeTextInput(req.query?.otherAddress);
+      if (!otherAddress)
+        return res.status(400).json({ error: "otherAddress required" });
+      if (otherAddress === req.userAddress)
+        return res.status(400).json({ error: "Invalid conversation" });
+      if (await isBlockedEitherWay(req.userAddress, otherAddress))
+        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+
+      res.json(await getMessageTyping(otherAddress, req.userAddress));
+    } catch (err) {
+      console.error("get_conversation_typing error:", err);
       res.status(500).json({ error: err.message });
     }
   });
