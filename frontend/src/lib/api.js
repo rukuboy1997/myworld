@@ -164,6 +164,17 @@ export const getAdminReports = (status = "pending") =>
 export const moderateReport = (id, action) =>
   request("PATCH", `/admin/reports/${encodeURIComponent(id)}`, { action });
 
+export const getAdminUsers = ({ status = "all", search = "", limit = 100 } = {}) => {
+  const params = new URLSearchParams({ status, limit: String(limit) });
+  if (search) params.set("search", search);
+  return request("GET", `/admin/users?${params.toString()}`);
+};
+export const moderateAdminUser = (address, action, reason = "") =>
+  request("PATCH", `/admin/users/${encodeURIComponent(address)}`, { action, reason });
+export const getAdminAuditLog = (limit = 100) =>
+  request("GET", `/admin/audit?limit=${encodeURIComponent(limit)}`);
+
+
 // ─── Safety & Privacy ────────────────────────────────────────────────────────
 export const getBlockStatus = (address) =>
   request("GET", `/users/${encodeURIComponent(address)}/block-status`);
