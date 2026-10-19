@@ -72,6 +72,7 @@ import {
   getAdminUsers,
   updateAdminUserStatus,
   getModerationAuditLog,
+  updateAdminReportPriority,
 } from "./data/db.js";
 import {
   requireAuth,
@@ -1043,10 +1044,14 @@ export function buildApp() {
   app.get("/api/admin/reports", requireAuth, requireAdmin, async (req, res) => {
     try {
       const status = typeof req.query.status === "string" ? req.query.status : "pending";
+      const priority = typeof req.query.priority === "string" ? req.query.priority : "all";
       if (!["pending", "reviewed", "dismissed", "removed", "all"].includes(status)) {
         return res.status(400).json({ error: "Invalid report status" });
       }
-      const items = await getAdminReports({ status, limit: req.query.limit });
+      if (!["all", "urgent", "critical", "standard"].includes(priority)) {
+        return res.status(400).json({ error: "Invalid report priority" });
+      }
+      const items = await getAdminReports({ status, priority, limit: req.query.limit });
       res.set("Cache-Control", "private, no-store");
       res.json({ items });
     } catch (err) {
@@ -1067,6 +1072,29 @@ export function buildApp() {
     } catch (err) {
       console.error("admin_moderate_report error:", err);
       res.status(500).json({ error: "Failed to update report" });
+    }
+  });
+
+  app.patch("/api/admin/reports/:id/priority", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { priority } = req.body || {};
+      const note = normalizeTextInput(req.body?.note);
+      if (!["standard", "urgent", "critical"].includes(priority)) {
+        return res.status(400).json({ error: "Choose standard, urgent, or critical priority" });
+      }
+      if (note.length > 1000) {
+        return res.status(400).json({ error: "Escalation note must be 1000 characters or fewer" });
+      }
+      if (priority !== "standard" && note.length < 3) {
+        return res.status(400).json({ error: "Add a short note explaining why this report needs urgent handling" });
+      }
+      const report = await updateAdminReportPriority(req.params.id, priority, note, req.userAddress);
+      if (!report) return res.status(404).json({ error: "Report not found" });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ success: true, report });
+    } catch (err) {
+      console.error("admin_report_priority error:", err);
+      res.status(500).json({ error: "Failed to update report priority" });
     }
   });
 
