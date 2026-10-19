@@ -9,11 +9,18 @@ export function isEmailConfigured() {
 }
 
 export async function sendEmail({ to, subject, text, html }) {
+  const recipients = [...new Set(
+    (Array.isArray(to) ? to : [to])
+      .map((address) => String(address || "").trim())
+      .filter(Boolean),
+  )];
+  if (!recipients.length) throw new Error("At least one email recipient is required");
+
   if (!RESEND_API_KEY) {
     console.log(
       "\n=========== EMAIL (dev fallback — no RESEND_API_KEY set) ===========",
     );
-    console.log("TO:     ", to);
+    console.log("TO:     ", recipients.join(", "));
     console.log("SUBJECT:", subject);
     console.log("BODY:\n" + (text || html));
     console.log(
@@ -28,7 +35,7 @@ export async function sendEmail({ to, subject, text, html }) {
       Authorization: `Bearer ${RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from: FROM_EMAIL, to: [to], subject, text, html }),
+    body: JSON.stringify({ from: FROM_EMAIL, to: recipients, subject, text, html }),
   });
 
   if (!res.ok) {
