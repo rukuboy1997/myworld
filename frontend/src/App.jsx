@@ -15,6 +15,7 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";
 import TermsOfServicePage from "./pages/TermsOfServicePage.jsx";
 import DeleteAccountPage from "./pages/DeleteAccountPage.jsx";
 import ChildSafetyPage from "./pages/ChildSafetyPage.jsx";
+import AdminModerationPage from "./pages/AdminModerationPage.jsx";
 
 
 import { useEffect } from "react";
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/terms" element={<TermsOfServicePage />} />
         <Route path="/delete-account" element={<DeleteAccountPage />} />
         <Route path="/child-safety" element={<ChildSafetyPage />} />
+        <Route path="/admin/moderation" element={<AdminModerationPage />} />
       </Routes>
     </BrowserRouter>
   );
