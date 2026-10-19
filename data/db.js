@@ -1160,6 +1160,11 @@ export async function getActiveStatusesForViewer(viewer) {
      LEFT JOIN status_views sv ON sv.status_id = s.id
      LEFT JOIN profiles p ON p.address = s.owner
      WHERE s.expires_at > NOW()
+       AND NOT EXISTS (
+         SELECT 1 FROM blocked_users b
+         WHERE (b.blocker = $1 AND b.blocked = s.owner)
+            OR (b.blocker = s.owner AND b.blocked = $1)
+       )
        AND (
          s.owner = $1
          OR s.audience = 'everyone'
@@ -1185,6 +1190,11 @@ export async function getActiveStatusById(statusId, viewer) {
      LEFT JOIN status_views sv ON sv.status_id = s.id
      LEFT JOIN profiles p ON p.address = s.owner
      WHERE s.id = $1 AND s.expires_at > NOW()
+       AND NOT EXISTS (
+         SELECT 1 FROM blocked_users b
+         WHERE (b.blocker = $2 AND b.blocked = s.owner)
+            OR (b.blocker = s.owner AND b.blocked = $2)
+       )
        AND (
          s.owner = $2
          OR s.audience = 'everyone'
@@ -1203,6 +1213,11 @@ export async function getActiveStatusMediaKey(statusId, viewer) {
     `SELECT s.media_key, s.media_mime
      FROM statuses s
      WHERE s.id = $1 AND s.expires_at > NOW() AND s.media_key IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM blocked_users b
+         WHERE (b.blocker = $2 AND b.blocked = s.owner)
+            OR (b.blocker = s.owner AND b.blocked = $2)
+       )
        AND (
          s.owner = $2
          OR s.audience = 'everyone'
