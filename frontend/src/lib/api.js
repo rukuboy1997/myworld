@@ -213,6 +213,7 @@ export const getPresenceBatch = (addresses) =>
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
 export const getMessages = (address) => request("GET", `/messages/${address}`);
+export const getUnreadMessageCounts = () => request("GET", "/messages/unread-count");
 export const sendMessage = (data) => request("POST", "/message", data);
 export const getConversation = (a, b) =>
   request(
