@@ -121,7 +121,7 @@ async function firebaseWrite(path, data) {
 
 async function firebasePatch(path, data) {
   try {
-    const normalizedPath = String(path || "").replace(/^\\/+|\\/+$/g, "");
+    const normalizedPath = String(path || "").split("/").filter(Boolean).join("/");
     const url = `${FIREBASE_DB_URL}/${normalizedPath ? `${normalizedPath}.json` : ".json"}`;
     const res = await fetch(url, {
       method: "PATCH",
