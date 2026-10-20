@@ -20,10 +20,11 @@ import EmptyState from "@/components/EmptyState";
 function ConversationItem({ item, address }) {
   const colors = useColors();
   const isMe = item.sender === address;
-  const otherAddress = isMe ? item.receiver : item.sender;
+  const otherAddress = item.otherAddress || (isMe ? item.receiver : item.sender);
   const profile = item.otherProfile ?? {};
   const displayName =
     profile.displayName || profile.username || truncateAddress(otherAddress);
+  const isUnread = (item.unreadCount || 0) > 0;
 
   return (
     <TouchableOpacity
@@ -40,12 +41,21 @@ function ConversationItem({ item, address }) {
           >
             {displayName}
           </Text>
-          <Text style={[styles.itemTime, { color: colors.mutedForeground }]}>
-            {timeAgo(item.createdAt)}
-          </Text>
+          <View style={styles.itemMeta}>
+            {isUnread && (
+              <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
+                <Text style={styles.unreadBadgeText}>
+                  {item.unreadCount > 9 ? "9+" : item.unreadCount}
+                </Text>
+              </View>
+            )}
+            <Text style={[styles.itemTime, { color: colors.mutedForeground }]}>
+              {timeAgo(item.createdAt)}
+            </Text>
+          </View>
         </View>
         <Text
-          style={[styles.itemMsg, { color: colors.mutedForeground }]}
+          style={[styles.itemMsg, { color: isUnread ? colors.foreground : colors.mutedForeground, fontWeight: isUnread ? "600" : "400" }]
           numberOfLines={1}
         >
           {isMe ? "You: " : ""}
@@ -71,11 +81,35 @@ export default function MessagesScreen() {
 
   const conversations = useMemo(() => {
     const map = new Map();
-    messages.forEach((m) => {
-      const other = m.sender === address ? m.receiver : m.sender;
-      if (!map.has(other)) map.set(other, m);
+    messages.forEach((message) => {
+      const otherAddress =
+        message.sender === address ? message.receiver : message.sender;
+      const existing = map.get(otherAddress) || {
+        latest: message,
+        unreadCount: 0,
+        otherAddress,
+      };
+
+      if ((message.createdAt || "") >= (existing.latest.createdAt || "")) {
+        existing.latest = message;
+      }
+      if (message.receiver === address && !message.readAt) {
+        existing.unreadCount += 1;
+      }
+      map.set(otherAddress, existing);
     });
-    return Array.from(map.values());
+
+    return Array.from(map.values())
+      .map(({ latest, unreadCount, otherAddress }) => ({
+        ...latest,
+        otherAddress,
+        unreadCount,
+        otherProfile:
+          latest.sender === address
+            ? latest.receiverProfile
+            : latest.senderProfile,
+      }))
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   }, [messages, address]);
 
   if (!isAuthenticated) {
@@ -161,6 +195,16 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   itemName: { fontSize: 15, fontWeight: "700", flex: 1, marginRight: 8 },
+  itemMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
   itemTime: { fontSize: 12 },
+  unreadBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+  },
+  unreadBadgeText: { color: "#09090e", fontSize: 10, fontWeight: "800" },
   itemMsg: { fontSize: 13 },
 });
