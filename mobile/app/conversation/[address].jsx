@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -20,11 +20,13 @@ import { useAuth } from "@/context/AuthContext";
 import {
   getConversation,
   getProfile,
+  markConversationRead,
   sendMessage,
   timeAgo,
   truncateAddress,
 } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
+import { useNotifications } from "@/context/NotificationContext";
 import Avatar from "@/components/Avatar";
 
 function MessageBubble({ msg, isMe, colors }) {
@@ -67,10 +69,12 @@ export default function ConversationScreen() {
   const { address: otherAddress } = useLocalSearchParams();
   const colors = useColors();
   const { address: myAddress, isAuthenticated } = useAuth();
+  const { refreshUnreadMessageCount } = useNotifications();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const listRef = useRef(null);
+  const markingReadRef = useRef(false);
 
   const { data: otherProfile } = useQuery({
     queryKey: [`/api/profile/${otherAddress}`],
@@ -84,6 +88,36 @@ export default function ConversationScreen() {
     enabled: !!myAddress && !!otherAddress,
     refetchInterval: 5_000,
   });
+
+  useEffect(() => {
+    if (!myAddress || !otherAddress || !isAuthenticated || markingReadRef.current) return;
+
+    const hasUnreadIncoming = messages.some(
+      (message) =>
+        message.sender === otherAddress &&
+        message.receiver === myAddress &&
+        !message.readAt,
+    );
+    if (!hasUnreadIncoming) return;
+
+    markingReadRef.current = true;
+    markConversationRead(otherAddress)
+      .then(async () => {
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["/api/conversation", myAddress, otherAddress],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["/api/messages", myAddress],
+          }),
+        ]);
+        await refreshUnreadMessageCount();
+      })
+      .catch(() => {})
+      .finally(() => {
+        markingReadRef.current = false;
+      });
+  }, [messages, myAddress, otherAddress, isAuthenticated, refreshUnreadMessageCount]);
 
   const displayName =
     otherProfile?.displayName ||
