@@ -30,7 +30,7 @@ export default function LandingPage() {
 
           <div className="flex flex-col sm:flex-row items-center gap-4 mt-4 animate-slide-up delay-300 w-full sm:w-auto">
             <Link
-              to="/feed"
+              to="/messages"
               className="w-full sm:w-auto px-8 py-4 bg-primary text-primary-foreground rounded-full font-bold text-lg shadow-[0_0_20px_rgba(56,189,248,0.4)] hover:shadow-[0_0_30px_rgba(56,189,248,0.6)] transition-all hover:scale-105 active:scale-95 text-center"
             >
               Enter myWorld

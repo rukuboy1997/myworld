@@ -36,7 +36,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<MessagesPage />} />
+        <Route path="/welcome" element={<LandingPage />} />
         <Route path="/feed" element={<FeedPage />} />
         <Route path="/reels" element={<ReelsPage />} />
         <Route path="/reels/analytics" element={<ReelsAnalyticsPage />} />

@@ -105,8 +105,19 @@ CREATE TABLE IF NOT EXISTS messages (
   sender      TEXT NOT NULL,
   receiver    TEXT NOT NULL,
   content     TEXT NOT NULL,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  read_at     TIMESTAMPTZ
 );
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS message_typing (
+  sender      TEXT NOT NULL,
+  receiver    TEXT NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (sender, receiver)
+);
+CREATE INDEX IF NOT EXISTS idx_message_typing_receiver
+  ON message_typing (receiver, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS follows (
   follower    TEXT NOT NULL,
@@ -383,6 +394,11 @@ function rowToMessage(r) {
     content: r.content,
     createdAt:
       r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+    readAt: r.read_at
+      ? r.read_at instanceof Date
+        ? r.read_at.toISOString()
+        : r.read_at
+      : null,
   };
 }
 
@@ -880,7 +896,58 @@ export async function saveMessage(message) {
       message.createdAt || new Date().toISOString(),
     ],
   );
-  return { ...message, id };
+  return { ...message, id, readAt: message.readAt || null };
+}
+
+export async function markConversationMessagesRead(reader, otherAddress) {
+  const { rows } = await pool.query(
+    `UPDATE messages
+     SET read_at = NOW()
+     WHERE sender = $1 AND receiver = $2 AND read_at IS NULL
+     RETURNING id, read_at`,
+    [otherAddress, reader],
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    readAt:
+      row.read_at instanceof Date ? row.read_at.toISOString() : row.read_at,
+  }));
+}
+
+export async function setMessageTyping(sender, receiver, typing) {
+  if (typing) {
+    await pool.query(
+      `INSERT INTO message_typing (sender, receiver, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (sender, receiver) DO UPDATE SET updated_at = NOW()`,
+      [sender, receiver],
+    );
+    return;
+  }
+  await pool.query(
+    `DELETE FROM message_typing WHERE sender = $1 AND receiver = $2`,
+    [sender, receiver],
+  );
+}
+
+export async function getMessageTyping(sender, receiver) {
+  const { rows } = await pool.query(
+    `SELECT updated_at
+     FROM message_typing
+     WHERE sender = $1 AND receiver = $2
+       AND updated_at > NOW() - INTERVAL '6 seconds'
+     LIMIT 1`,
+    [sender, receiver],
+  );
+  const updatedAt = rows[0]?.updated_at;
+  return {
+    isTyping: rows.length > 0,
+    updatedAt: updatedAt
+      ? updatedAt instanceof Date
+        ? updatedAt.toISOString()
+        : updatedAt
+      : null,
+  };
 }
 
 // ─── Follows ─────────────────────────────────────────────────────────────────
