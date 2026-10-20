@@ -123,6 +123,10 @@ export const getConversation = (a, b) =>
     "GET",
     `/conversation?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
   );
+export const markConversationRead = (otherAddress) =>
+  request("PUT", "/conversation/read", { otherAddress });
+export const getUnreadMessageCounts = () =>
+  request("GET", "/messages/unread-count");
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 export const getNotifications = () => request("GET", "/notifications");
