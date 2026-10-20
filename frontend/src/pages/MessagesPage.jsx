@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { ref, onValue } from "firebase/database";
 import Layout from "../components/Layout.jsx";
 import {
   getMessages,
+  getUnreadMessageCounts,
   sendMessage,
   getAllProfiles,
   getConversation,
@@ -120,22 +122,10 @@ function groupMessages(messages) {
   return groups;
 }
 
-// Per-conversation read tracking
-function getConvLastRead(wallet, otherAddress) {
-  return (
-    localStorage.getItem(`msgs_read_${wallet}_${otherAddress}`) ||
-    new Date(0).toISOString()
-  );
-}
-
-function setConvLastRead(wallet, otherAddress) {
-  const now = new Date().toISOString();
-  localStorage.setItem(`msgs_read_${wallet}_${otherAddress}`, now);
-  localStorage.setItem(`msgs_seen_${wallet}`, now);
-}
-
 export default function MessagesPage() {
   const { address: wallet, isAuthenticated, openAuthModal } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedAddress = searchParams.get("with") || "";
   const [allMessages, setAllMessages] = useState([]);
   const [conversations, setConversations] = useState([]);
   const [profiles, setProfiles] = useState({});
@@ -149,7 +139,7 @@ export default function MessagesPage() {
   const [newChatSearch, setNewChatSearch] = useState("");
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationFilter, setConversationFilter] = useState("all");
-  const [readConvs, setReadConvs] = useState({});
+  const [unreadByConversation, setUnreadByConversation] = useState({});
   const [presence, setPresence] = useState({});
   const [typingByUser, setTypingByUser] = useState({});
   const messagesEndRef = useRef(null);
@@ -158,6 +148,33 @@ export default function MessagesPage() {
   const typingStopTimerRef = useRef(null);
   const typingActiveRef = useRef(false);
   const typingLastSentAtRef = useRef(0);
+
+  const refreshUnreadCounts = useCallback(async () => {
+    if (!wallet || !isAuthenticated) {
+      setUnreadByConversation({});
+      return;
+    }
+    try {
+      const result = await getUnreadMessageCounts();
+      setUnreadByConversation(result?.conversations || {});
+    } catch {
+      // Keep the last good counts during temporary network problems.
+    }
+  }, [wallet, isAuthenticated]);
+
+  useEffect(() => {
+    if (!wallet || !isAuthenticated) {
+      setUnreadByConversation({});
+      return;
+    }
+    refreshUnreadCounts();
+    const intervalId = setInterval(refreshUnreadCounts, 5000);
+    window.addEventListener("myworld:unread-messages-changed", refreshUnreadCounts);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("myworld:unread-messages-changed", refreshUnreadCounts);
+    };
+  }, [wallet, isAuthenticated, refreshUnreadCounts]);
 
   const loadConversations = useCallback(async () => {
     if (!wallet) return;
@@ -195,15 +212,38 @@ export default function MessagesPage() {
     }
   }, [wallet]);
 
-  const startNewChat = (profile) => {
+  const selectConversation = useCallback((profile) => {
+    if (!profile?.address) return;
     setSelectedUser(profile);
     setShowNewChat(false);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("with", profile.address);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const startNewChat = (profile) => {
+    selectConversation(profile);
     setNewChatSearch("");
   };
 
   useEffect(() => {
     if (isAuthenticated) loadConversations();
   }, [isAuthenticated, loadConversations]);
+
+  // Push and notification links can open a specific conversation.
+  useEffect(() => {
+    if (!isAuthenticated || !requestedAddress) return;
+    const profile =
+      profiles[requestedAddress] ||
+      allProfiles.find((item) => item.address === requestedAddress) ||
+      { address: requestedAddress };
+    setSelectedUser((current) =>
+      current?.address === requestedAddress && current === profile ? current : profile,
+    );
+    setShowNewChat(false);
+  }, [isAuthenticated, requestedAddress, profiles, allProfiles]);
 
   // ─── Firebase real-time presence for all conversation partners ───────────
   useEffect(() => {
@@ -436,8 +476,7 @@ export default function MessagesPage() {
     };
   }, [selectedUser?.address, wallet]);
 
-  // Mark incoming messages as read whenever they arrive while this chat is
-  // open, not only when the user first enters the conversation.
+  // Persist message reads and update inbox/navigation badges immediately.
   useEffect(() => {
     const otherAddress = selectedUser?.address;
     if (!otherAddress || !wallet || !isAuthenticated || isLoadingChat) return;
@@ -448,32 +487,36 @@ export default function MessagesPage() {
         message.receiver === wallet &&
         !message.readAt,
     );
+    if (!hasUnreadIncoming) return;
 
     clearTimeout(markReadTimerRef.current);
     markReadTimerRef.current = setTimeout(async () => {
-      setConvLastRead(wallet, otherAddress);
-      setReadConvs((prev) => ({ ...prev, [otherAddress]: true }));
-
-      if (!hasUnreadIncoming) return;
-
       try {
         const result = await markConversationRead(otherAddress);
         const receipts = new Map(
           (result?.messages || []).map((message) => [message.id, message.readAt]),
         );
         if (receipts.size) {
-          setChatMessages((current) =>
+          const applyReceipts = (current) =>
             current.map((message) =>
               receipts.has(message.id)
                 ? { ...message, readAt: receipts.get(message.id) }
                 : message,
-            ),
-          );
+            );
+          setChatMessages(applyReceipts);
+          setAllMessages(applyReceipts);
         }
+
+        setUnreadByConversation((previous) => ({
+          ...previous,
+          [otherAddress]: 0,
+        }));
+        window.dispatchEvent(new Event("myworld:unread-messages-changed"));
+        refreshUnreadCounts();
       } catch (err) {
         console.warn("Failed to sync conversation read receipt:", err);
       }
-    }, hasUnreadIncoming ? 350 : 1200);
+    }, 350);
 
     return () => clearTimeout(markReadTimerRef.current);
   }, [
@@ -482,6 +525,7 @@ export default function MessagesPage() {
     wallet,
     isAuthenticated,
     isLoadingChat,
+    refreshUnreadCounts,
   ]);
 
   useEffect(() => {
@@ -560,35 +604,25 @@ export default function MessagesPage() {
 
   const handleSelectUser = (conv) => {
     const profile = profiles[conv.address] || { address: conv.address };
-    setSelectedUser(profile);
+    selectConversation(profile);
   };
 
-  // Count unread messages in a conversation using per-conversation timestamp
+  // Per-chat counts are derived from the persisted read_at status.
   const unreadCount = useCallback(
-    (convAddress) => {
-      if (readConvs[convAddress]) return 0;
-      const lastRead = getConvLastRead(wallet, convAddress);
-      return allMessages.filter(
-        (m) =>
-          m.sender === convAddress &&
-          m.receiver === wallet &&
-          (m.createdAt || "") > lastRead,
-      ).length;
-    },
-    [allMessages, wallet, readConvs],
+    (convAddress) => Number(unreadByConversation[convAddress]) || 0,
+    [unreadByConversation],
   );
 
-  // Find the index of the first unread message in the chat view
+  // Find the first message the current account has not read yet.
   const firstUnreadIndex = useCallback(() => {
-    if (!selectedUser || readConvs[selectedUser.address]) return -1;
-    const lastRead = getConvLastRead(wallet, selectedUser.address);
+    if (!selectedUser) return -1;
     return chatMessages.findIndex(
-      (m) =>
-        m.sender === selectedUser.address &&
-        m.receiver === wallet &&
-        (m.createdAt || "") > lastRead,
+      (message) =>
+        message.sender === selectedUser.address &&
+        message.receiver === wallet &&
+        !message.readAt,
     );
-  }, [chatMessages, selectedUser, wallet, readConvs]);
+  }, [chatMessages, selectedUser, wallet]);
 
   if (!isAuthenticated) {
     return (
@@ -1069,14 +1103,8 @@ export default function MessagesPage() {
                       }
                       const { msg } = item;
                       const isMe = msg.sender === wallet;
-                      const lastRead = getConvLastRead(
-                        wallet,
-                        selectedUser.address,
-                      );
                       const isUnreadMsg =
-                        !isMe &&
-                        !readConvs[selectedUser.address] &&
-                        (msg.createdAt || "") > lastRead;
+                        !isMe && msg.receiver === wallet && !msg.readAt;
                       return (
                         <div
                           key={msg.id}

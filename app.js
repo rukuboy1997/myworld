@@ -44,6 +44,7 @@ import {
   saveLike,
   removeLike,
   getMessages,
+  getUnreadMessageCounts,
   getConversation,
   saveMessage,
   markConversationMessagesRead,
@@ -199,7 +200,7 @@ async function deliverExpoPush({ recipient, type, actorAddress, postId, excerpt 
     }[type] || { title: "myWorld notification", body: excerpt || "You have a new notification." };
 
     const path = type === "message"
-      ? "/messages"
+      ? `/messages?with=${encodeURIComponent(actorAddress || "")}`
       : type === "follow"
         ? `/profile/${encodeURIComponent(actorAddress || "")}`
         : postId
@@ -216,7 +217,13 @@ async function deliverExpoPush({ recipient, type, actorAddress, postId, excerpt 
         sound: "default",
         priority: "high",
         channelId: "default",
-        data: { url: path, path, type },
+        data: {
+          url: path,
+          path,
+          type,
+          actorAddress: actorAddress || null,
+          conversationAddress: type === "message" ? actorAddress || null : null,
+        },
       }));
 
       try {
@@ -1761,6 +1768,17 @@ export function buildApp() {
       res.json(message);
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/messages/unread-count", requireAuth, async (req, res) => {
+    try {
+      const counts = await getUnreadMessageCounts(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json(counts);
+    } catch (err) {
+      console.error("get_unread_messages_count error:", err);
+      res.status(500).json({ error: "Failed to load unread message counts" });
     }
   });
 

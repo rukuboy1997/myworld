@@ -48,6 +48,8 @@ function NotifItem({ item }) {
     if (item.postId) router.push(`/post/${item.postId}`);
     else if (item.type === "follow" && item.actorAddress)
       router.push(`/profile/${item.actorAddress}`);
+    else if (item.type === "message" && item.actorAddress)
+      router.push(`/conversation/${encodeURIComponent(item.actorAddress)}`);
     else if (item.type === "message") router.push("/messages");
   };
 

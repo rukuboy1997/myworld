@@ -916,6 +916,29 @@ export async function markConversationMessagesRead(reader, otherAddress) {
   }));
 }
 
+export async function getUnreadMessageCounts(address) {
+  const { rows } = await pool.query(
+    `SELECT m.sender, COUNT(*)::int AS unread_count
+     FROM messages m
+     WHERE m.receiver = $1
+       AND m.read_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1
+         FROM blocked_users b
+         WHERE (b.blocker = $1 AND b.blocked = m.sender)
+            OR (b.blocker = m.sender AND b.blocked = $1)
+       )
+     GROUP BY m.sender`,
+    [address],
+  );
+
+  const conversations = Object.fromEntries(
+    rows.map((row) => [row.sender, Number(row.unread_count) || 0]),
+  );
+  const count = Object.values(conversations).reduce((sum, unread) => sum + unread, 0);
+  return { count, conversations };
+}
+
 export async function setMessageTyping(sender, receiver, typing) {
   await pool.query(
     `INSERT INTO message_typing (sender, receiver, is_typing, updated_at)

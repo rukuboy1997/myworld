@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   truncateAddress,
-  getMessages,
+  getUnreadMessageCounts,
   getUnreadNotificationCount,
   resendVerification,
   sendHeartbeat,
@@ -24,36 +24,41 @@ export default function Layout({ children, immersive = false }) {
   const [showInvite, setShowInvite] = useState(false);
   const location = useLocation();
 
-  const isOnMessages = location.pathname === "/messages" || location.pathname === "/";
   const isOnNotifications = location.pathname === "/notifications";
 
-  // Unread messages badge
+  // Base the Messages badge on persistent server read receipts, not page visits.
   useEffect(() => {
     if (!isAuthenticated || !address) {
       setUnreadMsgs(0);
       return;
     }
-    if (isOnMessages) {
-      setUnreadMsgs(0);
-      localStorage.setItem(`msgs_seen_${address}`, new Date().toISOString());
-      return;
-    }
+
+    let active = true;
+    let checking = false;
     const checkUnread = async () => {
+      if (checking) return;
+      checking = true;
       try {
-        const lastSeen =
-          localStorage.getItem(`msgs_seen_${address}`) ||
-          new Date(0).toISOString();
-        const msgs = await getMessages(address);
-        const count = (msgs || []).filter(
-          (m) => m.receiver === address && (m.createdAt || "") > lastSeen,
-        ).length;
-        setUnreadMsgs(count);
-      } catch {}
+        const result = await getUnreadMessageCounts();
+        if (active) setUnreadMsgs(Math.max(0, Number(result?.count) || 0));
+      } catch {
+        // Preserve the last known value during temporary network failures.
+      } finally {
+        checking = false;
+      }
     };
+
     checkUnread();
-    const iv = setInterval(checkUnread, 60000);
-    return () => clearInterval(iv);
-  }, [isAuthenticated, address, isOnMessages]);
+    const intervalId = setInterval(checkUnread, 10000);
+    const onUnreadChanged = () => checkUnread();
+    window.addEventListener("myworld:unread-messages-changed", onUnreadChanged);
+
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+      window.removeEventListener("myworld:unread-messages-changed", onUnreadChanged);
+    };
+  }, [isAuthenticated, address]);
 
   // Unread notifications badge
   useEffect(() => {

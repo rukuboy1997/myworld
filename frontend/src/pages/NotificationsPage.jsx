@@ -229,7 +229,9 @@ export default function NotificationsPage() {
                 .toUpperCase();
               const linkTo =
                 n.type === "message"
-                  ? `/messages`
+                  ? n.actorAddress
+                    ? `/messages?with=${encodeURIComponent(n.actorAddress)}`
+                    : "/messages"
                   : n.postId
                     ? `/feed`
                     : `/profile/${n.actorAddress}`;

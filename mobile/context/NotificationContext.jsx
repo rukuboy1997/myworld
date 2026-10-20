@@ -4,13 +4,14 @@ import React, {
   useEffect,
   useRef,
   useState,
+  useCallback,
 } from "react";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import { router } from "expo-router";
-import { registerPushToken } from "@/lib/api";
+import { registerPushToken, getUnreadMessageCounts } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
 Notifications.setNotificationHandler({
@@ -25,6 +26,8 @@ const NotificationContext = createContext({
   expoPushToken: null,
   unreadCount: 0,
   setUnreadCount: () => {},
+  unreadMessageCount: 0,
+  refreshUnreadMessageCount: async () => {},
 });
 
 async function registerForPushNotificationsAsync() {
@@ -60,6 +63,30 @@ export function NotificationProvider({ children }) {
   const { isAuthenticated, user } = useAuth();
   const [expoPushToken, setExpoPushToken] = useState(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+
+  const refreshUnreadMessageCount = useCallback(async () => {
+    if (!isAuthenticated) {
+      setUnreadMessageCount(0);
+      return;
+    }
+    try {
+      const result = await getUnreadMessageCounts();
+      setUnreadMessageCount(Math.max(0, Number(result?.count) || 0));
+    } catch {
+      // Keep the last good count during a transient network failure.
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUnreadMessageCount(0);
+      return;
+    }
+    refreshUnreadMessageCount();
+    const intervalId = setInterval(refreshUnreadMessageCount, 10000);
+    return () => clearInterval(intervalId);
+  }, [isAuthenticated, user?.address, refreshUnreadMessageCount]);
   const notificationListener = useRef(null);
   const responseListener = useRef(null);
 
@@ -85,7 +112,10 @@ export function NotificationProvider({ children }) {
       Notifications.addNotificationResponseReceivedListener((response) => {
         const data = response.notification.request.content.data;
         if (data?.postId) router.push(`/post/${data.postId}`);
-        else if (data?.type === "message") router.push("/messages");
+        else if (data?.type === "message" && (data?.conversationAddress || data?.actorAddress)) {
+          const otherAddress = data.conversationAddress || data.actorAddress;
+          router.push(`/conversation/${encodeURIComponent(otherAddress)}`);
+        } else if (data?.type === "message") router.push("/messages");
         else if (data?.type === "follow" && data?.actorAddress)
           router.push(`/profile/${data.actorAddress}`);
         else router.push("/notifications");
@@ -99,7 +129,13 @@ export function NotificationProvider({ children }) {
 
   return (
     <NotificationContext.Provider
-      value={{ expoPushToken, unreadCount, setUnreadCount }}
+      value={{
+        expoPushToken,
+        unreadCount,
+        setUnreadCount,
+        unreadMessageCount,
+        refreshUnreadMessageCount,
+      }}
     >
       {children}
     </NotificationContext.Provider>
