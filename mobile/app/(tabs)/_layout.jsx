@@ -16,6 +16,26 @@ function TabIcon({ name, focused, color }) {
   );
 }
 
+function MessageIcon({ focused, color }) {
+  const { unreadMessageCount } = useNotifications();
+  return (
+    <View>
+      <Ionicons
+        name={focused ? "chatbubbles" : "chatbubbles-outline"}
+        size={24}
+        color={color}
+      />
+      {unreadMessageCount > 0 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>
+            {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function NotifIcon({ focused, color }) {
   const { unreadCount } = useNotifications();
   return (
@@ -98,7 +118,7 @@ export default function TabLayout() {
         options={{
           title: "Messages",
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon name="chatbubbles" focused={focused} color={color} />
+            <MessageIcon focused={focused} color={color} />
           ),
         }}
       />
