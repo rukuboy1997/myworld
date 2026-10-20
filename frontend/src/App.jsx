@@ -20,17 +20,52 @@ import AdminModerationPage from "./pages/AdminModerationPage.jsx";
 
 import { useEffect } from "react";
 import { registerPushToken } from "./lib/api.js";
+import { getAuthToken } from "./lib/auth.jsx";
+
+const PUSH_TOKEN_STORAGE_KEY = "myworld_push_token";
 
 export default function App() {
   useEffect(() => {
-    const submitToken = (event) => {
-      const token = event.detail?.token;
-      const platform = event.detail?.platform || "unknown";
-      if (token) registerPushToken(token, platform).catch((error) => console.warn("Push token registration failed:", error));
+    const submitStoredToken = (event) => {
+      const detail = event?.detail || window.__myWorldPushToken || null;
+      if (detail?.token) {
+        window.__myWorldPushToken = {
+          token: detail.token,
+          platform: detail.platform || "unknown",
+        };
+        try {
+          localStorage.setItem(
+            PUSH_TOKEN_STORAGE_KEY,
+            JSON.stringify(window.__myWorldPushToken),
+          );
+        } catch {}
+      }
+
+      let saved = window.__myWorldPushToken;
+      if (!saved?.token) {
+        try {
+          saved = JSON.parse(localStorage.getItem(PUSH_TOKEN_STORAGE_KEY) || "null");
+        } catch {
+          saved = null;
+        }
+      }
+
+      // Push-token registration requires authentication. Keep the token locally
+      // and retry after sign-in instead of losing it when the app starts logged out.
+      if (!saved?.token || !getAuthToken()) return;
+      registerPushToken(saved.token, saved.platform || "unknown").catch((error) => {
+        console.warn("Push token registration failed:", error);
+      });
     };
-    window.addEventListener("myworld-push-token", submitToken);
-    if (window.__myWorldPushToken?.token) submitToken({ detail: window.__myWorldPushToken });
-    return () => window.removeEventListener("myworld-push-token", submitToken);
+
+    window.addEventListener("myworld-push-token", submitStoredToken);
+    window.addEventListener("myworld:auth-changed", submitStoredToken);
+    submitStoredToken();
+
+    return () => {
+      window.removeEventListener("myworld-push-token", submitStoredToken);
+      window.removeEventListener("myworld:auth-changed", submitStoredToken);
+    };
   }, []);
 
   return (

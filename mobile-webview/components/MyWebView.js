@@ -17,8 +17,49 @@ import NetInfo from "@react-native-community/netinfo";
 
 const APP_URL = "https://myworld-app.vercel.app";
 
+function getSafeNotificationTarget(data = {}) {
+  const target =
+    typeof data.url === "string"
+      ? data.url
+      : typeof data.path === "string"
+        ? data.path
+        : "/notifications";
+  return target.startsWith("/") && !target.startsWith("//")
+    ? target
+    : "/notifications";
+}
+
 export default function MyWebView({ setTheme }) {
   const webViewRef = useRef(null);
+  const webViewReady = useRef(false);
+  const pendingPushToken = useRef(null);
+  const pendingNotificationTarget = useRef(null);
+
+  const flushPendingBridgeEvents = () => {
+    const webView = webViewRef.current;
+    if (!webView || !webViewReady.current) return;
+
+    if (pendingPushToken.current) {
+      const tokenPayload = JSON.stringify(pendingPushToken.current);
+      pendingPushToken.current = null;
+      webView.injectJavaScript(
+        `window.__myWorldPushToken = ${tokenPayload};window.dispatchEvent(new CustomEvent("myworld-push-token",{detail:window.__myWorldPushToken}));true;`
+      );
+    }
+
+    if (pendingNotificationTarget.current) {
+      const target = JSON.stringify(pendingNotificationTarget.current);
+      pendingNotificationTarget.current = null;
+      webView.injectJavaScript(
+        `window.location.href = "https://myworld-app.vercel.app" + ${target};true;`
+      );
+    }
+  };
+
+  const queueNotificationTarget = (target) => {
+    pendingNotificationTarget.current = target;
+    flushPendingBridgeEvents();
+  };
 
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
@@ -56,9 +97,13 @@ export default function MyWebView({ setTheme }) {
         }
         const result = await Notifications.getExpoPushTokenAsync({ projectId });
         if (!mounted || !result.data) return;
-        webViewRef.current?.injectJavaScript(
-          `window.__myWorldPushToken = ${JSON.stringify({ token: result.data, platform: Platform.OS })};window.dispatchEvent(new CustomEvent("myworld-push-token",{detail:window.__myWorldPushToken}));true;`
-        );
+        // The native token can arrive before the website has finished loading.
+        // Queue it until the WebView is ready so registration is never silently lost.
+        pendingPushToken.current = {
+          token: result.data,
+          platform: Platform.OS,
+        };
+        flushPendingBridgeEvents();
       } catch (error) {
         console.warn("Unable to register for push notifications:", error);
       }
@@ -68,23 +113,14 @@ export default function MyWebView({ setTheme }) {
 
     notificationResponseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data || {};
-      const target = typeof data.url === "string" ? data.url : typeof data.path === "string" ? data.path : "/notifications";
-      const safeTarget = target.startsWith("/") && !target.startsWith("//") ? target : "/notifications";
-      const encoded = JSON.stringify(safeTarget);
-      webViewRef.current?.injectJavaScript(
-        `window.location.href = "https://myworld-app.vercel.app" + ${encoded};true;`
-      );
+      queueNotificationTarget(getSafeNotificationTarget(data));
     });
 
     // Handle a notification that launched the app from a fully closed state.
     Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!mounted || !response) return;
       const data = response.notification.request.content.data || {};
-      const target = typeof data.url === "string" ? data.url : typeof data.path === "string" ? data.path : "/notifications";
-      const safeTarget = target.startsWith("/") && !target.startsWith("//") ? target : "/notifications";
-      webViewRef.current?.injectJavaScript(
-        `window.location.href = "https://myworld-app.vercel.app" + ${JSON.stringify(safeTarget)};true;`
-      );
+      queueNotificationTarget(getSafeNotificationTarget(data));
     }).catch(() => {});
 
     return () => {
@@ -249,9 +285,11 @@ export default function MyWebView({ setTheme }) {
   };
 
   const handleLoadEnd = () => {
+    webViewReady.current = true;
     setIsLoading(false);
     setHasLoadedOnce(true);
     setLoadError(false);
+    flushPendingBridgeEvents();
   };
 
   const handleLoadError = () => {

@@ -49,6 +49,11 @@ function saveCached(session) {
     localStorage.removeItem(STORAGE_KEY);
     currentToken = null;
   }
+
+  // Let the app shell retry push-token registration when a user signs in.
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("myworld:auth-changed"));
+  }
 }
 
 const API_ORIGIN = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
