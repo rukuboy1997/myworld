@@ -22,14 +22,14 @@ myWorld is being built as an addictive, polished social platform where users can
 - Receive notifications
 - Edit avatars, banners, bios, locations, websites, and professions
 - Use light and dark themes
-- Use the web application or mobile application
+- Use the responsive web application, including through the mobile-WebView wrapper
 
 ## Stack
 
 | Layer | Technology | Role |
 | --- | --- | --- |
 | Web | Vite + React + Tailwind CSS | Main social experience |
-| Mobile | Expo + React Native | Android and iOS app |
+| Mobile WebView | Expo + React Native WebView | Wrapper for the responsive web application |
 | API | Node.js + Express | Authentication and social API |
 | Database | Neon Postgres | Users, posts, profiles, likes, comments, follows, notifications |
 | Media | Cloudflare R2 | Images, videos, avatars, and banners |
@@ -152,22 +152,11 @@ frontend/src/
     PostPage.jsx
 ```
 
-## Mobile
+## Mobile WebView
 
-The mobile application lives in `mobile/` and uses Expo Router.
+The active mobile wrapper lives in `mobile-webview/` and uses Expo. It loads the responsive web application inside a WebView, so the website's messaging, notifications, navigation, and visual design are the primary mobile experience.
 
-It provides:
-
-- Feed
-- Explore
-- Create post
-- Profiles
-- Notifications
-- Direct messages
-- Post details
-- Authentication
-- Media upload and viewing
-- Light and dark themes
+The separate native React Native application previously stored in `mobile/` has been retired and removed from this repository. Mobile improvements should target the web frontend and the `mobile-webview/` wrapper.
 
 ## Core API
 
