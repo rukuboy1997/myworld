@@ -55,7 +55,7 @@ function ConversationItem({ item, address }) {
           </View>
         </View>
         <Text
-          style={[styles.itemMsg, { color: isUnread ? colors.foreground : colors.mutedForeground, fontWeight: isUnread ? "600" : "400" }]
+          style={[styles.itemMsg, { color: isUnread ? colors.foreground : colors.mutedForeground, fontWeight: isUnread ? "600" : "400" }]}
           numberOfLines={1}
         >
           {isMe ? "You: " : ""}
