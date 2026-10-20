@@ -9,7 +9,6 @@ import {
   getConversation,
   markConversationRead,
   setConversationTyping,
-  getConversationTyping,
   truncateAddress,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
@@ -219,7 +218,9 @@ export default function MessagesPage() {
     return () => unsub();
   }, [selectedUser?.address]);
 
-  // Poll the authenticated conversation partner's short-lived typing state.
+  // Subscribe to Realtime Database for immediate typing indicators.
+  // The timestamp makes a stuck "typing" state expire if a browser closes
+  // before it can publish the explicit stop event.
   useEffect(() => {
     const otherAddress = selectedUser?.address;
     if (!otherAddress || !wallet || !isAuthenticated) {
@@ -227,21 +228,43 @@ export default function MessagesPage() {
       return;
     }
 
-    let active = true;
-    const checkTyping = async () => {
-      try {
-        const status = await getConversationTyping(otherAddress);
-        if (active) setIsPartnerTyping(status?.isTyping === true);
-      } catch {
-        if (active) setIsPartnerTyping(false);
-      }
-    };
+    const typingRef = ref(
+      firebaseDb,
+      `conversations/${fbConvId(wallet, otherAddress)}/typing/${otherAddress}`,
+    );
+    let expiryTimer = null;
 
-    checkTyping();
-    const intervalId = setInterval(checkTyping, 2000);
+    const unsubscribe = onValue(
+      typingRef,
+      (snapshot) => {
+        const status = snapshot.val();
+        const updatedAt = Date.parse(status?.updatedAt || "");
+        const ageMs = Date.now() - updatedAt;
+        const typing =
+          status?.isTyping === true &&
+          Number.isFinite(updatedAt) &&
+          ageMs >= -5000 &&
+          ageMs < 6500;
+
+        setIsPartnerTyping(typing);
+        if (expiryTimer) clearTimeout(expiryTimer);
+        if (typing) {
+          expiryTimer = setTimeout(
+            () => setIsPartnerTyping(false),
+            Math.max(0, 6500 - ageMs + 100),
+          );
+        }
+      },
+      (error) => {
+        console.warn("[firebase] typing listener error:", error);
+        setIsPartnerTyping(false);
+      },
+    );
+
     return () => {
-      active = false;
-      clearInterval(intervalId);
+      unsubscribe();
+      if (expiryTimer) clearTimeout(expiryTimer);
+      setIsPartnerTyping(false);
     };
   }, [selectedUser?.address, wallet, isAuthenticated]);
 
@@ -336,22 +359,59 @@ export default function MessagesPage() {
       },
     );
 
-    // Mark as read after a short delay so the unread separator shows briefly
-    clearTimeout(markReadTimerRef.current);
-    markReadTimerRef.current = setTimeout(() => {
-      setConvLastRead(wallet, selectedUser.address);
-      setReadConvs((prev) => ({ ...prev, [selectedUser.address]: true }));
-      markConversationRead(selectedUser.address).catch((err) => {
-        console.warn("Failed to sync conversation read receipt:", err);
-      });
-    }, 1500);
-
     return () => {
       active = false;
       unsubscribe();
-      clearTimeout(markReadTimerRef.current);
     };
   }, [selectedUser?.address, wallet]);
+
+  // Mark incoming messages as read whenever they arrive while this chat is
+  // open, not only when the user first enters the conversation.
+  useEffect(() => {
+    const otherAddress = selectedUser?.address;
+    if (!otherAddress || !wallet || !isAuthenticated || isLoadingChat) return;
+
+    const hasUnreadIncoming = chatMessages.some(
+      (message) =>
+        message.sender === otherAddress &&
+        message.receiver === wallet &&
+        !message.readAt,
+    );
+
+    clearTimeout(markReadTimerRef.current);
+    markReadTimerRef.current = setTimeout(async () => {
+      setConvLastRead(wallet, otherAddress);
+      setReadConvs((prev) => ({ ...prev, [otherAddress]: true }));
+
+      if (!hasUnreadIncoming) return;
+
+      try {
+        const result = await markConversationRead(otherAddress);
+        const receipts = new Map(
+          (result?.messages || []).map((message) => [message.id, message.readAt]),
+        );
+        if (receipts.size) {
+          setChatMessages((current) =>
+            current.map((message) =>
+              receipts.has(message.id)
+                ? { ...message, readAt: receipts.get(message.id) }
+                : message,
+            ),
+          );
+        }
+      } catch (err) {
+        console.warn("Failed to sync conversation read receipt:", err);
+      }
+    }, hasUnreadIncoming ? 350 : 1200);
+
+    return () => clearTimeout(markReadTimerRef.current);
+  }, [
+    chatMessages,
+    selectedUser?.address,
+    wallet,
+    isAuthenticated,
+    isLoadingChat,
+  ]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
