@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { ref, onValue } from "firebase/database";
 import Layout from "../components/Layout.jsx";
@@ -9,6 +9,7 @@ import {
   getConversation,
   markConversationRead,
   setConversationTyping,
+  getConversationsTyping,
   truncateAddress,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
@@ -27,6 +28,21 @@ function PresenceDot({ online, size = "md" }) {
     <span
       className={`absolute bottom-0 right-0 ${sz} rounded-full border-background ${online ? "bg-green-500" : "bg-zinc-500"}`}
     />
+  );
+}
+
+function TypingDots({ size = "sm" }) {
+  const dotSize = size === "lg" ? "w-1.5 h-1.5" : "w-1 h-1";
+  return (
+    <span
+      className="inline-flex items-center gap-0.5"
+      aria-label="Typing"
+      role="status"
+    >
+      <span className={`${dotSize} rounded-full bg-current animate-bounce`} style={{ animationDelay: "0ms" }} />
+      <span className={`${dotSize} rounded-full bg-current animate-bounce`} style={{ animationDelay: "140ms" }} />
+      <span className={`${dotSize} rounded-full bg-current animate-bounce`} style={{ animationDelay: "280ms" }} />
+    </span>
   );
 }
 
@@ -135,7 +151,7 @@ export default function MessagesPage() {
   const [conversationFilter, setConversationFilter] = useState("all");
   const [readConvs, setReadConvs] = useState({});
   const [presence, setPresence] = useState({});
-  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+  const [typingByUser, setTypingByUser] = useState({});
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const markReadTimerRef = useRef(null);
@@ -218,55 +234,110 @@ export default function MessagesPage() {
     return () => unsub();
   }, [selectedUser?.address]);
 
-  // Subscribe to Realtime Database for immediate typing indicators.
-  // The timestamp makes a stuck "typing" state expire if a browser closes
-  // before it can publish the explicit stop event.
+  // Every conversation row subscribes to its partner's typing state. This
+  // lets the inbox show who is typing without first opening that conversation.
+  const typingTargetAddresses = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...conversations.map((conversation) => conversation.address),
+          selectedUser?.address,
+        ].filter(Boolean)),
+      ).slice(0, 100),
+    [conversations, selectedUser?.address],
+  );
+
   useEffect(() => {
-    const otherAddress = selectedUser?.address;
-    if (!otherAddress || !wallet || !isAuthenticated) {
-      setIsPartnerTyping(false);
+    if (!wallet || !isAuthenticated || !typingTargetAddresses.length) {
+      setTypingByUser({});
       return;
     }
 
-    const typingRef = ref(
-      firebaseDb,
-      `conversations/${fbConvId(wallet, otherAddress)}/typing/${otherAddress}`,
-    );
-    let expiryTimer = null;
+    const expiryTimers = new Map();
+    const unsubscribers = typingTargetAddresses.map((otherAddress) => {
+      const typingRef = ref(
+        firebaseDb,
+        `conversations/${fbConvId(wallet, otherAddress)}/typing/${otherAddress}`,
+      );
 
-    const unsubscribe = onValue(
-      typingRef,
-      (snapshot) => {
-        const status = snapshot.val();
-        const updatedAt = Date.parse(status?.updatedAt || "");
-        const ageMs = Date.now() - updatedAt;
-        const typing =
-          status?.isTyping === true &&
-          Number.isFinite(updatedAt) &&
-          ageMs >= -5000 &&
-          ageMs < 6500;
+      return onValue(
+        typingRef,
+        (snapshot) => {
+          const status = snapshot.val();
+          const updatedAt = Date.parse(status?.updatedAt || "");
+          const ageMs = Date.now() - updatedAt;
+          const isTyping =
+            status?.isTyping === true &&
+            Number.isFinite(updatedAt) &&
+            ageMs >= -5000 &&
+            ageMs < 8000;
 
-        setIsPartnerTyping(typing);
-        if (expiryTimer) clearTimeout(expiryTimer);
-        if (typing) {
-          expiryTimer = setTimeout(
-            () => setIsPartnerTyping(false),
-            Math.max(0, 6500 - ageMs + 100),
+          setTypingByUser((previous) =>
+            previous[otherAddress] === isTyping
+              ? previous
+              : { ...previous, [otherAddress]: isTyping },
           );
-        }
-      },
-      (error) => {
-        console.warn("[firebase] typing listener error:", error);
-        setIsPartnerTyping(false);
-      },
-    );
+
+          const existingTimer = expiryTimers.get(otherAddress);
+          if (existingTimer) clearTimeout(existingTimer);
+          if (isTyping) {
+            expiryTimers.set(
+              otherAddress,
+              setTimeout(() => {
+                setTypingByUser((previous) => ({
+                  ...previous,
+                  [otherAddress]: false,
+                }));
+                expiryTimers.delete(otherAddress);
+              }, Math.max(0, 8000 - ageMs + 100)),
+            );
+          } else {
+            expiryTimers.delete(otherAddress);
+          }
+        },
+        (error) => {
+          console.warn("[firebase] typing listener error:", error);
+        },
+      );
+    });
 
     return () => {
-      unsubscribe();
-      if (expiryTimer) clearTimeout(expiryTimer);
-      setIsPartnerTyping(false);
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      expiryTimers.forEach((timer) => clearTimeout(timer));
     };
-  }, [selectedUser?.address, wallet, isAuthenticated]);
+  }, [typingTargetAddresses, wallet, isAuthenticated]);
+
+  // Keep a batched API fallback so typing remains visible if a Firebase
+  // typing write/listener is rejected or temporarily disconnected. One request
+  // covers the entire inbox rather than polling once per conversation.
+  useEffect(() => {
+    if (!wallet || !isAuthenticated || !typingTargetAddresses.length) return;
+
+    let active = true;
+    const refreshTypingStatuses = async () => {
+      try {
+        const result = await getConversationsTyping(typingTargetAddresses);
+        if (!active) return;
+        const statuses = result?.statuses || {};
+        setTypingByUser((previous) => {
+          const next = { ...previous };
+          typingTargetAddresses.forEach((otherAddress) => {
+            next[otherAddress] = statuses[otherAddress]?.isTyping === true;
+          });
+          return next;
+        });
+      } catch {
+        // The Firebase subscription remains live if the fallback request fails.
+      }
+    };
+
+    refreshTypingStatuses();
+    const intervalId = setInterval(refreshTypingStatuses, 1000);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [typingTargetAddresses, wallet, isAuthenticated]);
 
   // Stop typing updates when a conversation changes or the component unmounts.
   useEffect(() => {
@@ -447,7 +518,7 @@ export default function MessagesPage() {
       setConversationTyping(otherAddress, true).catch(() => {
         typingActiveRef.current = false;
       });
-    } else if (now - typingLastSentAtRef.current >= 3000) {
+    } else if (now - typingLastSentAtRef.current >= 2000) {
       // Refresh the short-lived server indicator while the user keeps typing.
       typingLastSentAtRef.current = now;
       setConversationTyping(otherAddress, true).catch(() => {});
@@ -458,7 +529,7 @@ export default function MessagesPage() {
       typingLastSentAtRef.current = 0;
       setConversationTyping(otherAddress, false).catch(() => {});
       typingStopTimerRef.current = null;
-    }, 1800);
+    }, 3000);
   };
 
   const handleSend = async (e) => {
@@ -836,13 +907,20 @@ export default function MessagesPage() {
                         </div>
                         <div className="flex items-center justify-between gap-2 mt-0.5">
                           <p
-                            className={`text-xs truncate ${hasUnread ? "text-foreground/80 font-medium" : "text-muted-foreground"}`}
+                            className={`text-xs truncate ${typingByUser[conv.address] ? "text-primary font-semibold" : hasUnread ? "text-foreground/80 font-medium" : "text-muted-foreground"}`}
                           >
-                            {lastMsg
-                              ? lastMsg.sender === wallet
+                            {typingByUser[conv.address] ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <TypingDots />
+                                <span>typing…</span>
+                              </span>
+                            ) : lastMsg ? (
+                              lastMsg.sender === wallet
                                 ? `You: ${lastMsg.content}`
                                 : lastMsg.content
-                              : p?.bio || "Say hello!"}
+                            ) : (
+                              p?.bio || "Say hello!"
+                            )}
                           </p>
                           {hasUnread && (
                             <span className="flex-shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
@@ -925,10 +1003,11 @@ export default function MessagesPage() {
                     {(() => {
                       const lastSeenAt = presence[selectedUser.address];
                       const online = isOnline(lastSeenAt);
-                      if (isPartnerTyping) {
+                      if (typingByUser[selectedUser.address]) {
                         return (
-                          <p className="text-[11px] text-primary font-semibold animate-pulse">
-                            typing…
+                          <p className="text-[11px] text-primary font-semibold flex items-center gap-1.5">
+                            <TypingDots />
+                            Typing
                           </p>
                         );
                       }
@@ -1050,6 +1129,20 @@ export default function MessagesPage() {
                   )}
                   <div ref={messagesEndRef} />
                 </div>
+
+                {typingByUser[selectedUser.address] && (
+                  <div
+                    className="px-5 py-2 flex items-center gap-2 text-xs text-primary border-t border-white/5 bg-background/30"
+                    aria-live="polite"
+                  >
+                    <TypingDots size="lg" />
+                    <span>
+                      {selectedProfile?.username ||
+                        truncateAddress(selectedUser.address)}{" "}
+                      is typing
+                    </span>
+                  </div>
+                )}
 
                 {/* Input */}
                 <form

@@ -49,6 +49,7 @@ import {
   markConversationMessagesRead,
   setMessageTyping,
   getMessageTyping,
+  getMessageTypingBatch,
   createFollow,
   deleteFollow,
   isFollowing,
@@ -112,10 +113,15 @@ async function firebaseWrite(path, data) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok)
-      console.warn(`[firebase] write to ${path} failed: ${res.status}`);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.warn(`[firebase] write to ${path} failed: ${res.status} ${detail}`);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.warn("[firebase] write error:", err.message);
+    return false;
   }
 }
 
@@ -1843,11 +1849,11 @@ export function buildApp() {
 
       // Also publish to Realtime Database so the other open chat receives the
       // event immediately instead of waiting for a database polling interval.
-      await firebaseWrite(
+      const realtimePublished = await firebaseWrite(
         `conversations/${fbConvId(req.userAddress, otherAddress)}/typing/${req.userAddress}`,
         { isTyping, updatedAt: new Date().toISOString() },
       );
-      res.json({ ok: true, isTyping });
+      res.json({ ok: true, isTyping, realtimePublished });
     } catch (err) {
       console.error("set_conversation_typing error:", err);
       res.status(500).json({ error: err.message });
@@ -1868,6 +1874,24 @@ export function buildApp() {
     } catch (err) {
       console.error("get_conversation_typing error:", err);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Batched typing state powers the chat-list indicators and serves as a
+  // database-backed fallback if Firebase realtime writes are unavailable.
+  app.get("/api/conversations/typing", requireAuth, async (req, res) => {
+    try {
+      const addresses = String(req.query?.addresses || "")
+        .split(",")
+        .map((address) => normalizeTextInput(address))
+        .filter((address) => address && address !== req.userAddress)
+        .slice(0, 100);
+      const statuses = await getMessageTypingBatch(req.userAddress, addresses);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ statuses });
+    } catch (err) {
+      console.error("get_conversations_typing error:", err);
+      res.status(500).json({ error: "Failed to load typing status" });
     }
   });
 

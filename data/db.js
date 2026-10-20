@@ -113,9 +113,11 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
 CREATE TABLE IF NOT EXISTS message_typing (
   sender      TEXT NOT NULL,
   receiver    TEXT NOT NULL,
+  is_typing   BOOLEAN NOT NULL DEFAULT TRUE,
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (sender, receiver)
 );
+ALTER TABLE message_typing ADD COLUMN IF NOT EXISTS is_typing BOOLEAN NOT NULL DEFAULT TRUE;
 CREATE INDEX IF NOT EXISTS idx_message_typing_receiver
   ON message_typing (receiver, updated_at DESC);
 
@@ -915,18 +917,12 @@ export async function markConversationMessagesRead(reader, otherAddress) {
 }
 
 export async function setMessageTyping(sender, receiver, typing) {
-  if (typing) {
-    await pool.query(
-      `INSERT INTO message_typing (sender, receiver, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (sender, receiver) DO UPDATE SET updated_at = NOW()`,
-      [sender, receiver],
-    );
-    return;
-  }
   await pool.query(
-    `DELETE FROM message_typing WHERE sender = $1 AND receiver = $2`,
-    [sender, receiver],
+    `INSERT INTO message_typing (sender, receiver, is_typing, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (sender, receiver)
+     DO UPDATE SET is_typing = EXCLUDED.is_typing, updated_at = NOW()`,
+    [sender, receiver, typing === true],
   );
 }
 
@@ -935,7 +931,8 @@ export async function getMessageTyping(sender, receiver) {
     `SELECT updated_at
      FROM message_typing
      WHERE sender = $1 AND receiver = $2
-       AND updated_at > NOW() - INTERVAL '6 seconds'
+       AND is_typing = TRUE
+       AND updated_at > NOW() - INTERVAL '8 seconds'
      LIMIT 1`,
     [sender, receiver],
   );
@@ -948,6 +945,40 @@ export async function getMessageTyping(sender, receiver) {
         : updatedAt
       : null,
   };
+}
+
+export async function getMessageTypingBatch(receiver, senderAddresses = []) {
+  const addresses = [...new Set(senderAddresses.filter(
+    (address) => typeof address === "string" && address && address !== receiver,
+  ))].slice(0, 100);
+  if (!addresses.length) return {};
+
+  const { rows } = await pool.query(
+    `SELECT mt.sender, mt.updated_at
+     FROM message_typing mt
+     WHERE mt.receiver = $1
+       AND mt.sender = ANY($2::text[])
+       AND mt.is_typing = TRUE
+       AND mt.updated_at > NOW() - INTERVAL '8 seconds'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM blocked_users b
+         WHERE (b.blocker = $1 AND b.blocked = mt.sender)
+            OR (b.blocker = mt.sender AND b.blocked = $1)
+       )`,
+    [receiver, addresses],
+  );
+
+  return Object.fromEntries(rows.map((row) => [
+    row.sender,
+    {
+      isTyping: true,
+      updatedAt:
+        row.updated_at instanceof Date
+          ? row.updated_at.toISOString()
+          : row.updated_at,
+    },
+  ]));
 }
 
 // ─── Follows ─────────────────────────────────────────────────────────────────

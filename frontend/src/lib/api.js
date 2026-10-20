@@ -225,6 +225,11 @@ export const setConversationTyping = (otherAddress, typing) =>
   request("POST", "/conversation/typing", { otherAddress, typing });
 export const getConversationTyping = (otherAddress) =>
   request("GET", `/conversation/typing?otherAddress=${encodeURIComponent(otherAddress)}`);
+export const getConversationsTyping = (addresses) =>
+  request(
+    "GET",
+    `/conversations/typing?addresses=${addresses.map(encodeURIComponent).join(",")}`,
+  );
 
 // ─── Email verification ───────────────────────────────────────────────────────
 export const verifyEmail = (token) =>
