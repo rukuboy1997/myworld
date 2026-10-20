@@ -121,15 +121,22 @@ async function firebaseWrite(path, data) {
 
 async function firebasePatch(path, data) {
   try {
-    const res = await fetch(`${FIREBASE_DB_URL}/${path}.json`, {
+    const normalizedPath = String(path || "").split("/").filter(Boolean).join("/");
+    const url = `${FIREBASE_DB_URL}/${normalizedPath ? `${normalizedPath}.json` : ".json"}`;
+    const res = await fetch(url, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok)
-      console.warn(`[firebase] patch to ${path} failed: ${res.status}`);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.warn(`[firebase] patch to ${normalizedPath || "/"} failed: ${res.status} ${detail}`);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.warn("[firebase] patch error:", err.message);
+    return false;
   }
 }
 
@@ -1799,20 +1806,22 @@ export function buildApp() {
       const readMessages = await markConversationMessagesRead(req.userAddress, otherAddress);
       const conversationId = fbConvId(req.userAddress, otherAddress);
       if (readMessages.length) {
+        // Firebase multi-location updates must use full child paths. Patching
+        // {messageId: {readAt}} at /messages replaces each full message object;
+        // these slash-delimited paths update only the readAt field instead.
         const readUpdates = Object.fromEntries(
           readMessages.map((message) => [
-            message.id,
-            { readAt: message.readAt },
+            `conversations/${conversationId}/messages/${message.id}/readAt`,
+            message.readAt,
           ]),
         );
-        // One multi-location PATCH keeps realtime receipt sync efficient for
-        // conversations with many unread messages.
-        await firebasePatch(
-          `conversations/${conversationId}/messages`,
-          readUpdates,
-        );
+        await firebasePatch("", readUpdates);
       }
-      res.json({ ok: true, updated: readMessages.length });
+      res.json({
+        ok: true,
+        updated: readMessages.length,
+        messages: readMessages,
+      });
     } catch (err) {
       console.error("mark_conversation_read error:", err);
       res.status(500).json({ error: err.message });
@@ -1829,8 +1838,16 @@ export function buildApp() {
       if (await isBlockedEitherWay(req.userAddress, otherAddress))
         return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
 
-      await setMessageTyping(req.userAddress, otherAddress, req.body?.typing === true);
-      res.json({ ok: true });
+      const isTyping = req.body?.typing === true;
+      await setMessageTyping(req.userAddress, otherAddress, isTyping);
+
+      // Also publish to Realtime Database so the other open chat receives the
+      // event immediately instead of waiting for a database polling interval.
+      await firebaseWrite(
+        `conversations/${fbConvId(req.userAddress, otherAddress)}/typing/${req.userAddress}`,
+        { isTyping, updatedAt: new Date().toISOString() },
+      );
+      res.json({ ok: true, isTyping });
     } catch (err) {
       console.error("set_conversation_typing error:", err);
       res.status(500).json({ error: err.message });
