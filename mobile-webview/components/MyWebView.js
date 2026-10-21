@@ -68,6 +68,7 @@ export default function MyWebView({ setTheme }) {
   const [canGoBack, setCanGoBack] = useState(false);
 
   const notificationResponseListener = useRef(null);
+  const lastHandledNotificationResponse = useRef({ key: null, at: 0 });
 
   // Register this installation for Expo push notifications and route notification taps
   // back into the myWorld WebView.
@@ -129,8 +130,19 @@ export default function MyWebView({ setTheme }) {
     registerForPushNotifications();
 
     const handleNotificationResponse = (response) => {
+      if (!response) return;
+      const action = response.actionIdentifier || Notifications.DEFAULT_ACTION_IDENTIFIER;
+      const userText = String(response.userText || "");
+      const requestId = response.notification?.request?.identifier || "";
+      const responseKey = [requestId, action, userText].join("|");
+      const now = Date.now();
+      const previousResponse = lastHandledNotificationResponse.current;
+      // The live response listener and cold-start lookup can surface the same
+      // response. Ignore that duplicate without blocking a later real reply.
+      if (previousResponse.key === responseKey && now - previousResponse.at < 5000) return;
+      lastHandledNotificationResponse.current = { key: responseKey, at: now };
+
       const data = response?.notification?.request?.content?.data || {};
-      const action = response?.actionIdentifier;
       const conversationAddress =
         typeof data.conversationAddress === "string"
           ? data.conversationAddress
@@ -146,13 +158,15 @@ export default function MyWebView({ setTheme }) {
         const params = new URLSearchParams();
         params.set("with", conversationAddress);
         params.set("nativeAction", action);
-        params.set("nativeActionId", String(Date.now()));
-        if (action === "reply") params.set("replyText", String(response.userText).trim());
+        params.set("nativeActionId", String(now));
+        if (action === "reply") params.set("replyText", userText.trim());
         queueNotificationTarget("/messages?" + params.toString());
         return;
       }
 
       queueNotificationTarget(getSafeNotificationTarget(data));
+      // Prevent a handled action from being replayed on the next app launch.
+      Notifications.clearLastNotificationResponseAsync?.().catch(() => {});
     };
 
     notificationResponseListener.current =
