@@ -155,7 +155,10 @@ export default function MyWebView({ setTheme }) {
 
     const handleNotificationResponse = (response) => {
       if (!response) return;
-      const action = response.actionIdentifier || Notifications.DEFAULT_ACTION_IDENTIFIER;
+      const responseAction = response.actionIdentifier || Notifications.DEFAULT_ACTION_IDENTIFIER;
+      // Keep the WebView's established action contract while using an
+      // Android-safe identifier for the native notification button.
+      const action = responseAction === "mark_as_read" ? "mark-as-read" : responseAction;
       const userText = String(response.userText || "");
       const requestId = response.notification?.request?.identifier || "";
       const responseKey = [requestId, action, userText].join("|");
@@ -176,7 +179,7 @@ export default function MyWebView({ setTheme }) {
       const isMessageAction =
         data.type === "message" &&
         conversationAddress &&
-        (action === "reply" || action === "mark_as_read" || action === "mark-as-read");
+        (action === "reply" || action === "mark-as-read");
 
       if (isMessageAction && (action !== "reply" || String(response?.userText || "").trim())) {
         const params = new URLSearchParams();
