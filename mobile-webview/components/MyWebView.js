@@ -84,6 +84,24 @@ export default function MyWebView({ setTheme }) {
             vibrationPattern: [0, 250, 250, 250],
             lightColor: "#00C8FF",
           });
+          // Expo categories provide real Android notification actions. The
+          // website bridge handles authenticated reply/read operations.
+          await Notifications.setNotificationCategoryAsync("myworld-message", [
+            {
+              identifier: "reply",
+              buttonTitle: "Reply",
+              textInput: {
+                submitButtonTitle: "Send",
+                placeholder: "Write a reply...",
+              },
+              options: { opensAppToForeground: true },
+            },
+            {
+              identifier: "mark-as-read",
+              buttonTitle: "Mark as read",
+              options: { opensAppToForeground: true },
+            },
+          ]);
         }
         let permission = await Notifications.getPermissionsAsync();
         if (permission.status !== "granted") {
@@ -111,17 +129,44 @@ export default function MyWebView({ setTheme }) {
 
     registerForPushNotifications();
 
-    notificationResponseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data || {};
-      queueNotificationTarget(getSafeNotificationTarget(data));
-    });
+    const handleNotificationResponse = (response) => {
+      const data = response?.notification?.request?.content?.data || {};
+      const action = response?.actionIdentifier;
+      const conversationAddress =
+        typeof data.conversationAddress === "string"
+          ? data.conversationAddress
+          : typeof data.actorAddress === "string"
+            ? data.actorAddress
+            : "";
+      const isMessageAction =
+        data.type === "message" &&
+        conversationAddress &&
+        (action === "reply" || action === "mark-as-read");
 
-    // Handle a notification that launched the app from a fully closed state.
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!mounted || !response) return;
-      const data = response.notification.request.content.data || {};
+      if (isMessageAction && (action !== "reply" || String(response?.userText || "").trim())) {
+        const params = new URLSearchParams();
+        params.set("with", conversationAddress);
+        params.set("nativeAction", action);
+        params.set("nativeActionId", String(Date.now()));
+        if (action === "reply") params.set("replyText", String(response.userText).trim());
+        queueNotificationTarget("/messages?" + params.toString());
+        return;
+      }
+
       queueNotificationTarget(getSafeNotificationTarget(data));
-    }).catch(() => {});
+    };
+
+    notificationResponseListener.current =
+      Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+
+    // Handle a notification or notification action that launched the app from
+    // a fully closed state, not only taps received while it was already open.
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (!mounted || !response) return;
+        handleNotificationResponse(response);
+      })
+      .catch(() => {});
 
     return () => {
       mounted = false;
