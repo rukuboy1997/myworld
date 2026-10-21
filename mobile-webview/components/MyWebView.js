@@ -113,7 +113,7 @@ export default function MyWebView({ setTheme }) {
                 options: { opensAppToForeground: true },
               },
               {
-                identifier: "mark-as-read",
+                identifier: "mark_as_read",
                 buttonTitle: "Mark as read",
                 options: { opensAppToForeground: true },
               },
@@ -155,7 +155,10 @@ export default function MyWebView({ setTheme }) {
 
     const handleNotificationResponse = (response) => {
       if (!response) return;
-      const action = response.actionIdentifier || Notifications.DEFAULT_ACTION_IDENTIFIER;
+      const responseAction = response.actionIdentifier || Notifications.DEFAULT_ACTION_IDENTIFIER;
+      // Keep the WebView's established action contract while using an
+      // Android-safe identifier for the native notification button.
+      const action = responseAction === "mark_as_read" ? "mark-as-read" : responseAction;
       const userText = String(response.userText || "");
       const requestId = response.notification?.request?.identifier || "";
       const responseKey = [requestId, action, userText].join("|");
