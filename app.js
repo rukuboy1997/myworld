@@ -190,13 +190,20 @@ async function deliverExpoPush({ recipient, type, actorAddress, postId, excerpt 
     const actorName =
       actorProfile?.displayName?.trim() ||
       actorProfile?.username ||
-      (actorAddress ? `${actorAddress.slice(0, 6)}…${actorAddress.slice(-4)}` : "Someone");
+      (actorAddress ? actorAddress.slice(0, 6) + "…" + actorAddress.slice(-4) : "Someone");
+    const rawAvatarUrl = actorProfile?.avatarUrl;
+    const senderAvatarUrl =
+      typeof rawAvatarUrl === "string" && /^https:\/\//i.test(rawAvatarUrl)
+        ? rawAvatarUrl
+        : null;
 
     const copy = {
-      like: { title: "New like on myWorld", body: `${actorName} liked your post.` },
-      comment: { title: "New comment on myWorld", body: `${actorName} commented: ${excerpt || "Open myWorld to view it."}` },
-      follow: { title: "New follower on myWorld", body: `${actorName} started following you.` },
-      message: { title: "New message on myWorld", body: `${actorName}: ${excerpt || "Sent you a message."}` },
+      like: { title: "New like on myWorld", body: actorName + " liked your post." },
+      comment: { title: "New comment on myWorld", body: actorName + " commented: " + (excerpt || "Open myWorld to view it.") },
+      follow: { title: "New follower on myWorld", body: actorName + " started following you." },
+      // The app name remains the Android notification header; show the sender
+      // as the title and their message as the body for a more personal inbox.
+      message: { title: actorName, body: excerpt || "Sent you a message." },
     }[type] || { title: "myWorld notification", body: excerpt || "You have a new notification." };
 
     const path = type === "message"
@@ -217,12 +224,21 @@ async function deliverExpoPush({ recipient, type, actorAddress, postId, excerpt 
         sound: "default",
         priority: "high",
         channelId: "default",
+        ...(type === "message" ? {
+          categoryId: "myworld-message",
+          // Keep only the newest pending alert for this sender/recipient pair.
+          // This is Android collapse behavior, not a message-history deletion.
+          collapseId: "mw-" + String(recipient).slice(0, 14) + "-" + String(actorAddress || "").slice(-14),
+          // Expo renders this separately from the message text/attachment on Android.
+          ...(senderAvatarUrl ? { richContent: { image: senderAvatarUrl } } : {}),
+        } : {}),
         data: {
           url: path,
           path,
           type,
           actorAddress: actorAddress || null,
           conversationAddress: type === "message" ? actorAddress || null : null,
+          senderAvatarUrl: type === "message" ? senderAvatarUrl : null,
         },
       }));
 
