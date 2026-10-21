@@ -86,13 +86,12 @@ export default function MyWebView({ setTheme }) {
           });
           // Expo categories provide real Android notification actions. The
           // website bridge handles authenticated reply/read operations.
-          await Notifications.setNotificationCategoryAsync("myworld-message", [
+          await Notifications.setNotificationCategoryAsync("myworldmessage", [
             {
               identifier: "reply",
               buttonTitle: "Reply",
               textInput: {
                 submitButtonTitle: "Send",
-                placeholder: "Write a reply...",
               },
               options: { opensAppToForeground: true },
             },
