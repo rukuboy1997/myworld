@@ -109,7 +109,10 @@ export default function MyWebView({ setTheme }) {
               {
                 identifier: "reply",
                 buttonTitle: "Reply",
-                textInput: { submitButtonTitle: "Send" },
+                textInput: {
+                  placeholder: "Write a reply...",
+                  submitButtonTitle: "Send",
+                },
                 options: { opensAppToForeground: true },
               },
               {
