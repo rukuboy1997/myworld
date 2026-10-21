@@ -17,6 +17,18 @@ import NetInfo from "@react-native-community/netinfo";
 
 const APP_URL = "https://myworld-app.vercel.app";
 
+// SDK 54 does not display remote notifications while the app is in the
+// foreground unless a notification handler explicitly opts in.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 function getSafeNotificationTarget(data = {}) {
   const target =
     typeof data.url === "string"
@@ -79,29 +91,36 @@ export default function MyWebView({ setTheme }) {
       try {
         if (!Device.isDevice) return;
         if (Platform.OS === "android") {
-          await Notifications.setNotificationChannelAsync("default", {
-            name: "myWorld notifications",
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: "#00C8FF",
-          });
-          // Expo categories provide real Android notification actions. The
-          // website bridge handles authenticated reply/read operations.
-          await Notifications.setNotificationCategoryAsync("myworldmessage", [
-            {
-              identifier: "reply",
-              buttonTitle: "Reply",
-              textInput: {
-                submitButtonTitle: "Send",
+          // Channel/category setup must not prevent push-token registration.
+          // Otherwise a native setup issue can silently stop all future pushes.
+          try {
+            await Notifications.setNotificationChannelAsync("default", {
+              name: "myWorld notifications",
+              importance: Notifications.AndroidImportance.MAX,
+              vibrationPattern: [0, 250, 250, 250],
+              lightColor: "#00C8FF",
+            });
+          } catch (error) {
+            console.warn("Unable to configure notification channel:", error);
+          }
+
+          try {
+            await Notifications.setNotificationCategoryAsync("myworldmessage", [
+              {
+                identifier: "reply",
+                buttonTitle: "Reply",
+                textInput: { submitButtonTitle: "Send" },
+                options: { opensAppToForeground: true },
               },
-              options: { opensAppToForeground: true },
-            },
-            {
-              identifier: "mark-as-read",
-              buttonTitle: "Mark as read",
-              options: { opensAppToForeground: true },
-            },
-          ]);
+              {
+                identifier: "mark-as-read",
+                buttonTitle: "Mark as read",
+                options: { opensAppToForeground: true },
+              },
+            ]);
+          } catch (error) {
+            console.warn("Unable to configure message notification actions:", error);
+          }
         }
         let permission = await Notifications.getPermissionsAsync();
         if (permission.status !== "granted") {
@@ -114,7 +133,12 @@ export default function MyWebView({ setTheme }) {
           return;
         }
         const result = await Notifications.getExpoPushTokenAsync({ projectId });
-        if (!mounted || !result.data) return;
+        if (!result.data) {
+          console.warn("Expo did not return a push token for this installation.");
+          return;
+        }
+        console.log("myWorld Expo push token acquired.");
+        if (!mounted) return;
         // The native token can arrive before the website has finished loading.
         // Queue it until the WebView is ready so registration is never silently lost.
         pendingPushToken.current = {
