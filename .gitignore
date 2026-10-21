@@ -131,3 +131,7 @@ dist
 
 # Replit debugger
 .breakpoints
+
+#google secrets
+
+google-services.json
