@@ -230,6 +230,9 @@ async function deliverExpoPush({ recipient, type, actorAddress, postId, excerpt 
           // This is Android collapse behavior, not a message-history deletion.
           collapseId: "mw-" + String(recipient).slice(0, 14) + "-" + String(actorAddress || "").slice(-14),
           tag: "mw-" + String(recipient).slice(0, 14) + "-" + String(actorAddress || "").slice(-14),
+          // iOS stacks notifications by conversation; Android replaces the
+          // current alert using tag while collapseId coalesces in-flight pushes.
+          threadId: "mw-" + String(recipient).slice(0, 14) + "-" + String(actorAddress || "").slice(-14),
           // Expo renders this separately from the message text/attachment on Android.
           ...(senderAvatarUrl ? { richContent: { image: senderAvatarUrl } } : {}),
         } : {}),
