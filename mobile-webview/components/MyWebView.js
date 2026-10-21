@@ -68,6 +68,7 @@ export default function MyWebView({ setTheme }) {
   const [canGoBack, setCanGoBack] = useState(false);
 
   const notificationResponseListener = useRef(null);
+  const lastHandledNotificationResponse = useRef({ key: null, at: 0 });
 
   // Register this installation for Expo push notifications and route notification taps
   // back into the myWorld WebView.
@@ -84,6 +85,23 @@ export default function MyWebView({ setTheme }) {
             vibrationPattern: [0, 250, 250, 250],
             lightColor: "#00C8FF",
           });
+          // Expo categories provide real Android notification actions. The
+          // website bridge handles authenticated reply/read operations.
+          await Notifications.setNotificationCategoryAsync("myworldmessage", [
+            {
+              identifier: "reply",
+              buttonTitle: "Reply",
+              textInput: {
+                submitButtonTitle: "Send",
+              },
+              options: { opensAppToForeground: true },
+            },
+            {
+              identifier: "mark-as-read",
+              buttonTitle: "Mark as read",
+              options: { opensAppToForeground: true },
+            },
+          ]);
         }
         let permission = await Notifications.getPermissionsAsync();
         if (permission.status !== "granted") {
@@ -111,17 +129,59 @@ export default function MyWebView({ setTheme }) {
 
     registerForPushNotifications();
 
-    notificationResponseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data || {};
-      queueNotificationTarget(getSafeNotificationTarget(data));
-    });
+    const handleNotificationResponse = (response) => {
+      if (!response) return;
+      const action = response.actionIdentifier || Notifications.DEFAULT_ACTION_IDENTIFIER;
+      const userText = String(response.userText || "");
+      const requestId = response.notification?.request?.identifier || "";
+      const responseKey = [requestId, action, userText].join("|");
+      const now = Date.now();
+      const previousResponse = lastHandledNotificationResponse.current;
+      // The live response listener and cold-start lookup can surface the same
+      // response. Ignore that duplicate without blocking a later real reply.
+      if (previousResponse.key === responseKey && now - previousResponse.at < 5000) return;
+      lastHandledNotificationResponse.current = { key: responseKey, at: now };
 
-    // Handle a notification that launched the app from a fully closed state.
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!mounted || !response) return;
-      const data = response.notification.request.content.data || {};
+      const data = response?.notification?.request?.content?.data || {};
+      const conversationAddress =
+        typeof data.conversationAddress === "string"
+          ? data.conversationAddress
+          : typeof data.actorAddress === "string"
+            ? data.actorAddress
+            : "";
+      const isMessageAction =
+        data.type === "message" &&
+        conversationAddress &&
+        (action === "reply" || action === "mark-as-read");
+
+      if (isMessageAction && (action !== "reply" || String(response?.userText || "").trim())) {
+        const params = new URLSearchParams();
+        params.set("with", conversationAddress);
+        params.set("nativeAction", action);
+        params.set("nativeActionId", String(now));
+        if (action === "reply") params.set("replyText", userText.trim());
+        queueNotificationTarget("/messages?" + params.toString());
+        return;
+      }
+
       queueNotificationTarget(getSafeNotificationTarget(data));
-    }).catch(() => {});
+      // Prevent a handled action from being replayed on the next app launch.
+      if (typeof Notifications.clearLastNotificationResponseAsync === "function") {
+        Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      }
+    };
+
+    notificationResponseListener.current =
+      Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+
+    // Handle a notification or notification action that launched the app from
+    // a fully closed state, not only taps received while it was already open.
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (!mounted || !response) return;
+        handleNotificationResponse(response);
+      })
+      .catch(() => {});
 
     return () => {
       mounted = false;

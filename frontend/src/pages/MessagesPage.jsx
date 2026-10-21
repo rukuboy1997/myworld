@@ -148,6 +148,7 @@ export default function MessagesPage() {
   const typingStopTimerRef = useRef(null);
   const typingActiveRef = useRef(false);
   const typingLastSentAtRef = useRef(0);
+  const processedNativeActionRef = useRef(null);
 
   const refreshUnreadCounts = useCallback(async () => {
     if (!wallet || !isAuthenticated) {
@@ -244,6 +245,68 @@ export default function MessagesPage() {
     );
     setShowNewChat(false);
   }, [isAuthenticated, requestedAddress, profiles, allProfiles]);
+
+  // Handle authenticated actions submitted from Android notification buttons.
+  // The native wrapper puts the action in the URL so this still works when the
+  // app was fully closed and the WebView had to start from scratch.
+  useEffect(() => {
+    const nativeAction = searchParams.get("nativeAction");
+    const actionId = searchParams.get("nativeActionId");
+    const replyText = (searchParams.get("replyText") || "").trim();
+
+    if (
+      !isAuthenticated ||
+      !wallet ||
+      !requestedAddress ||
+      !nativeAction ||
+      !actionId ||
+      !["reply", "mark-as-read"].includes(nativeAction)
+    ) {
+      return;
+    }
+    if (processedNativeActionRef.current === actionId) return;
+    processedNativeActionRef.current = actionId;
+
+    const clearActionFromUrl = () => {
+      setSearchParams((previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete("nativeAction");
+        next.delete("nativeActionId");
+        next.delete("replyText");
+        return next;
+      }, { replace: true });
+    };
+
+    (async () => {
+      try {
+        if (nativeAction === "reply") {
+          if (!replyText) return;
+          await sendMessage({
+            sender: wallet,
+            receiver: requestedAddress,
+            content: replyText.slice(0, 2000),
+          });
+          await loadConversations();
+        }
+
+        // A quick reply is also an interaction with this conversation, so
+        // synchronize incoming read receipts through the same API as the chat.
+        await markConversationRead(requestedAddress);
+        window.dispatchEvent(new Event("myworld:unread-messages-changed"));
+      } catch (error) {
+        console.warn("Android notification action failed:", error);
+      } finally {
+        clearActionFromUrl();
+      }
+    })();
+  }, [
+    isAuthenticated,
+    wallet,
+    requestedAddress,
+    searchParams,
+    setSearchParams,
+    loadConversations,
+  ]);
 
   // ─── Firebase real-time presence for all conversation partners ───────────
   useEffect(() => {
