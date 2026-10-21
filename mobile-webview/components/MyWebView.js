@@ -113,7 +113,7 @@ export default function MyWebView({ setTheme }) {
                 options: { opensAppToForeground: true },
               },
               {
-                identifier: "mark-as-read",
+                identifier: "mark_as_read",
                 buttonTitle: "Mark as read",
                 options: { opensAppToForeground: true },
               },
@@ -176,7 +176,7 @@ export default function MyWebView({ setTheme }) {
       const isMessageAction =
         data.type === "message" &&
         conversationAddress &&
-        (action === "reply" || action === "mark-as-read");
+        (action === "reply" || action === "mark_as_read" || action === "mark-as-read");
 
       if (isMessageAction && (action !== "reply" || String(response?.userText || "").trim())) {
         const params = new URLSearchParams();
