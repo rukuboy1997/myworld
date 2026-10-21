@@ -166,7 +166,9 @@ export default function MyWebView({ setTheme }) {
 
       queueNotificationTarget(getSafeNotificationTarget(data));
       // Prevent a handled action from being replayed on the next app launch.
-      Notifications.clearLastNotificationResponseAsync?.().catch(() => {});
+      if (typeof Notifications.clearLastNotificationResponseAsync === "function") {
+        Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      }
     };
 
     notificationResponseListener.current =
