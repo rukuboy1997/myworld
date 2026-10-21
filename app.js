@@ -225,10 +225,11 @@ async function deliverExpoPush({ recipient, type, actorAddress, postId, excerpt 
         priority: "high",
         channelId: "default",
         ...(type === "message" ? {
-          categoryId: "myworld-message",
+          categoryId: "myworldmessage",
           // Keep only the newest pending alert for this sender/recipient pair.
           // This is Android collapse behavior, not a message-history deletion.
           collapseId: "mw-" + String(recipient).slice(0, 14) + "-" + String(actorAddress || "").slice(-14),
+          tag: "mw-" + String(recipient).slice(0, 14) + "-" + String(actorAddress || "").slice(-14),
           // Expo renders this separately from the message text/attachment on Android.
           ...(senderAvatarUrl ? { richContent: { image: senderAvatarUrl } } : {}),
         } : {}),
