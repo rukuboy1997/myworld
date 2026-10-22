@@ -47,6 +47,8 @@ import {
   getUnreadMessageCounts,
   getConversation,
   saveMessage,
+  updateMessageContent,
+  deleteMessageForEveryone,
   markConversationMessagesRead,
   setMessageTyping,
   getMessageTyping,
@@ -1748,6 +1750,43 @@ export function buildApp() {
       await notifyMessageReceiver(receiver, sender, content);
       res.json(message);
     } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.put("/api/message/:id", requireAuth, async (req, res) => {
+    try {
+      const content = normalizeTextInput(req.body?.content);
+      if (!content) return res.status(400).json({ error: "Message content cannot be empty" });
+      if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
+      const message = await updateMessageContent(req.params.id, req.userAddress, content);
+      if (!message) return res.status(409).json({ error: "This message can no longer be edited. Messages can be edited for 15 minutes after sending." });
+      const conversationId = fbConvId(message.sender, message.receiver);
+      await firebaseWrite(`conversations/${conversationId}/messages/${message.id}`, message);
+      res.json(message);
+    } catch (err) {
+      console.error("edit_message error:", err);
+      res.status(500).json({ error: "Could not edit message" });
+    }
+  });
+
+  app.delete("/api/message/:id", requireAuth, async (req, res) => {
+    try {
+      const existing = await pool.query("SELECT sender, attachment_key FROM messages WHERE id = $1 LIMIT 1", [req.params.id]);
+      if (!existing.rowCount || existing.rows[0].sender !== req.userAddress) {
+        return res.status(404).json({ error: "Message not found" });
+      }
+      const message = await deleteMessageForEveryone(req.params.id, req.userAddress);
+      if (!message) return res.status(409).json({ error: "This message has already been deleted" });
+      const attachmentKey = existing.rows[0].attachment_key;
+      if (attachmentKey) {
+        deleteFromR2(attachmentKey).catch((err) => console.warn("Could not remove deleted message attachment:", err?.message));
+      }
+      const conversationId = fbConvId(message.sender, message.receiver);
+      await firebaseWrite(`conversations/${conversationId}/messages/${message.id}`, message);
+      res.json(message);
+    } catch (err) {
+      console.error("delete_message error:", err);
+      res.status(500).json({ error: "Could not delete message" });
+    }
   });
 
   const messageAttachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
