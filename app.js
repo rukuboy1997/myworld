@@ -1757,6 +1757,7 @@ export function buildApp() {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "audio/wav", "audio/aac", "audio/3gpp",
   ]);
   app.post("/api/message/attachment", requireAuth, messageAttachmentUpload.single("file"), async (req, res) => {
     let uploadedKey = null;
