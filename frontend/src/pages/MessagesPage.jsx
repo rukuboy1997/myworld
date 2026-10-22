@@ -167,6 +167,8 @@ export default function MessagesPage() {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     if (recordingLimitTimerRef.current) clearTimeout(recordingLimitTimerRef.current);
     if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.ondataavailable = null;
       try { mediaRecorderRef.current.stop(); } catch {}
     }
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -691,7 +693,11 @@ export default function MessagesPage() {
         window.alert("Voice recording failed. Please try again.");
         setIsRecordingVoice(false);
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        if (recordingLimitTimerRef.current) clearTimeout(recordingLimitTimerRef.current);
+        recordingTimerRef.current = null;
+        recordingLimitTimerRef.current = null;
         stream.getTracks().forEach((track) => track.stop());
+        voiceStreamRef.current = null;
       };
       recorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
@@ -706,10 +712,8 @@ export default function MessagesPage() {
           return;
         }
         const file = new File([blob], `voice-message-${Date.now()}.${extension}`, { type: mimeType });
-        setSelectedAttachment((previous) => {
-          if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
-          return file;
-        });
+        if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
+        setSelectedAttachment(file);
         setAttachmentPreviewUrl(URL.createObjectURL(file));
       };
       recorder.start(250);
