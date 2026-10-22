@@ -577,7 +577,8 @@ export default function MessagesPage() {
       (message) =>
         message.sender === otherAddress &&
         message.receiver === wallet &&
-        !message.readAt,
+        !message.readAt &&
+        !message.deletedAt,
     );
     if (!hasUnreadIncoming) return;
 
@@ -871,7 +872,8 @@ export default function MessagesPage() {
       (message) =>
         message.sender === selectedUser.address &&
         message.receiver === wallet &&
-        !message.readAt,
+        !message.readAt &&
+        !message.deletedAt,
     );
   }, [chatMessages, selectedUser, wallet]);
 
@@ -1361,7 +1363,7 @@ export default function MessagesPage() {
                       const { msg } = item;
                       const isMe = msg.sender === wallet;
                       const isUnreadMsg =
-                        !isMe && msg.receiver === wallet && !msg.readAt;
+                        !isMe && msg.receiver === wallet && !msg.readAt && !msg.deletedAt;
                       return (
                         <div
                           key={msg.id}
