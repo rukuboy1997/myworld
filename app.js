@@ -1911,7 +1911,7 @@ export function buildApp() {
       attachmentName: message.attachmentName || null, attachmentMime: message.attachmentMime || null,
       attachmentSize: message.attachmentSize || null,
       editedAt: message.editedAt || null, deletedAt: message.deletedAt || null, replyToMessageId: message.replyToMessageId || null,
-      reactions: message.reactions || [],
+      ...(Array.isArray(message.reactions) ? { reactions: message.reactions } : {}),
     });
   }
 
