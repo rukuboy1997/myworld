@@ -1040,7 +1040,7 @@ export default function MessagesPage() {
   });
 
   return (
-    <Layout immersive={!!selectedUser}>
+    <Layout immersive={!!selectedUser && window.matchMedia("(max-width: 767px)").matches}>
       <div
         className={`w-full min-w-0 min-h-0 ${selectedUser ? "h-full overflow-hidden p-0" : "max-w-6xl mx-auto px-2 py-4 md:px-4 md:py-8"}`}
         style={selectedUser ? undefined : { height: "calc(100dvh - 4rem - env(safe-area-inset-bottom, 0px))" }}
