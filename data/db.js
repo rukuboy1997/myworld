@@ -955,6 +955,7 @@ export async function getUnreadMessageCounts(address) {
      FROM messages m
      WHERE m.receiver = $1
        AND m.read_at IS NULL
+       AND m.deleted_at IS NULL
        AND NOT EXISTS (
          SELECT 1
          FROM blocked_users b
