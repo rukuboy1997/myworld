@@ -1789,7 +1789,7 @@ export function buildApp() {
         attachmentMime: mimeType, attachmentSize: file.size, createdAt: new Date().toISOString(),
       });
       publishMessageToFirebase(message);
-      await notifyMessageReceiver(receiver, sender, content || `📎 ${originalName}`);
+      await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
       res.json(message);
     } catch (err) {
       if (uploadedKey) deleteFromR2(uploadedKey).catch(() => {});
