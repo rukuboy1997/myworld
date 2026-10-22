@@ -1797,6 +1797,55 @@ export function buildApp() {
     }
   });
 
+  const allowedMessageReactionEmojis = new Set(["👍", "❤️", "😂", "😮", "😢", "🔥"]);
+  app.post("/api/message/:id/reaction", requireAuth, async (req, res) => {
+    try {
+      const messageId = String(req.params.id || "");
+      const emoji = String(req.body?.emoji || "");
+      if (!allowedMessageReactionEmojis.has(emoji)) {
+        return res.status(400).json({ error: "Choose a supported reaction" });
+      }
+      const sender = req.userAddress;
+      const found = await pool.query(
+        "SELECT id, sender, receiver, deleted_at FROM messages WHERE id = $1 AND (sender = $2 OR receiver = $2) LIMIT 1",
+        [messageId, sender],
+      );
+      if (!found.rowCount || found.rows[0].deleted_at) {
+        return res.status(404).json({ error: "Message not found or unavailable" });
+      }
+      const messageRow = found.rows[0];
+      const otherAddress = messageRow.sender === sender ? messageRow.receiver : messageRow.sender;
+      if (await isBlockedEitherWay(sender, otherAddress)) {
+        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+      }
+      const current = await pool.query(
+        "SELECT emoji FROM message_reactions WHERE message_id = $1 AND user_address = $2 LIMIT 1",
+        [messageId, sender],
+      );
+      if (current.rows[0]?.emoji === emoji) {
+        await pool.query("DELETE FROM message_reactions WHERE message_id = $1 AND user_address = $2", [messageId, sender]);
+      } else {
+        await pool.query(
+          "INSERT INTO message_reactions (message_id, user_address, emoji) VALUES ($1, $2, $3) ON CONFLICT (message_id, user_address) DO UPDATE SET emoji = EXCLUDED.emoji, created_at = NOW()",
+          [messageId, sender, emoji],
+        );
+      }
+      const result = await pool.query(
+        `SELECT m.*,
+          COALESCE((SELECT json_agg(json_build_object('emoji', mr.emoji, 'userAddress', mr.user_address) ORDER BY mr.created_at)
+                    FROM message_reactions mr WHERE mr.message_id = m.id), '[]'::json) AS reactions
+         FROM messages m WHERE m.id = $1 LIMIT 1`,
+        [messageId],
+      );
+      const message = rowToMessage(result.rows[0]);
+      publishMessageToFirebase(message);
+      res.json(message);
+    } catch (err) {
+      console.error("message_reaction error:", err);
+      res.status(500).json({ error: "Could not update message reaction" });
+    }
+  });
+
   const messageAttachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
   const allowedMessageMimeTypes = new Set([
     "image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf",
@@ -1862,6 +1911,7 @@ export function buildApp() {
       attachmentName: message.attachmentName || null, attachmentMime: message.attachmentMime || null,
       attachmentSize: message.attachmentSize || null,
       editedAt: message.editedAt || null, deletedAt: message.deletedAt || null, replyToMessageId: message.replyToMessageId || null,
+      reactions: message.reactions || [],
     });
   }
 
