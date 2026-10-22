@@ -404,7 +404,7 @@ function rowToLike(r) {
   };
 }
 
-function rowToMessage(r) {
+export function rowToMessage(r) {
   if (!r) return null;
   return {
     id: r.id,
