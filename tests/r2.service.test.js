@@ -15,15 +15,12 @@ test("detects GIF image signatures", () => {
 });
 
 test("detects WebP image signatures", () => {
-  assert.equal(
-    sniffMime(Buffer.from("RIFFxxxxWEBP")),
-    "image/webp",
-  );
+  assert.equal(sniffMime(Buffer.from("RIFFxxxxWEBP")), "image/webp");
 });
 
 test("detects MP4 video signatures", () => {
   assert.equal(
-    sniffMime(Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70])),
+    sniffMime(Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d])),
     "video/mp4",
   );
 });
