@@ -1200,13 +1200,15 @@ export default function MessagesPage() {
                                 <span>typing…</span>
                               </span>
                             ) : lastMsg ? (
-                              lastMsg.attachmentMime?.startsWith("audio/")
-                                ? (lastMsg.sender === wallet ? "You: 🎤 Voice message" : "🎤 Voice message")
-                                : lastMsg.attachmentUrl && !lastMsg.content
-                                  ? (lastMsg.sender === wallet ? `You: 📎 ${lastMsg.attachmentName || "Attachment"}` : `📎 ${lastMsg.attachmentName || "Attachment"}`)
-                                  : lastMsg.sender === wallet
-                                    ? `You: ${lastMsg.content}`
-                                    : lastMsg.content
+                              lastMsg.deletedAt
+                                ? (lastMsg.sender === wallet ? "You: This message was deleted" : "This message was deleted")
+                                : lastMsg.attachmentMime?.startsWith("audio/")
+                                  ? (lastMsg.sender === wallet ? "You: 🎤 Voice message" : "🎤 Voice message")
+                                  : lastMsg.attachmentUrl && !lastMsg.content
+                                    ? (lastMsg.sender === wallet ? `You: 📎 ${lastMsg.attachmentName || "Attachment"}` : `📎 ${lastMsg.attachmentName || "Attachment"}`)
+                                    : lastMsg.sender === wallet
+                                      ? `You: ${lastMsg.content}`
+                                      : lastMsg.content
                             ) : (
                               p?.bio || "Say hello!"
                             )}
@@ -1445,6 +1447,7 @@ export default function MessagesPage() {
                                     })
                                   : "just now"}
                               </span>
+                              {msg.editedAt && !msg.deletedAt && <span className="italic">edited</span>}
                               {isMe && (
                                 <span
                                   className={msg.readAt ? "text-sky-300 font-bold" : "text-primary-foreground/70"}
