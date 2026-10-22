@@ -219,6 +219,8 @@ export const editMessage = (id, content) =>
   request("PUT", `/message/${encodeURIComponent(id)}`, { content });
 export const deleteMessage = (id) =>
   request("DELETE", `/message/${encodeURIComponent(id)}`);
+export const setMessageReaction = (id, emoji) =>
+  request("POST", `/message/${encodeURIComponent(id)}/reaction`, { emoji });
 
 export const uploadMessageAttachment = (receiver, file, content = "", onProgress, replyToMessageId = null) =>
   new Promise((resolve, reject) => {
