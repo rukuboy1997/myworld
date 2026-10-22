@@ -117,6 +117,16 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_mime TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_size BIGINT;
 ALTER TABLE messages ALTER COLUMN content SET DEFAULT '';
 
+CREATE TABLE IF NOT EXISTS message_reactions (
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  user_address TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (message_id, user_address)
+);
+CREATE INDEX IF NOT EXISTS idx_message_reactions_message
+  ON message_reactions (message_id, created_at);
+
 CREATE TABLE IF NOT EXISTS message_typing (
   sender      TEXT NOT NULL,
   receiver    TEXT NOT NULL,
@@ -407,6 +417,7 @@ function rowToMessage(r) {
     editedAt: r.edited_at ? (r.edited_at instanceof Date ? r.edited_at.toISOString() : r.edited_at) : null,
     deletedAt: r.deleted_at ? (r.deleted_at instanceof Date ? r.deleted_at.toISOString() : r.deleted_at) : null,
     replyToMessageId: r.reply_to_message_id || null,
+    reactions: Array.isArray(r.reactions) ? r.reactions : (typeof r.reactions === "string" ? JSON.parse(r.reactions || "[]") : []),
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
     readAt: r.read_at
       ? r.read_at instanceof Date
@@ -875,7 +886,9 @@ export async function removeLike(postId, owner) {
 // ─── Messages ────────────────────────────────────────────────────────────────
 export async function getMessages(address) {
   const { rows } = await pool.query(
-    `SELECT m.*
+    `SELECT m.*,
+       COALESCE((SELECT json_agg(json_build_object('emoji', mr.emoji, 'userAddress', mr.user_address) ORDER BY mr.created_at)
+                 FROM message_reactions mr WHERE mr.message_id = m.id), '[]'::json) AS reactions
      FROM messages m
      WHERE (m.sender = $1 OR m.receiver = $1)
        AND NOT EXISTS (
@@ -892,7 +905,10 @@ export async function getMessages(address) {
 
 export async function getConversation(a, b) {
   const { rows } = await pool.query(
-    `SELECT * FROM messages WHERE (sender=$1 AND receiver=$2) OR (sender=$2 AND receiver=$1) ORDER BY created_at ASC`,
+    `SELECT m.*,
+       COALESCE((SELECT json_agg(json_build_object('emoji', mr.emoji, 'userAddress', mr.user_address) ORDER BY mr.created_at)
+                 FROM message_reactions mr WHERE mr.message_id = m.id), '[]'::json) AS reactions
+     FROM messages m WHERE (m.sender=$1 AND m.receiver=$2) OR (m.sender=$2 AND m.receiver=$1) ORDER BY m.created_at ASC`,
     [a, b],
   );
   return rows.map(rowToMessage);
