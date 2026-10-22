@@ -9,6 +9,7 @@ import {
   sendMessage,
   editMessage,
   deleteMessage,
+  setMessageReaction,
   uploadMessageAttachment,
   getAllProfiles,
   getConversation,
@@ -21,6 +22,19 @@ import { useAuth } from "../lib/auth.jsx";
 import { firebaseDb, convId as fbConvId } from "../lib/firebase.js";
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+
+function summarizeMessageReactions(reactions = []) {
+  const grouped = new Map();
+  for (const reaction of reactions) {
+    if (!reaction?.emoji) continue;
+    const current = grouped.get(reaction.emoji) || { emoji: reaction.emoji, count: 0, mine: false };
+    current.count += 1;
+    if (reaction.userAddress) current.mine = current.mine || reaction.userAddress === reaction._currentUser;
+    grouped.set(reaction.emoji, current);
+  }
+  return Array.from(grouped.values());
+}
 
 function isOnline(lastSeenAt) {
   if (!lastSeenAt) return false;
@@ -144,6 +158,8 @@ export default function MessagesPage() {
   const [editDraft, setEditDraft] = useState("");
   const [isUpdatingMessage, setIsUpdatingMessage] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState(null);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState(null);
+  const [updatingReactionMessageId, setUpdatingReactionMessageId] = useState(null);
   const attachmentInputRef = useRef(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -813,6 +829,22 @@ export default function MessagesPage() {
     }
   };
 
+  const handleMessageReaction = async (message, emoji) => {
+    if (!message?.id || message.deletedAt || updatingReactionMessageId) return;
+    setUpdatingReactionMessageId(message.id);
+    try {
+      const updated = await setMessageReaction(message.id, emoji);
+      const applyUpdate = (items) => items.map((item) => item.id === updated.id ? { ...item, ...updated } : item);
+      setChatMessages(applyUpdate);
+      setAllMessages(applyUpdate);
+      setReactionPickerMessageId(null);
+    } catch (error) {
+      window.alert(error?.message || "Could not update reaction.");
+    } finally {
+      setUpdatingReactionMessageId(null);
+    }
+  };
+
   const handleDeleteMessage = async (message) => {
     if (!message?.id || message.sender !== wallet || message.deletedAt) return;
     if (!window.confirm("Delete this message for everyone in the conversation? This cannot be undone.")) return;
@@ -1367,6 +1399,17 @@ export default function MessagesPage() {
                       const { msg } = item;
                       const isMe = msg.sender === wallet;
                       const replyTarget = msg.replyToMessageId ? chatMessages.find((candidate) => candidate.id === msg.replyToMessageId) : null;
+                      const messageReactions = (Array.isArray(msg.reactions) ? msg.reactions : []).reduce((groups, reaction) => {
+                        if (!reaction?.emoji) return groups;
+                        const existing = groups.find((group) => group.emoji === reaction.emoji);
+                        if (existing) {
+                          existing.count += 1;
+                          if (reaction.userAddress === wallet) existing.mine = true;
+                        } else {
+                          groups.push({ emoji: reaction.emoji, count: 1, mine: reaction.userAddress === wallet });
+                        }
+                        return groups;
+                      }, []);
                       const isUnreadMsg =
                         !isMe && msg.receiver === wallet && !msg.readAt && !msg.deletedAt;
                       return (
@@ -1444,8 +1487,18 @@ export default function MessagesPage() {
                                 </>
                               )}
                             </div>
+                            {messageReactions.length > 0 && !msg.deletedAt && (
+                              <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? "justify-end" : "justify-start"}`} aria-label="Message reactions">
+                                {messageReactions.map((reaction) => (
+                                  <button key={reaction.emoji} type="button" onClick={() => handleMessageReaction(msg, reaction.emoji)} disabled={updatingReactionMessageId === msg.id} aria-label={`${reaction.emoji} reaction, ${reaction.count} ${reaction.count === 1 ? "person" : "people"}${reaction.mine ? ", including you" : ""}`} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors disabled:opacity-50 ${reaction.mine ? "border-primary/60 bg-primary/15" : "border-white/10 bg-secondary/80 hover:bg-secondary"}`}>
+                                    <span>{reaction.emoji}</span><span className="text-[10px]">{reaction.count}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                             {!msg.deletedAt && (
                               <div className="flex items-center gap-3 px-1 mt-1 text-[10px]">
+                                <button type="button" onClick={() => setReactionPickerMessageId((current) => current === msg.id ? null : msg.id)} className="text-muted-foreground hover:text-primary underline underline-offset-2" aria-expanded={reactionPickerMessageId === msg.id}>React</button>
                                 <button type="button" onClick={() => { setReplyingToMessage(msg); inputRef.current?.focus(); }} className="text-muted-foreground hover:text-primary underline underline-offset-2">Reply</button>
                                 {isMe && editingMessageId !== msg.id && (
                                   <>
@@ -1455,6 +1508,13 @@ export default function MessagesPage() {
                                     <button type="button" onClick={() => handleDeleteMessage(msg)} className="text-muted-foreground hover:text-red-400 underline underline-offset-2">Delete</button>
                                   </>
                                 )}
+                              </div>
+                            )}
+                            {reactionPickerMessageId === msg.id && !msg.deletedAt && (
+                              <div className={`mt-1 flex items-center gap-1 rounded-full border border-white/10 bg-background/95 p-1 shadow-lg ${isMe ? "self-end" : "self-start"}`} role="group" aria-label="Choose a message reaction">
+                                {MESSAGE_REACTION_OPTIONS.map((emoji) => (
+                                  <button key={emoji} type="button" onClick={() => handleMessageReaction(msg, emoji)} disabled={updatingReactionMessageId === msg.id} aria-label={`React with ${emoji}`} className="rounded-full p-1.5 text-base transition-transform hover:scale-125 hover:bg-white/10 disabled:opacity-50">{emoji}</button>
+                                ))}
                               </div>
                             )}
                             <span className="text-[10px] text-muted-foreground mt-0.5 px-1 flex items-center gap-1">
