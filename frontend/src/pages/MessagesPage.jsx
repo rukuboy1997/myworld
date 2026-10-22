@@ -145,6 +145,7 @@ export default function MessagesPage() {
   const voiceStreamRef = useRef(null);
   const voiceChunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
+  const recordingLimitTimerRef = useRef(null);
   const [isLoadingConvos, setIsLoadingConvos] = useState(true);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
@@ -164,6 +165,7 @@ export default function MessagesPage() {
 
   useEffect(() => () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    if (recordingLimitTimerRef.current) clearTimeout(recordingLimitTimerRef.current);
     if (mediaRecorderRef.current?.state === "recording") {
       try { mediaRecorderRef.current.stop(); } catch {}
     }
@@ -714,17 +716,16 @@ export default function MessagesPage() {
       setRecordingSeconds(0);
       setIsRecordingVoice(true);
       recordingTimerRef.current = setInterval(() => {
-        setRecordingSeconds((seconds) => {
-          if (seconds >= 179) {
-            if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
-            setIsRecordingVoice(false);
-            if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-            recordingTimerRef.current = null;
-            return 180;
-          }
-          return seconds + 1;
-        });
+        setRecordingSeconds((seconds) => seconds + 1);
       }, 1000);
+      recordingLimitTimerRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+        setIsRecordingVoice(false);
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+        recordingLimitTimerRef.current = null;
+        setRecordingSeconds(180);
+      }, 180000);
     } catch (error) {
       voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
       voiceStreamRef.current = null;
@@ -734,7 +735,9 @@ export default function MessagesPage() {
 
   const stopVoiceRecording = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    if (recordingLimitTimerRef.current) clearTimeout(recordingLimitTimerRef.current);
     recordingTimerRef.current = null;
+    recordingLimitTimerRef.current = null;
     setIsRecordingVoice(false);
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
   };
