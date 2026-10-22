@@ -1183,7 +1183,7 @@ export default function MessagesPage() {
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
               {isLoadingConvos ? (
                 <div className="flex flex-col gap-2 p-3">
                   {[1, 2, 3].map((i) => (
@@ -1303,7 +1303,7 @@ export default function MessagesPage() {
 
           {/* Chat Area */}
           <div
-            className={`flex-1 glass-panel rounded-2xl md:rounded-3xl flex flex-col overflow-hidden ${!selectedUser ? "hidden md:flex" : "flex"}`}
+            className={`flex-1 min-h-0 min-w-0 glass-panel rounded-none md:rounded-3xl flex flex-col overflow-hidden ${!selectedUser ? "hidden md:flex" : "flex"}`}
           >
             {!selectedUser ? (
               <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8 text-center gap-4">
