@@ -139,6 +139,13 @@ export default function MessagesPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const attachmentInputRef = useRef(null);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const voiceStreamRef = useRef(null);
+  const voiceChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const recordingLimitTimerRef = useRef(null);
   const [isLoadingConvos, setIsLoadingConvos] = useState(true);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
@@ -155,6 +162,17 @@ export default function MessagesPage() {
   const typingActiveRef = useRef(false);
   const typingLastSentAtRef = useRef(0);
   const processedNativeActionRef = useRef(null);
+
+  useEffect(() => () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    if (recordingLimitTimerRef.current) clearTimeout(recordingLimitTimerRef.current);
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.ondataavailable = null;
+      try { mediaRecorderRef.current.stop(); } catch {}
+    }
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   const refreshUnreadCounts = useCallback(async () => {
     if (!wallet || !isAuthenticated) {
@@ -645,6 +663,89 @@ export default function MessagesPage() {
     }, 3000);
   };
 
+  const startVoiceRecording = async () => {
+    if (isRecordingVoice || isSendingMessage) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      window.alert("Voice recording is not supported in this browser. Please update your browser or use the file attachment option.");
+      return;
+    }
+    if (!isAuthenticated) {
+      openAuthModal("signin");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStreamRef.current = stream;
+      voiceChunksRef.current = [];
+      const supportedTypes = [
+        "audio/webm;codecs=opus",
+        "audio/mp4",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+      ];
+      const preferredType = supportedTypes.find((type) => MediaRecorder.isTypeSupported?.(type));
+      const recorder = preferredType ? new MediaRecorder(stream, { mimeType: preferredType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) voiceChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        window.alert("Voice recording failed. Please try again.");
+        setIsRecordingVoice(false);
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        if (recordingLimitTimerRef.current) clearTimeout(recordingLimitTimerRef.current);
+        recordingTimerRef.current = null;
+        recordingLimitTimerRef.current = null;
+        stream.getTracks().forEach((track) => track.stop());
+        voiceStreamRef.current = null;
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        voiceStreamRef.current = null;
+        const rawType = recorder.mimeType || voiceChunksRef.current[0]?.type || "audio/webm";
+        const mimeType = rawType.split(";")[0].toLowerCase();
+        const extension = mimeType === "audio/mp4" ? "mp4" : mimeType === "audio/ogg" ? "ogg" : mimeType === "audio/mpeg" ? "mp3" : mimeType === "audio/wav" ? "wav" : mimeType === "audio/aac" ? "aac" : "webm";
+        const blob = new Blob(voiceChunksRef.current, { type: rawType });
+        voiceChunksRef.current = [];
+        if (!blob.size) {
+          window.alert("No audio was captured. Please try recording again.");
+          return;
+        }
+        const file = new File([blob], `voice-message-${Date.now()}.${extension}`, { type: mimeType });
+        if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
+        setSelectedAttachment(file);
+        setAttachmentPreviewUrl(URL.createObjectURL(file));
+      };
+      recorder.start(250);
+      setRecordingSeconds(0);
+      setIsRecordingVoice(true);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((seconds) => seconds + 1);
+      }, 1000);
+      recordingLimitTimerRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+        setIsRecordingVoice(false);
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+        recordingLimitTimerRef.current = null;
+        setRecordingSeconds(180);
+      }, 180000);
+    } catch (error) {
+      voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+      voiceStreamRef.current = null;
+      window.alert(error?.name === "NotAllowedError" ? "Microphone permission was denied. Allow microphone access to record a voice message." : "Could not access the microphone. Please check your device settings and try again.");
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    if (recordingLimitTimerRef.current) clearTimeout(recordingLimitTimerRef.current);
+    recordingTimerRef.current = null;
+    recordingLimitTimerRef.current = null;
+    setIsRecordingVoice(false);
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+  };
+
   const handleAttachmentSelect = (event) => {
     const file = event.target.files?.[0] || null;
     if (!file) return;
@@ -653,15 +754,15 @@ export default function MessagesPage() {
       event.target.value = "";
       return;
     }
-    const allowed = ["image/jpeg","image/png","image/gif","image/webp","application/pdf","text/plain","text/csv","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation"];
+    const allowed = ["image/jpeg","image/png","image/gif","image/webp","application/pdf","text/plain","text/csv","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","audio/webm","audio/mp4","audio/ogg","audio/mpeg","audio/wav","audio/aac","audio/3gpp"];
     if (!allowed.includes(file.type)) {
-      window.alert("Choose an image, PDF, text/CSV, Word, Excel, or PowerPoint file.");
+      window.alert("Choose an image, document, or supported audio file.");
       event.target.value = "";
       return;
     }
     if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
     setSelectedAttachment(file);
-    setAttachmentPreviewUrl(file.type.startsWith("image/") ? URL.createObjectURL(file) : "");
+    setAttachmentPreviewUrl(file.type.startsWith("image/") || file.type.startsWith("audio/") ? URL.createObjectURL(file) : "");
   };
 
   const clearSelectedAttachment = () => {
@@ -1046,9 +1147,13 @@ export default function MessagesPage() {
                                 <span>typing…</span>
                               </span>
                             ) : lastMsg ? (
-                              lastMsg.sender === wallet
-                                ? `You: ${lastMsg.content}`
-                                : lastMsg.content
+                              lastMsg.attachmentMime?.startsWith("audio/")
+                                ? (lastMsg.sender === wallet ? "You: 🎤 Voice message" : "🎤 Voice message")
+                                : lastMsg.attachmentUrl && !lastMsg.content
+                                  ? (lastMsg.sender === wallet ? `You: 📎 ${lastMsg.attachmentName || "Attachment"}` : `📎 ${lastMsg.attachmentName || "Attachment"}`)
+                                  : lastMsg.sender === wallet
+                                    ? `You: ${lastMsg.content}`
+                                    : lastMsg.content
                             ) : (
                               p?.bio || "Say hello!"
                             )}
@@ -1228,7 +1333,12 @@ export default function MessagesPage() {
                               }`}
                             >
                               {msg.attachmentUrl && (
-                                msg.attachmentMime?.startsWith("image/") ? (
+                                msg.attachmentMime?.startsWith("audio/") ? (
+                                  <div className="mb-1 min-w-[210px] max-w-full">
+                                    <div className="text-[11px] font-semibold mb-1 flex items-center gap-1.5"><span aria-hidden="true">🎤</span> Voice message</div>
+                                    <audio controls preload="metadata" src={msg.attachmentUrl} className="w-full max-w-[280px] h-10" aria-label="Play voice message">Your browser does not support audio playback.</audio>
+                                  </div>
+                                ) : msg.attachmentMime?.startsWith("image/") ? (
                                   <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="block mb-1">
                                     <img src={msg.attachmentUrl} alt={msg.attachmentName || "Shared image"} loading="lazy" className="max-w-full max-h-72 rounded-lg object-contain" />
                                   </a>
@@ -1286,16 +1396,28 @@ export default function MessagesPage() {
 
                 {/* Attachment picker and message composer */}
                 {selectedAttachment && <div className="px-4 pt-3 border-t border-white/10 bg-background/40"><div className="flex items-center gap-3 rounded-xl border border-white/10 bg-secondary/40 p-2">
-                  {attachmentPreviewUrl ? <img src={attachmentPreviewUrl} alt="Attachment preview" className="h-14 w-14 rounded-lg object-cover" /> : <span className="text-2xl px-3" aria-hidden="true">📎</span>}
-                  <div className="min-w-0 flex-1"><p className="text-xs font-semibold truncate">{selectedAttachment.name}</p><p className="text-[10px] text-muted-foreground">{(selectedAttachment.size / 1048576).toFixed(2)} MB · Ready to send</p></div>
+                  {selectedAttachment.type.startsWith("image/") && attachmentPreviewUrl ? <img src={attachmentPreviewUrl} alt="Attachment preview" className="h-14 w-14 rounded-lg object-cover" /> : selectedAttachment.type.startsWith("audio/") && attachmentPreviewUrl ? <audio controls src={attachmentPreviewUrl} className="min-w-0 flex-1 h-10" aria-label="Preview voice message" /> : <span className="text-2xl px-3" aria-hidden="true">📎</span>}
+                  <div className="min-w-0 flex-1"><p className="text-xs font-semibold truncate">{selectedAttachment.type.startsWith("audio/") ? "Voice message" : selectedAttachment.name}</p><p className="text-[10px] text-muted-foreground">{(selectedAttachment.size / 1048576).toFixed(2)} MB · Ready to send</p></div>
                   <button type="button" onClick={clearSelectedAttachment} disabled={isSendingMessage} aria-label="Remove attachment" className="p-2 rounded-full hover:bg-white/10 disabled:opacity-40">✕</button>
                 </div></div>}
                 {isSendingMessage && selectedAttachment && <div className="px-4 py-1 text-[11px] text-muted-foreground" role="status">Uploading attachment… {uploadProgress}%</div>}
                 <form onSubmit={handleSend} className="px-3 md:px-4 py-3 border-t border-white/10 bg-background/40 flex gap-2 flex-shrink-0 items-center">
-                  <input ref={attachmentInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={handleAttachmentSelect} className="hidden" aria-label="Choose an image or file" />
-                  <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={isSendingMessage} aria-label="Attach image or file" title="Attach image or file" className="p-2.5 rounded-full hover:bg-white/10 disabled:opacity-40 text-lg">＋</button>
-                  <input ref={inputRef} type="text" value={newMessage} onChange={handleMessageChange} placeholder="Message..." disabled={isSendingMessage} className="flex-1 min-w-0 bg-secondary/50 border border-white/10 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
-                  <button type="submit" disabled={(!newMessage.trim() && !selectedAttachment) || isSendingMessage} className="bg-primary text-primary-foreground p-2.5 rounded-full hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center aspect-square">
+                  <input ref={attachmentInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,audio/webm,audio/mp4,audio/ogg,audio/mpeg,audio/wav,audio/aac,audio/3gpp" onChange={handleAttachmentSelect} className="hidden" aria-label="Choose an image, file, or audio" />
+                  <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={isSendingMessage || isRecordingVoice} aria-label="Attach image or file" title="Attach image or file" className="p-2.5 rounded-full hover:bg-white/10 disabled:opacity-40 text-lg">＋</button>
+                  {isRecordingVoice ? (
+                    <button type="button" onClick={stopVoiceRecording} className="flex-shrink-0 inline-flex items-center gap-2 rounded-full bg-red-600 text-white px-3 py-2.5 text-xs font-semibold animate-pulse" aria-label="Stop voice recording" title="Stop recording">
+                      <span className="w-2 h-2 rounded-sm bg-white" />
+                      <span>Stop {Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, "0")}</span>
+                    </button>
+                  ) : (
+                    <button type="button" onClick={startVoiceRecording} disabled={isSendingMessage || !!selectedAttachment} className="p-2.5 rounded-full hover:bg-white/10 disabled:opacity-40" aria-label="Record a voice message" title="Record voice message">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" />
+                      </svg>
+                    </button>
+                  )}
+                  <input ref={inputRef} type="text" value={newMessage} onChange={handleMessageChange} placeholder={isRecordingVoice ? "Recording voice message…" : "Message..."} disabled={isSendingMessage || isRecordingVoice} className="flex-1 min-w-0 bg-secondary/50 border border-white/10 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
+                  <button type="submit" disabled={(!newMessage.trim() && !selectedAttachment) || isSendingMessage || isRecordingVoice} className="bg-primary text-primary-foreground p-2.5 rounded-full hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center aspect-square">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="22" y1="2" x2="11" y2="13" />
                       <polygon points="22 2 15 22 11 13 2 9 22 2" />

@@ -439,6 +439,7 @@ export default function MyWebView({ setTheme }) {
         allowsBackForwardNavigationGestures
         allowsInlineMediaPlayback
         mediaPlaybackRequiresUserAction={false}
+        mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
         mixedContentMode="never"
         pullToRefreshEnabled
         setSupportMultipleWindows={false}
