@@ -7,6 +7,7 @@ import {
   getMessages,
   getUnreadMessageCounts,
   sendMessage,
+  uploadMessageAttachment,
   getAllProfiles,
   getConversation,
   markConversationRead,
@@ -133,6 +134,11 @@ export default function MessagesPage() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
+  const [selectedAttachment, setSelectedAttachment] = useState(null);
+  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const attachmentInputRef = useRef(null);
   const [isLoadingConvos, setIsLoadingConvos] = useState(true);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
@@ -639,29 +645,57 @@ export default function MessagesPage() {
     }, 3000);
   };
 
+  const handleAttachmentSelect = (event) => {
+    const file = event.target.files?.[0] || null;
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      window.alert("Files must be 25 MB or smaller.");
+      event.target.value = "";
+      return;
+    }
+    const allowed = ["image/jpeg","image/png","image/gif","image/webp","application/pdf","text/plain","text/csv","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation"];
+    if (!allowed.includes(file.type)) {
+      window.alert("Choose an image, PDF, text/CSV, Word, Excel, or PowerPoint file.");
+      event.target.value = "";
+      return;
+    }
+    if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
+    setSelectedAttachment(file);
+    setAttachmentPreviewUrl(file.type.startsWith("image/") ? URL.createObjectURL(file) : "");
+  };
+
+  const clearSelectedAttachment = () => {
+    if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
+    setAttachmentPreviewUrl("");
+    setSelectedAttachment(null);
+    if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+  };
+
   const handleSend = async (e) => {
     e.preventDefault();
     const text = newMessage.trim();
-    if (!text || !selectedUser) return;
-    if (!isAuthenticated) {
-      openAuthModal("signin");
-      return;
-    }
-
+    if ((!text && !selectedAttachment) || !selectedUser || isSendingMessage) return;
+    if (!isAuthenticated) { openAuthModal("signin"); return; }
     stopTyping(selectedUser.address);
+    setIsSendingMessage(true);
+    setUploadProgress(0);
     setNewMessage("");
-
+    const attachment = selectedAttachment;
     try {
-      await sendMessage({
-        sender: wallet,
-        receiver: selectedUser.address,
-        content: text,
-      });
-      // Firebase onValue will deliver the message automatically — no manual setChatMessages needed
+      if (attachment) {
+        await uploadMessageAttachment(selectedUser.address, attachment, text, setUploadProgress);
+        clearSelectedAttachment();
+      } else {
+        await sendMessage({ sender: wallet, receiver: selectedUser.address, content: text });
+      }
       loadConversations();
     } catch (err) {
       console.error("Failed to send message", err);
-      setNewMessage(text); // restore on failure
+      setNewMessage(text);
+      window.alert(err.message || "Message could not be sent. Please try again.");
+    } finally {
+      setIsSendingMessage(false);
+      setUploadProgress(0);
     }
   };
 
@@ -1193,7 +1227,22 @@ export default function MessagesPage() {
                                     : "bg-secondary text-secondary-foreground rounded-bl-sm"
                               }`}
                             >
-                              {msg.content}
+                              {msg.attachmentUrl && (
+                                msg.attachmentMime?.startsWith("image/") ? (
+                                  <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="block mb-1">
+                                    <img src={msg.attachmentUrl} alt={msg.attachmentName || "Shared image"} loading="lazy" className="max-w-full max-h-72 rounded-lg object-contain" />
+                                  </a>
+                                ) : (
+                                  <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" download={msg.attachmentName || true} className="mb-1 flex items-center gap-3 rounded-xl border border-current/15 bg-black/5 p-3 min-w-0 hover:opacity-80">
+                                    <span className="text-xl" aria-hidden="true">📎</span>
+                                    <span className="min-w-0">
+                                      <span className="block text-xs font-semibold break-all">{msg.attachmentName || "Attachment"}</span>
+                                      <span className="block text-[10px] opacity-70">{msg.attachmentSize ? (msg.attachmentSize >= 1048576 ? `${(msg.attachmentSize / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(msg.attachmentSize / 1024))} KB`) : "File"}</span>
+                                    </span>
+                                  </a>
+                                )
+                              )}
+                              {msg.content && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
                             </div>
                             <span className="text-[10px] text-muted-foreground mt-0.5 px-1 flex items-center gap-1">
                               <span>
@@ -1235,40 +1284,18 @@ export default function MessagesPage() {
                   </div>
                 )}
 
-                {/* Input */}
-                <form
-                  onSubmit={handleSend}
-                  className="px-3 md:px-4 py-3 border-t border-white/10 bg-background/40 flex gap-2 flex-shrink-0"
-                >
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={newMessage}
-                    onChange={handleMessageChange}
-                    placeholder="Message..."
-                    className="flex-1 bg-secondary/50 border border-white/10 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!newMessage.trim()}
-                    className="bg-primary text-primary-foreground p-2.5 rounded-full hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center aspect-square"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <line x1="22" y1="2" x2="11" y2="13" />
-                      <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                    </svg>
-                  </button>
-                </form>
+                {/* Attachment picker and message composer */}
+                {selectedAttachment && <div className="px-4 pt-3 border-t border-white/10 bg-background/40"><div className="flex items-center gap-3 rounded-xl border border-white/10 bg-secondary/40 p-2">
+                  {attachmentPreviewUrl ? <img src={attachmentPreviewUrl} alt="Attachment preview" className="h-14 w-14 rounded-lg object-cover" /> : <span className="text-2xl px-3" aria-hidden="true">📎</span>}
+                  <div className="min-w-0 flex-1"><p className="text-xs font-semibold truncate">{selectedAttachment.name}</p><p className="text-[10px] text-muted-foreground">{(selectedAttachment.size / 1048576).toFixed(2)} MB · Ready to send</p></div>
+                  <button type="button" onClick={clearSelectedAttachment} disabled={isSendingMessage} aria-label="Remove attachment" className="p-2 rounded-full hover:bg-white/10 disabled:opacity-40">✕</button>
+                </div></div>}
+                {isSendingMessage && selectedAttachment && <div className="px-4 py-1 text-[11px] text-muted-foreground" role="status">Uploading attachment… {uploadProgress}%</div>}
+                <form onSubmit={handleSend} className="px-3 md:px-4 py-3 border-t border-white/10 bg-background/40 flex gap-2 flex-shrink-0 items-center">
+                  <input ref={attachmentInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={handleAttachmentSelect} className="hidden" aria-label="Choose an image or file" />
+                  <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={isSendingMessage} aria-label="Attach image or file" title="Attach image or file" className="p-2.5 rounded-full hover:bg-white/10 disabled:opacity-40 text-lg">＋</button>
+                  <input ref={inputRef} type="text" value={newMessage} onChange={handleMessageChange} placeholder="Message..." disabled={isSendingMessage} className="flex-1 min-w-0 bg-secondary/50 border border-white/10 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
+                  <button type="submit" disabled={(!newMessage.trim() && !selectedAttachment) || isSendingMessage} className="bg-primary text-primary-foreground p-2.5 rounded-full hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center aspect-square">
               </>
             )}
           </div>
