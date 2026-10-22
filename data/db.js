@@ -127,6 +127,17 @@ CREATE TABLE IF NOT EXISTS message_reactions (
 CREATE INDEX IF NOT EXISTS idx_message_reactions_message
   ON message_reactions (message_id, created_at);
 
+CREATE TABLE IF NOT EXISTS conversation_preferences (
+  owner_address TEXT NOT NULL,
+  other_address TEXT NOT NULL,
+  is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (owner_address, other_address),
+  CHECK (owner_address <> other_address)
+);
+CREATE INDEX IF NOT EXISTS idx_conversation_preferences_pinned
+  ON conversation_preferences (owner_address, is_pinned);
+
 CREATE TABLE IF NOT EXISTS message_typing (
   sender      TEXT NOT NULL,
   receiver    TEXT NOT NULL,
@@ -881,6 +892,33 @@ export async function removeLike(postId, owner) {
     postId,
     owner,
   ]);
+}
+
+// Per-account conversation settings. A user's pin state is private to that user.
+export async function getPinnedConversations(ownerAddress) {
+  const { rows } = await pool.query(
+    "SELECT other_address FROM conversation_preferences WHERE owner_address = $1 AND is_pinned = TRUE ORDER BY updated_at DESC",
+    [ownerAddress],
+  );
+  return rows.map((row) => row.other_address);
+}
+
+export async function setConversationPinned(ownerAddress, otherAddress, pinned) {
+  if (pinned) {
+    await pool.query(
+      `INSERT INTO conversation_preferences (owner_address, other_address, is_pinned, updated_at)
+       VALUES ($1, $2, TRUE, NOW())
+       ON CONFLICT (owner_address, other_address)
+       DO UPDATE SET is_pinned = TRUE, updated_at = NOW()`,
+      [ownerAddress, otherAddress],
+    );
+  } else {
+    await pool.query(
+      "UPDATE conversation_preferences SET is_pinned = FALSE, updated_at = NOW() WHERE owner_address = $1 AND other_address = $2",
+      [ownerAddress, otherAddress],
+    );
+  }
+  return { otherAddress, isPinned: pinned };
 }
 
 // ─── Messages ────────────────────────────────────────────────────────────────

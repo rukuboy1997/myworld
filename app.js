@@ -45,6 +45,8 @@ import {
   removeLike,
   getMessages,
   getUnreadMessageCounts,
+  getPinnedConversations,
+  setConversationPinned,
   getConversation,
   rowToMessage,
   saveMessage,
@@ -1922,6 +1924,38 @@ export function buildApp() {
     await createNotificationAndPush({ recipient: receiver, type: "message", actorAddress: sender, excerpt: preview.slice(0, 80) });
     fireEmailNotif({ type: "message", recipientAddress: receiver, actorAddress: sender, extra: { messagePreview: preview.slice(0, 200) } });
   }
+
+  app.get("/api/conversations/pinned", requireAuth, async (req, res) => {
+    try {
+      const pinned = await getPinnedConversations(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ pinned });
+    } catch (err) {
+      console.error("get_pinned_conversations error:", err);
+      res.status(500).json({ error: "Failed to load pinned conversations" });
+    }
+  });
+
+  app.put("/api/conversation/pin", requireAuth, async (req, res) => {
+    try {
+      const otherAddress = normalizeTextInput(req.body?.otherAddress);
+      if (!otherAddress || otherAddress === req.userAddress) {
+        return res.status(400).json({ error: "A valid conversation partner is required" });
+      }
+      if (await isBlockedEitherWay(req.userAddress, otherAddress)) {
+        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+      }
+      const pinned = req.body?.pinned;
+      if (typeof pinned !== "boolean") {
+        return res.status(400).json({ error: "pinned must be a boolean" });
+      }
+      const result = await setConversationPinned(req.userAddress, otherAddress, pinned);
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      console.error("set_conversation_pinned error:", err);
+      res.status(500).json({ error: "Failed to update pinned conversation" });
+    }
+  });
 
   app.get("/api/messages/unread-count", requireAuth, async (req, res) => {
     try {

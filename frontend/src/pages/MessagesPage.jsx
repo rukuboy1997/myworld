@@ -6,6 +6,8 @@ import Layout from "../components/Layout.jsx";
 import {
   getMessages,
   getUnreadMessageCounts,
+  getPinnedConversations,
+  setConversationPinned,
   sendMessage,
   editMessage,
   deleteMessage,
@@ -133,6 +135,8 @@ export default function MessagesPage() {
   const requestedAddress = searchParams.get("with") || "";
   const [allMessages, setAllMessages] = useState([]);
   const [conversations, setConversations] = useState([]);
+  const [pinnedConversations, setPinnedConversations] = useState({});
+  const [isUpdatingPin, setIsUpdatingPin] = useState(false);
   const [profiles, setProfiles] = useState({});
   const [allProfiles, setAllProfiles] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -214,10 +218,15 @@ export default function MessagesPage() {
   const loadConversations = useCallback(async () => {
     if (!wallet) return;
     try {
-      const [profilesData, msgs] = await Promise.all([
+      const [profilesData, msgs, pinnedResult] = await Promise.all([
         getAllProfiles(),
         getMessages(wallet),
+        getPinnedConversations(),
       ]);
+      const pinnedMap = Object.fromEntries(
+        (pinnedResult?.pinned || []).map((address) => [address, true]),
+      );
+      setPinnedConversations(pinnedMap);
       const profileMap = {};
       profilesData.forEach((p) => {
         profileMap[p.address] = p;
@@ -234,6 +243,8 @@ export default function MessagesPage() {
       });
 
       const sorted = Object.values(convMap).sort((a, b) => {
+        const pinOrder = Number(!!pinnedMap[b.address]) - Number(!!pinnedMap[a.address]);
+        if (pinOrder) return pinOrder;
         const aLast = a.messages[a.messages.length - 1]?.createdAt || "0";
         const bLast = b.messages[b.messages.length - 1]?.createdAt || "0";
         return bLast.localeCompare(aLast);
@@ -884,6 +895,35 @@ export default function MessagesPage() {
     selectConversation(profile);
   };
 
+  const toggleSelectedConversationPin = async () => {
+    const otherAddress = selectedUser?.address;
+    if (!otherAddress || isUpdatingPin) return;
+    const shouldPin = !pinnedConversations[otherAddress];
+    setIsUpdatingPin(true);
+    try {
+      await setConversationPinned(otherAddress, shouldPin);
+      setPinnedConversations((previous) => ({
+        ...previous,
+        [otherAddress]: shouldPin,
+      }));
+      setConversations((previous) =>
+        [...previous].sort((a, b) => {
+          const aPinned = a.address === otherAddress ? shouldPin : !!pinnedConversations[a.address];
+          const bPinned = b.address === otherAddress ? shouldPin : !!pinnedConversations[b.address];
+          const pinOrder = Number(bPinned) - Number(aPinned);
+          if (pinOrder) return pinOrder;
+          const aLast = a.messages[a.messages.length - 1]?.createdAt || "0";
+          const bLast = b.messages[b.messages.length - 1]?.createdAt || "0";
+          return bLast.localeCompare(aLast);
+        }),
+      );
+    } catch (err) {
+      window.alert(err.message || "Could not update pinned conversation.");
+    } finally {
+      setIsUpdatingPin(false);
+    }
+  };
+
   // Per-chat counts are derived from the persisted read_at status.
   const unreadCount = useCallback(
     (convAddress) => Number(unreadByConversation[convAddress]) || 0,
@@ -991,6 +1031,12 @@ export default function MessagesPage() {
       (conversationFilter === "unread" && unreadCount(conv.address) > 0) ||
       (conversationFilter === "online" && isOnline(presence[conv.address]));
     return matchesSearch && matchesFilter;
+  }).sort((a, b) => {
+    const pinOrder = Number(!!pinnedConversations[b.address]) - Number(!!pinnedConversations[a.address]);
+    if (pinOrder) return pinOrder;
+    const aLast = a.messages[a.messages.length - 1]?.createdAt || "0";
+    const bLast = b.messages[b.messages.length - 1]?.createdAt || "0";
+    return bLast.localeCompare(aLast);
   });
 
   return (
@@ -1206,6 +1252,9 @@ export default function MessagesPage() {
                           >
                             {p?.username || truncateAddress(conv.address)}
                           </span>
+                          {pinnedConversations[conv.address] && (
+                            <span className="text-primary text-xs flex-shrink-0" aria-label="Pinned conversation" title="Pinned">📌</span>
+                          )}
                           {lastMsg && (
                             <span
                               className={`text-[10px] flex-shrink-0 ${hasUnread ? "text-primary font-medium" : "text-muted-foreground"}`}
@@ -1354,6 +1403,19 @@ export default function MessagesPage() {
                       );
                     })()}
                   </div>
+                  <button
+                    type="button"
+                    onClick={toggleSelectedConversationPin}
+                    disabled={isUpdatingPin}
+                    aria-pressed={!!pinnedConversations[selectedUser.address]}
+                    title={pinnedConversations[selectedUser.address] ? "Unpin conversation" : "Pin conversation"}
+                    className={`ml-auto flex-shrink-0 p-2 rounded-full transition-colors disabled:opacity-50 ${pinnedConversations[selectedUser.address] ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-white/10"}`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m16 3 5 5-4 1-4 4-1 5-2-2-4 4-1-1 4-4-2-2 5-1 4-4z" />
+                      <path d="m2 22 7-7" />
+                    </svg>
+                  </button>
                 </div>
 
                 {/* Messages */}
