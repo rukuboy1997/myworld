@@ -143,6 +143,7 @@ export default function MessagesPage() {
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
   const [isUpdatingMessage, setIsUpdatingMessage] = useState(false);
+  const [replyingToMessage, setReplyingToMessage] = useState(null);
   const attachmentInputRef = useRef(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -244,6 +245,7 @@ export default function MessagesPage() {
 
   const selectConversation = useCallback((profile) => {
     if (!profile?.address) return;
+    setReplyingToMessage(null);
     setSelectedUser(profile);
     setShowNewChat(false);
     setSearchParams((previous) => {
@@ -835,14 +837,16 @@ export default function MessagesPage() {
     setIsSendingMessage(true);
     setUploadProgress(0);
     setNewMessage("");
+    const replyTarget = replyingToMessage;
     const attachment = selectedAttachment;
     try {
       if (attachment) {
-        await uploadMessageAttachment(selectedUser.address, attachment, text, setUploadProgress);
+        await uploadMessageAttachment(selectedUser.address, attachment, text, setUploadProgress, replyTarget?.id);
         clearSelectedAttachment();
       } else {
-        await sendMessage({ sender: wallet, receiver: selectedUser.address, content: text });
+        await sendMessage({ sender: wallet, receiver: selectedUser.address, content: text, replyToMessageId: replyTarget?.id || null });
       }
+      setReplyingToMessage(null);
       loadConversations();
     } catch (err) {
       console.error("Failed to send message", err);
@@ -1362,6 +1366,7 @@ export default function MessagesPage() {
                       }
                       const { msg } = item;
                       const isMe = msg.sender === wallet;
+                      const replyTarget = msg.replyToMessageId ? chatMessages.find((candidate) => candidate.id === msg.replyToMessageId) : null;
                       const isUnreadMsg =
                         !isMe && msg.receiver === wallet && !msg.readAt && !msg.deletedAt;
                       return (
@@ -1409,6 +1414,12 @@ export default function MessagesPage() {
                                 <p className="italic opacity-70">This message was deleted</p>
                               ) : (
                                 <>
+                              {msg.replyToMessageId && (
+                                <div className="mb-2 rounded-lg border-l-2 border-current/50 bg-black/10 px-2.5 py-1.5 text-xs">
+                                  <div className="font-semibold opacity-80">{replyTarget ? (replyTarget.sender === wallet ? "You" : (profiles[replyTarget.sender]?.displayName || profiles[replyTarget.sender]?.username || "Message")) : "Reply"}</div>
+                                  <div className="opacity-75 line-clamp-2">{!replyTarget ? "Original message" : replyTarget.deletedAt ? "This message was deleted" : replyTarget.content || (replyTarget.attachmentMime?.startsWith("audio/") ? "🎤 Voice message" : replyTarget.attachmentName ? "📎 " + replyTarget.attachmentName : "Attachment")}</div>
+                                </div>
+                              )}
                               {msg.attachmentUrl && (
                                 msg.attachmentMime?.startsWith("audio/") ? (
                                   <div className="mb-1 min-w-[210px] max-w-full">
@@ -1433,12 +1444,17 @@ export default function MessagesPage() {
                                 </>
                               )}
                             </div>
-                            {isMe && !msg.deletedAt && editingMessageId !== msg.id && (
+                            {!msg.deletedAt && (
                               <div className="flex items-center gap-3 px-1 mt-1 text-[10px]">
-                                {msg.content && Date.now() - new Date(msg.createdAt).getTime() <= 15 * 60 * 1000 && (
-                                  <button type="button" onClick={() => beginEditMessage(msg)} className="text-muted-foreground hover:text-foreground underline underline-offset-2">Edit</button>
+                                <button type="button" onClick={() => { setReplyingToMessage(msg); inputRef.current?.focus(); }} className="text-muted-foreground hover:text-primary underline underline-offset-2">Reply</button>
+                                {isMe && editingMessageId !== msg.id && (
+                                  <>
+                                    {msg.content && Date.now() - new Date(msg.createdAt).getTime() <= 15 * 60 * 1000 && (
+                                      <button type="button" onClick={() => beginEditMessage(msg)} className="text-muted-foreground hover:text-foreground underline underline-offset-2">Edit</button>
+                                    )}
+                                    <button type="button" onClick={() => handleDeleteMessage(msg)} className="text-muted-foreground hover:text-red-400 underline underline-offset-2">Delete</button>
+                                  </>
                                 )}
-                                <button type="button" onClick={() => handleDeleteMessage(msg)} className="text-muted-foreground hover:text-red-400 underline underline-offset-2">Delete</button>
                               </div>
                             )}
                             <span className="text-[10px] text-muted-foreground mt-0.5 px-1 flex items-center gap-1">
@@ -1488,6 +1504,15 @@ export default function MessagesPage() {
                   <div className="min-w-0 flex-1"><p className="text-xs font-semibold truncate">{selectedAttachment.type.startsWith("audio/") ? "Voice message" : selectedAttachment.name}</p><p className="text-[10px] text-muted-foreground">{(selectedAttachment.size / 1048576).toFixed(2)} MB · Ready to send</p></div>
                   <button type="button" onClick={clearSelectedAttachment} disabled={isSendingMessage} aria-label="Remove attachment" className="p-2 rounded-full hover:bg-white/10 disabled:opacity-40">✕</button>
                 </div></div>}
+                {replyingToMessage && (
+                  <div className="mx-3 md:mx-4 mt-3 flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2">
+                    <div className="min-w-0 flex-1 border-l-2 border-primary pl-3">
+                      <div className="text-xs font-semibold text-primary">Replying to {replyingToMessage.sender === wallet ? "yourself" : (profiles[replyingToMessage.sender]?.displayName || profiles[replyingToMessage.sender]?.username || "message")}</div>
+                      <div className="truncate text-xs text-muted-foreground">{replyingToMessage.content || (replyingToMessage.attachmentMime?.startsWith("audio/") ? "🎤 Voice message" : replyingToMessage.attachmentName ? "📎 " + replyingToMessage.attachmentName : "Attachment")}</div>
+                    </div>
+                    <button type="button" onClick={() => setReplyingToMessage(null)} className="rounded-full p-2 text-muted-foreground hover:bg-white/10" aria-label="Cancel reply" title="Cancel reply">✕</button>
+                  </div>
+                )}
                 {isSendingMessage && selectedAttachment && <div className="px-4 py-1 text-[11px] text-muted-foreground" role="status">Uploading attachment… {uploadProgress}%</div>}
                 <form onSubmit={handleSend} className="px-3 md:px-4 py-3 border-t border-white/10 bg-background/40 flex gap-2 flex-shrink-0 items-center">
                   <input ref={attachmentInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,audio/webm,audio/mp4,audio/ogg,audio/mpeg,audio/wav,audio/aac,audio/3gpp" onChange={handleAttachmentSelect} className="hidden" aria-label="Choose an image, file, or audio" />

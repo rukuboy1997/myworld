@@ -1738,6 +1738,7 @@ export function buildApp() {
     try {
       const receiver = normalizeTextInput(req.body?.receiver);
       const content = normalizeTextInput(req.body?.content);
+      const replyToMessageId = normalizeTextInput(req.body?.replyToMessageId);
       if (!receiver || !content) return res.status(400).json({ error: "receiver and content required" });
       if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
       const sender = req.userAddress;
@@ -1745,7 +1746,14 @@ export function buildApp() {
       const receiverExists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [receiver]);
       if (!receiverExists.rowCount) return res.status(404).json({ error: "User not found" });
       if (await isBlockedEitherWay(sender, receiver)) return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
-      const message = await saveMessage({ id: uuidv4(), sender, receiver, content, createdAt: new Date().toISOString() });
+      if (replyToMessageId) {
+        const target = await pool.query(
+          "SELECT id FROM messages WHERE id = $1 AND deleted_at IS NULL AND ((sender = $2 AND receiver = $3) OR (sender = $3 AND receiver = $2)) LIMIT 1",
+          [replyToMessageId, sender, receiver],
+        );
+        if (!target.rowCount) return res.status(400).json({ error: "The message you are replying to is unavailable" });
+      }
+      const message = await saveMessage({ id: uuidv4(), sender, receiver, content, replyToMessageId: replyToMessageId || null, createdAt: new Date().toISOString() });
       publishMessageToFirebase(message);
       await notifyMessageReceiver(receiver, sender, content);
       res.json(message);
@@ -1803,6 +1811,7 @@ export function buildApp() {
     try {
       const receiver = normalizeTextInput(req.body?.receiver);
       const content = normalizeTextInput(req.body?.content);
+      const replyToMessageId = normalizeTextInput(req.body?.replyToMessageId);
       const file = req.file;
       if (!receiver || !file) return res.status(400).json({ error: "receiver and file are required" });
       if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
@@ -1811,6 +1820,13 @@ export function buildApp() {
       const receiverExists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [receiver]);
       if (!receiverExists.rowCount) return res.status(404).json({ error: "User not found" });
       if (await isBlockedEitherWay(sender, receiver)) return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+      if (replyToMessageId) {
+        const target = await pool.query(
+          "SELECT id FROM messages WHERE id = $1 AND deleted_at IS NULL AND ((sender = $2 AND receiver = $3) OR (sender = $3 AND receiver = $2)) LIMIT 1",
+          [replyToMessageId, sender, receiver],
+        );
+        if (!target.rowCount) return res.status(400).json({ error: "The message you are replying to is unavailable" });
+      }
       const mimeType = String(file.mimetype || "").toLowerCase();
       if (!allowedMessageMimeTypes.has(mimeType)) return res.status(400).json({ error: "This file type is not supported" });
       const originalName = String(file.originalname || "attachment").replace(/[\\/\x00-\x1f\x7f]/g, "_").slice(0, 180);
@@ -1825,7 +1841,7 @@ export function buildApp() {
       const message = await saveMessage({
         id: uuidv4(), sender, receiver, content,
         attachmentUrl: stored.url, attachmentKey: stored.key, attachmentName: originalName,
-        attachmentMime: mimeType, attachmentSize: file.size, createdAt: new Date().toISOString(),
+        attachmentMime: mimeType, attachmentSize: file.size, replyToMessageId: replyToMessageId || null, createdAt: new Date().toISOString(),
       });
       publishMessageToFirebase(message);
       await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
@@ -1845,7 +1861,7 @@ export function buildApp() {
       attachmentUrl: message.attachmentUrl || null, attachmentKey: message.attachmentKey || null,
       attachmentName: message.attachmentName || null, attachmentMime: message.attachmentMime || null,
       attachmentSize: message.attachmentSize || null,
-      editedAt: message.editedAt || null, deletedAt: message.deletedAt || null,
+      editedAt: message.editedAt || null, deletedAt: message.deletedAt || null, replyToMessageId: message.replyToMessageId || null,
     });
   }
 
