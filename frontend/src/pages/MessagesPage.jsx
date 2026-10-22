@@ -7,6 +7,8 @@ import {
   getMessages,
   getUnreadMessageCounts,
   sendMessage,
+  editMessage,
+  deleteMessage,
   uploadMessageAttachment,
   getAllProfiles,
   getConversation,
@@ -138,6 +140,9 @@ export default function MessagesPage() {
   const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [isUpdatingMessage, setIsUpdatingMessage] = useState(false);
   const attachmentInputRef = useRef(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -572,7 +577,8 @@ export default function MessagesPage() {
       (message) =>
         message.sender === otherAddress &&
         message.receiver === wallet &&
-        !message.readAt,
+        !message.readAt &&
+        !message.deletedAt,
     );
     if (!hasUnreadIncoming) return;
 
@@ -772,6 +778,54 @@ export default function MessagesPage() {
     if (attachmentInputRef.current) attachmentInputRef.current.value = "";
   };
 
+  const beginEditMessage = (message) => {
+    if (!message || message.sender !== wallet || message.deletedAt || !message.content) return;
+    if (Date.now() - new Date(message.createdAt).getTime() > 15 * 60 * 1000) {
+      window.alert("Messages can only be edited for 15 minutes after sending.");
+      return;
+    }
+    setEditingMessageId(message.id);
+    setEditDraft(message.content);
+  };
+
+  const cancelEditMessage = () => {
+    setEditingMessageId(null);
+    setEditDraft("");
+  };
+
+  const handleEditMessage = async (message) => {
+    const content = editDraft.trim();
+    if (!content || !message?.id || isUpdatingMessage) return;
+    setIsUpdatingMessage(true);
+    try {
+      const updated = await editMessage(message.id, content);
+      const applyUpdate = (items) => items.map((item) => item.id === updated.id ? { ...item, ...updated } : item);
+      setChatMessages(applyUpdate);
+      setAllMessages(applyUpdate);
+      cancelEditMessage();
+      loadConversations();
+    } catch (error) {
+      window.alert(error?.message || "Could not edit this message.");
+    } finally {
+      setIsUpdatingMessage(false);
+    }
+  };
+
+  const handleDeleteMessage = async (message) => {
+    if (!message?.id || message.sender !== wallet || message.deletedAt) return;
+    if (!window.confirm("Delete this message for everyone in the conversation? This cannot be undone.")) return;
+    try {
+      const updated = await deleteMessage(message.id);
+      const applyUpdate = (items) => items.map((item) => item.id === updated.id ? { ...item, ...updated } : item);
+      setChatMessages(applyUpdate);
+      setAllMessages(applyUpdate);
+      if (editingMessageId === message.id) cancelEditMessage();
+      loadConversations();
+    } catch (error) {
+      window.alert(error?.message || "Could not delete this message.");
+    }
+  };
+
   const handleSend = async (e) => {
     e.preventDefault();
     const text = newMessage.trim();
@@ -818,7 +872,8 @@ export default function MessagesPage() {
       (message) =>
         message.sender === selectedUser.address &&
         message.receiver === wallet &&
-        !message.readAt,
+        !message.readAt &&
+        !message.deletedAt,
     );
   }, [chatMessages, selectedUser, wallet]);
 
@@ -1147,13 +1202,15 @@ export default function MessagesPage() {
                                 <span>typing…</span>
                               </span>
                             ) : lastMsg ? (
-                              lastMsg.attachmentMime?.startsWith("audio/")
-                                ? (lastMsg.sender === wallet ? "You: 🎤 Voice message" : "🎤 Voice message")
-                                : lastMsg.attachmentUrl && !lastMsg.content
-                                  ? (lastMsg.sender === wallet ? `You: 📎 ${lastMsg.attachmentName || "Attachment"}` : `📎 ${lastMsg.attachmentName || "Attachment"}`)
-                                  : lastMsg.sender === wallet
-                                    ? `You: ${lastMsg.content}`
-                                    : lastMsg.content
+                              lastMsg.deletedAt
+                                ? (lastMsg.sender === wallet ? "You: This message was deleted" : "This message was deleted")
+                                : lastMsg.attachmentMime?.startsWith("audio/")
+                                  ? (lastMsg.sender === wallet ? "You: 🎤 Voice message" : "🎤 Voice message")
+                                  : lastMsg.attachmentUrl && !lastMsg.content
+                                    ? (lastMsg.sender === wallet ? `You: 📎 ${lastMsg.attachmentName || "Attachment"}` : `📎 ${lastMsg.attachmentName || "Attachment"}`)
+                                    : lastMsg.sender === wallet
+                                      ? `You: ${lastMsg.content}`
+                                      : lastMsg.content
                             ) : (
                               p?.bio || "Say hello!"
                             )}
@@ -1306,7 +1363,7 @@ export default function MessagesPage() {
                       const { msg } = item;
                       const isMe = msg.sender === wallet;
                       const isUnreadMsg =
-                        !isMe && msg.receiver === wallet && !msg.readAt;
+                        !isMe && msg.receiver === wallet && !msg.readAt && !msg.deletedAt;
                       return (
                         <div
                           key={msg.id}
@@ -1332,6 +1389,26 @@ export default function MessagesPage() {
                                     : "bg-secondary text-secondary-foreground rounded-bl-sm"
                               }`}
                             >
+                              {editingMessageId === msg.id ? (
+                                <div className="min-w-[220px] space-y-2">
+                                  <textarea
+                                    value={editDraft}
+                                    onChange={(event) => setEditDraft(event.target.value)}
+                                    maxLength={2000}
+                                    rows={Math.min(5, Math.max(2, editDraft.split("\n").length))}
+                                    autoFocus
+                                    aria-label="Edit message"
+                                    className="w-full resize-y rounded-lg bg-black/10 border border-current/20 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/30"
+                                  />
+                                  <div className="flex justify-end gap-2">
+                                    <button type="button" onClick={cancelEditMessage} disabled={isUpdatingMessage} className="rounded-full px-3 py-1.5 text-xs border border-current/20 hover:bg-black/10 disabled:opacity-50">Cancel</button>
+                                    <button type="button" onClick={() => handleEditMessage(msg)} disabled={!editDraft.trim() || editDraft.trim() === msg.content || isUpdatingMessage} className="rounded-full px-3 py-1.5 text-xs font-semibold bg-white/20 hover:bg-white/30 disabled:opacity-50">{isUpdatingMessage ? "Saving…" : "Save"}</button>
+                                  </div>
+                                </div>
+                              ) : msg.deletedAt ? (
+                                <p className="italic opacity-70">This message was deleted</p>
+                              ) : (
+                                <>
                               {msg.attachmentUrl && (
                                 msg.attachmentMime?.startsWith("audio/") ? (
                                   <div className="mb-1 min-w-[210px] max-w-full">
@@ -1353,7 +1430,17 @@ export default function MessagesPage() {
                                 )
                               )}
                               {msg.content && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
+                                </>
+                              )}
                             </div>
+                            {isMe && !msg.deletedAt && editingMessageId !== msg.id && (
+                              <div className="flex items-center gap-3 px-1 mt-1 text-[10px]">
+                                {msg.content && Date.now() - new Date(msg.createdAt).getTime() <= 15 * 60 * 1000 && (
+                                  <button type="button" onClick={() => beginEditMessage(msg)} className="text-muted-foreground hover:text-foreground underline underline-offset-2">Edit</button>
+                                )}
+                                <button type="button" onClick={() => handleDeleteMessage(msg)} className="text-muted-foreground hover:text-red-400 underline underline-offset-2">Delete</button>
+                              </div>
+                            )}
                             <span className="text-[10px] text-muted-foreground mt-0.5 px-1 flex items-center gap-1">
                               <span>
                                 {msg.createdAt
@@ -1362,6 +1449,7 @@ export default function MessagesPage() {
                                     })
                                   : "just now"}
                               </span>
+                              {msg.editedAt && !msg.deletedAt && <span className="italic">edited</span>}
                               {isMe && (
                                 <span
                                   className={msg.readAt ? "text-sky-300 font-bold" : "text-primary-foreground/70"}
