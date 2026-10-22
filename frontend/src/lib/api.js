@@ -215,6 +215,10 @@ export const getPresenceBatch = (addresses) =>
 export const getMessages = (address) => request("GET", `/messages/${address}`);
 export const getUnreadMessageCounts = () => request("GET", "/messages/unread-count");
 export const sendMessage = (data) => request("POST", "/message", data);
+export const editMessage = (id, content) =>
+  request("PUT", `/message/${encodeURIComponent(id)}`, { content });
+export const deleteMessage = (id) =>
+  request("DELETE", `/message/${encodeURIComponent(id)}`);
 
 export const uploadMessageAttachment = (receiver, file, content = "", onProgress) =>
   new Promise((resolve, reject) => {
