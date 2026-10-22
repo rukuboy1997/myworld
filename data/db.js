@@ -101,14 +101,17 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 
 CREATE TABLE IF NOT EXISTS messages (
-  id          TEXT PRIMARY KEY,
-  sender      TEXT NOT NULL,
-  receiver    TEXT NOT NULL,
-  content     TEXT NOT NULL,
-  created_at  TIMESTAMPTZ DEFAULT NOW(),
-  read_at     TIMESTAMPTZ
+  id TEXT PRIMARY KEY, sender TEXT NOT NULL, receiver TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW(), read_at TIMESTAMPTZ,
+  attachment_url TEXT, attachment_key TEXT, attachment_name TEXT, attachment_mime TEXT, attachment_size BIGINT
 );
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_url TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_key TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_name TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_mime TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_size BIGINT;
+ALTER TABLE messages ALTER COLUMN content SET DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS message_typing (
   sender      TEXT NOT NULL,
@@ -393,9 +396,11 @@ function rowToMessage(r) {
     id: r.id,
     sender: r.sender,
     receiver: r.receiver,
-    content: r.content,
-    createdAt:
-      r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+    content: r.content || "",
+    attachmentUrl: r.attachment_url || null, attachmentKey: r.attachment_key || null,
+    attachmentName: r.attachment_name || null, attachmentMime: r.attachment_mime || null,
+    attachmentSize: r.attachment_size == null ? null : Number(r.attachment_size),
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
     readAt: r.read_at
       ? r.read_at instanceof Date
         ? r.read_at.toISOString()
@@ -889,16 +894,13 @@ export async function getConversation(a, b) {
 export async function saveMessage(message) {
   const id = message.id || uuidv4();
   await pool.query(
-    `INSERT INTO messages (id, sender, receiver, content, created_at) VALUES ($1,$2,$3,$4,$5)`,
-    [
-      id,
-      message.sender,
-      message.receiver,
-      message.content,
-      message.createdAt || new Date().toISOString(),
-    ],
+    `INSERT INTO messages (id, sender, receiver, content, created_at, attachment_url, attachment_key, attachment_name, attachment_mime, attachment_size)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [id, message.sender, message.receiver, message.content || "", message.createdAt || new Date().toISOString(),
+      message.attachmentUrl || null, message.attachmentKey || null, message.attachmentName || null,
+      message.attachmentMime || null, message.attachmentSize ?? null],
   );
-  return { ...message, id, readAt: message.readAt || null };
+  return { ...message, id, content: message.content || "", readAt: message.readAt || null };
 }
 
 export async function markConversationMessagesRead(reader, otherAddress) {

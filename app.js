@@ -1736,58 +1736,84 @@ export function buildApp() {
     try {
       const receiver = normalizeTextInput(req.body?.receiver);
       const content = normalizeTextInput(req.body?.content);
-      if (!receiver || !content)
-        return res.status(400).json({ error: "receiver and content required" });
-      if (content.length > MESSAGE_CONTENT_MAX_LENGTH)
-        return res
-          .status(400)
-          .json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
-      const effectiveSender = req.userAddress;
-      if (receiver === effectiveSender)
-        return res.status(400).json({ error: "You cannot message yourself" });
+      if (!receiver || !content) return res.status(400).json({ error: "receiver and content required" });
+      if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
+      const sender = req.userAddress;
+      if (receiver === sender) return res.status(400).json({ error: "You cannot message yourself" });
       const receiverExists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [receiver]);
       if (!receiverExists.rowCount) return res.status(404).json({ error: "User not found" });
-      if (await isBlockedEitherWay(effectiveSender, receiver))
-        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
-      const message = await saveMessage({
-        id: uuidv4(),
-        sender: effectiveSender,
-        receiver,
-        content,
-        createdAt: new Date().toISOString(),
-      });
-      // Write to Firebase Realtime DB for real-time delivery (fire-and-forget)
-      firebaseWrite(
-        `conversations/${fbConvId(effectiveSender, receiver)}/messages/${message.id}`,
-        {
-          id: message.id,
-          sender: effectiveSender,
-          receiver,
-          content,
-          createdAt: message.createdAt,
-          readAt: message.readAt || null,
-        },
-      );
-      // Notify the receiver of the new message
-      if (receiver !== effectiveSender) {
-        await createNotificationAndPush({
-          recipient: receiver,
-          type: "message",
-          actorAddress: effectiveSender,
-          excerpt: content.slice(0, 80),
-        });
-        fireEmailNotif({
-          type: "message",
-          recipientAddress: receiver,
-          actorAddress: effectiveSender,
-          extra: { messagePreview: content.slice(0, 200) },
-        });
+      if (await isBlockedEitherWay(sender, receiver)) return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+      const message = await saveMessage({ id: uuidv4(), sender, receiver, content, createdAt: new Date().toISOString() });
+      publishMessageToFirebase(message);
+      await notifyMessageReceiver(receiver, sender, content);
+      res.json(message);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  const messageAttachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+  const allowedMessageMimeTypes = new Set([
+    "image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf",
+    "text/plain", "text/csv", "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ]);
+  app.post("/api/message/attachment", requireAuth, messageAttachmentUpload.single("file"), async (req, res) => {
+    let uploadedKey = null;
+    try {
+      const receiver = normalizeTextInput(req.body?.receiver);
+      const content = normalizeTextInput(req.body?.content);
+      const file = req.file;
+      if (!receiver || !file) return res.status(400).json({ error: "receiver and file are required" });
+      if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
+      const sender = req.userAddress;
+      if (receiver === sender) return res.status(400).json({ error: "You cannot message yourself" });
+      const receiverExists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [receiver]);
+      if (!receiverExists.rowCount) return res.status(404).json({ error: "User not found" });
+      if (await isBlockedEitherWay(sender, receiver)) return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+      const mimeType = String(file.mimetype || "").toLowerCase();
+      if (!allowedMessageMimeTypes.has(mimeType)) return res.status(400).json({ error: "This file type is not supported" });
+      const originalName = String(file.originalname || "attachment").replace(/[\\/\x00-\x1f\x7f]/g, "_").slice(0, 180);
+      if (mimeType.startsWith("image/")) {
+        const detected = sniffMime(file.buffer);
+        if (!detected || detected !== mimeType) return res.status(400).json({ error: "The image file content does not match its declared type" });
       }
+      const nameExt = originalName.includes(".") ? originalName.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 10) : "";
+      const mimeExt = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/").pop().split("+")[0].replace(/[^a-z0-9]/g, "").slice(0, 10);
+      uploadedKey = `messages/${sender}/${uuidv4()}.${nameExt || mimeExt || "bin"}`;
+      const stored = await uploadToR2(uploadedKey, file.buffer, mimeType);
+      const message = await saveMessage({
+        id: uuidv4(), sender, receiver, content,
+        attachmentUrl: stored.url, attachmentKey: stored.key, attachmentName: originalName,
+        attachmentMime: mimeType, attachmentSize: file.size, createdAt: new Date().toISOString(),
+      });
+      publishMessageToFirebase(message);
+      await notifyMessageReceiver(receiver, sender, content || `📎 ${originalName}`);
       res.json(message);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      if (uploadedKey) deleteFromR2(uploadedKey).catch(() => {});
+      if (err?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "Files must be 25 MB or smaller" });
+      console.error("message attachment upload failed:", err);
+      res.status(500).json({ error: "Could not send attachment" });
     }
   });
+
+  function publishMessageToFirebase(message) {
+    firebaseWrite(`conversations/${fbConvId(message.sender, message.receiver)}/messages/${message.id}`, {
+      id: message.id, sender: message.sender, receiver: message.receiver, content: message.content || "",
+      createdAt: message.createdAt, readAt: message.readAt || null,
+      attachmentUrl: message.attachmentUrl || null, attachmentKey: message.attachmentKey || null,
+      attachmentName: message.attachmentName || null, attachmentMime: message.attachmentMime || null,
+      attachmentSize: message.attachmentSize || null,
+    });
+  }
+
+  async function notifyMessageReceiver(receiver, sender, content) {
+    if (receiver === sender) return;
+    const preview = String(content || "Sent an attachment");
+    await createNotificationAndPush({ recipient: receiver, type: "message", actorAddress: sender, excerpt: preview.slice(0, 80) });
+    fireEmailNotif({ type: "message", recipientAddress: receiver, actorAddress: sender, extra: { messagePreview: preview.slice(0, 200) } });
+  }
 
   app.get("/api/messages/unread-count", requireAuth, async (req, res) => {
     try {

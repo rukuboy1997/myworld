@@ -215,6 +215,30 @@ export const getPresenceBatch = (addresses) =>
 export const getMessages = (address) => request("GET", `/messages/${address}`);
 export const getUnreadMessageCounts = () => request("GET", "/messages/unread-count");
 export const sendMessage = (data) => request("POST", "/message", data);
+
+export const uploadMessageAttachment = (receiver, file, content = "", onProgress) =>
+  new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("receiver", receiver);
+    form.append("content", content);
+    form.append("file", file, file.name);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BASE}/message/attachment`);
+    const token = getAuthToken();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) onProgress(Math.round(event.loaded / event.total * 100));
+    };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error(data.error || "Attachment upload failed"));
+    };
+    xhr.onerror = () => reject(new Error("Network error while uploading attachment"));
+    xhr.onabort = () => reject(new Error("Attachment upload was cancelled"));
+    xhr.send(form);
+  });
 export const getConversation = (a, b) =>
   request(
     "GET",
