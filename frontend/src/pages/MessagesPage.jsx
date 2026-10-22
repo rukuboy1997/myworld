@@ -245,6 +245,7 @@ export default function MessagesPage() {
 
   const selectConversation = useCallback((profile) => {
     if (!profile?.address) return;
+    setReplyingToMessage(null);
     setSelectedUser(profile);
     setShowNewChat(false);
     setSearchParams((previous) => {
