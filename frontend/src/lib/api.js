@@ -214,6 +214,9 @@ export const getPresenceBatch = (addresses) =>
 // ─── Messages ─────────────────────────────────────────────────────────────────
 export const getMessages = (address) => request("GET", `/messages/${address}`);
 export const getUnreadMessageCounts = () => request("GET", "/messages/unread-count");
+export const getPinnedConversations = () => request("GET", "/conversations/pinned");
+export const setConversationPinned = (otherAddress, pinned) =>
+  request("PUT", "/conversation/pin", { otherAddress, pinned });
 export const sendMessage = (data) => request("POST", "/message", data);
 export const editMessage = (id, content) =>
   request("PUT", `/message/${encodeURIComponent(id)}`, { content });
