@@ -24,18 +24,6 @@ import { firebaseDb, convId as fbConvId } from "../lib/firebase.js";
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
-function summarizeMessageReactions(reactions = []) {
-  const grouped = new Map();
-  for (const reaction of reactions) {
-    if (!reaction?.emoji) continue;
-    const current = grouped.get(reaction.emoji) || { emoji: reaction.emoji, count: 0, mine: false };
-    current.count += 1;
-    if (reaction.userAddress) current.mine = current.mine || reaction.userAddress === reaction._currentUser;
-    grouped.set(reaction.emoji, current);
-  }
-  return Array.from(grouped.values());
-}
-
 function isOnline(lastSeenAt) {
   if (!lastSeenAt) return false;
   return Date.now() - new Date(lastSeenAt).getTime() < ONLINE_THRESHOLD_MS;
@@ -262,6 +250,7 @@ export default function MessagesPage() {
   const selectConversation = useCallback((profile) => {
     if (!profile?.address) return;
     setReplyingToMessage(null);
+    setReactionPickerMessageId(null);
     setSelectedUser(profile);
     setShowNewChat(false);
     setSearchParams((previous) => {
