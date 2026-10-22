@@ -1140,9 +1140,13 @@ export default function MessagesPage() {
                                 <span>typing…</span>
                               </span>
                             ) : lastMsg ? (
-                              lastMsg.sender === wallet
-                                ? `You: ${lastMsg.content}`
-                                : lastMsg.content
+                              lastMsg.attachmentMime?.startsWith("audio/")
+                                ? (lastMsg.sender === wallet ? "You: 🎤 Voice message" : "🎤 Voice message")
+                                : lastMsg.attachmentUrl && !lastMsg.content
+                                  ? (lastMsg.sender === wallet ? `You: 📎 ${lastMsg.attachmentName || "Attachment"}` : `📎 ${lastMsg.attachmentName || "Attachment"}`)
+                                  : lastMsg.sender === wallet
+                                    ? `You: ${lastMsg.content}`
+                                    : lastMsg.content
                             ) : (
                               p?.bio || "Say hello!"
                             )}
