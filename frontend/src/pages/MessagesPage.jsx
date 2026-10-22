@@ -1040,14 +1040,12 @@ export default function MessagesPage() {
   });
 
   return (
-    <Layout>
+    <Layout immersive={!!selectedUser}>
       <div
-        className="max-w-6xl mx-auto w-full px-2 md:px-4 py-4 md:py-8"
-        style={{
-          height: "calc(100dvh - 4rem - env(safe-area-inset-bottom, 0px))",
-        }}
+        className={`w-full min-w-0 min-h-0 ${selectedUser ? "h-full overflow-hidden p-0" : "max-w-6xl mx-auto px-2 py-4 md:px-4 md:py-8"}`}
+        style={selectedUser ? undefined : { height: "calc(100dvh - 4rem - env(safe-area-inset-bottom, 0px))" }}
       >
-        <div className="flex h-full gap-3 md:gap-6">
+        <div className={`flex h-full min-h-0 min-w-0 gap-3 md:gap-6 ${selectedUser ? "overflow-hidden" : ""}`}>
           {/* Sidebar */}
           <div
             className={`w-full md:w-80 glass-panel rounded-2xl md:rounded-3xl flex flex-col overflow-hidden flex-shrink-0 ${selectedUser ? "hidden md:flex" : "flex"}`}
@@ -1419,7 +1417,7 @@ export default function MessagesPage() {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 flex flex-col custom-scrollbar">
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 md:px-6 py-4 flex flex-col custom-scrollbar">
                   {isLoadingChat ? (
                     <div className="flex-1 flex items-center justify-center">
                       <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
