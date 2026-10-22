@@ -19,7 +19,8 @@
       "bundleIdentifier": "com.dakta.myworld",
       "infoPlist": {
         "NSCameraUsageDescription": "Used to take photos for posts and your profile.",
-        "NSPhotoLibraryUsageDescription": "Used to select photos for posts and your profile."
+        "NSPhotoLibraryUsageDescription": "Used to select photos for posts and your profile.",
+        "NSMicrophoneUsageDescription": "Used to record voice messages in myWorld."
       }
     },
     "android": {
