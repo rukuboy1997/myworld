@@ -46,6 +46,7 @@ import {
   getMessages,
   getUnreadMessageCounts,
   getConversation,
+  rowToMessage,
   saveMessage,
   updateMessageContent,
   deleteMessageForEveryone,
