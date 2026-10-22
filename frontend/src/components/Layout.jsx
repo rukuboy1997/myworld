@@ -113,8 +113,36 @@ export default function Layout({ children, immersive = false }) {
   const isActive = (path) =>
     location.pathname === path || (path === "/messages" && location.pathname === "/");
 
+  // On mobile, Android WebView may resize the visual viewport when the
+  // keyboard opens. Track that visible height so the chat flex layout shrinks
+  // its message history instead of allowing the document/header to scroll away.
+  useEffect(() => {
+    if (!immersive) return;
+
+    const viewport = window.visualViewport;
+    const updateViewportHeight = () => {
+      const height = viewport?.height || window.innerHeight;
+      document.documentElement.style.setProperty(
+        "--myworld-viewport-height",
+        `${height}px`,
+      );
+    };
+
+    updateViewportHeight();
+    viewport?.addEventListener("resize", updateViewportHeight);
+    viewport?.addEventListener("scroll", updateViewportHeight);
+    window.addEventListener("resize", updateViewportHeight);
+
+    return () => {
+      viewport?.removeEventListener("resize", updateViewportHeight);
+      viewport?.removeEventListener("scroll", updateViewportHeight);
+      window.removeEventListener("resize", updateViewportHeight);
+      document.documentElement.style.removeProperty("--myworld-viewport-height");
+    };
+  }, [immersive]);
+
   return (
-    <div className={`${immersive ? "h-[100dvh] overflow-hidden" : "min-h-[100dvh]"} flex flex-col bg-background text-foreground`}>
+    <div style={immersive ? { height: "var(--myworld-viewport-height, 100dvh)" } : undefined} className={`${immersive ? "overflow-hidden" : "min-h-[100dvh]"} flex flex-col bg-background text-foreground`}>
       {!immersive && (
         <>
       {/* Email verification banner */}
