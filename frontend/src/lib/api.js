@@ -220,11 +220,12 @@ export const editMessage = (id, content) =>
 export const deleteMessage = (id) =>
   request("DELETE", `/message/${encodeURIComponent(id)}`);
 
-export const uploadMessageAttachment = (receiver, file, content = "", onProgress) =>
+export const uploadMessageAttachment = (receiver, file, content = "", onProgress, replyToMessageId = null) =>
   new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("receiver", receiver);
     form.append("content", content);
+    if (replyToMessageId) form.append("replyToMessageId", replyToMessageId);
     form.append("file", file, file.name);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/message/attachment`);
