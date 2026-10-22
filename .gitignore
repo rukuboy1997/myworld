@@ -135,3 +135,6 @@ dist
 #google secrets
 
 google-services.json
+
+# Never commit root-level key material
+/*.key
