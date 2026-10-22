@@ -104,11 +104,12 @@ CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY, sender TEXT NOT NULL, receiver TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW(), read_at TIMESTAMPTZ,
   attachment_url TEXT, attachment_key TEXT, attachment_name TEXT, attachment_mime TEXT, attachment_size BIGINT,
-  edited_at TIMESTAMPTZ, deleted_at TIMESTAMPTZ
+  edited_at TIMESTAMPTZ, deleted_at TIMESTAMPTZ, reply_to_message_id TEXT
 );
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_message_id TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_url TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_key TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_name TEXT;
@@ -405,6 +406,7 @@ function rowToMessage(r) {
     attachmentSize: r.attachment_size == null ? null : Number(r.attachment_size),
     editedAt: r.edited_at ? (r.edited_at instanceof Date ? r.edited_at.toISOString() : r.edited_at) : null,
     deletedAt: r.deleted_at ? (r.deleted_at instanceof Date ? r.deleted_at.toISOString() : r.deleted_at) : null,
+    replyToMessageId: r.reply_to_message_id || null,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
     readAt: r.read_at
       ? r.read_at instanceof Date
@@ -899,13 +901,13 @@ export async function getConversation(a, b) {
 export async function saveMessage(message) {
   const id = message.id || uuidv4();
   await pool.query(
-    `INSERT INTO messages (id, sender, receiver, content, created_at, attachment_url, attachment_key, attachment_name, attachment_mime, attachment_size)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    `INSERT INTO messages (id, sender, receiver, content, created_at, attachment_url, attachment_key, attachment_name, attachment_mime, attachment_size, reply_to_message_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [id, message.sender, message.receiver, message.content || "", message.createdAt || new Date().toISOString(),
       message.attachmentUrl || null, message.attachmentKey || null, message.attachmentName || null,
-      message.attachmentMime || null, message.attachmentSize ?? null],
+      message.attachmentMime || null, message.attachmentSize ?? null, message.replyToMessageId || null],
   );
-  return { ...message, id, content: message.content || "", readAt: message.readAt || null };
+  return { ...message, id, content: message.content || "", readAt: message.readAt || null, replyToMessageId: message.replyToMessageId || null };
 }
 
 export async function updateMessageContent(id, sender, content) {
