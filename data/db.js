@@ -103,9 +103,12 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY, sender TEXT NOT NULL, receiver TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW(), read_at TIMESTAMPTZ,
-  attachment_url TEXT, attachment_key TEXT, attachment_name TEXT, attachment_mime TEXT, attachment_size BIGINT
+  attachment_url TEXT, attachment_key TEXT, attachment_name TEXT, attachment_mime TEXT, attachment_size BIGINT,
+  edited_at TIMESTAMPTZ, deleted_at TIMESTAMPTZ
 );
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_url TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_key TEXT;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_name TEXT;
@@ -400,6 +403,8 @@ function rowToMessage(r) {
     attachmentUrl: r.attachment_url || null, attachmentKey: r.attachment_key || null,
     attachmentName: r.attachment_name || null, attachmentMime: r.attachment_mime || null,
     attachmentSize: r.attachment_size == null ? null : Number(r.attachment_size),
+    editedAt: r.edited_at ? (r.edited_at instanceof Date ? r.edited_at.toISOString() : r.edited_at) : null,
+    deletedAt: r.deleted_at ? (r.deleted_at instanceof Date ? r.deleted_at.toISOString() : r.deleted_at) : null,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
     readAt: r.read_at
       ? r.read_at instanceof Date
@@ -901,6 +906,32 @@ export async function saveMessage(message) {
       message.attachmentMime || null, message.attachmentSize ?? null],
   );
   return { ...message, id, content: message.content || "", readAt: message.readAt || null };
+}
+
+export async function updateMessageContent(id, sender, content) {
+  const { rows } = await pool.query(
+    `UPDATE messages
+     SET content = $3, edited_at = NOW()
+     WHERE id = $1 AND sender = $2 AND deleted_at IS NULL
+       AND created_at >= NOW() - INTERVAL '15 minutes'
+       AND content <> ''
+     RETURNING *`,
+    [id, sender, content],
+  );
+  return rowToMessage(rows[0]);
+}
+
+export async function deleteMessageForEveryone(id, sender) {
+  const { rows } = await pool.query(
+    `UPDATE messages
+     SET content = '', attachment_url = NULL, attachment_key = NULL,
+         attachment_name = NULL, attachment_mime = NULL, attachment_size = NULL,
+         deleted_at = NOW()
+     WHERE id = $1 AND sender = $2 AND deleted_at IS NULL
+     RETURNING *`,
+    [id, sender],
+  );
+  return rowToMessage(rows[0]);
 }
 
 export async function markConversationMessagesRead(reader, otherAddress) {
