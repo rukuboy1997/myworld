@@ -1845,6 +1845,7 @@ export function buildApp() {
       attachmentUrl: message.attachmentUrl || null, attachmentKey: message.attachmentKey || null,
       attachmentName: message.attachmentName || null, attachmentMime: message.attachmentMime || null,
       attachmentSize: message.attachmentSize || null,
+      editedAt: message.editedAt || null, deletedAt: message.deletedAt || null,
     });
   }
 
