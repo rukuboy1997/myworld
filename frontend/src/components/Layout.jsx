@@ -114,7 +114,7 @@ export default function Layout({ children, immersive = false }) {
     location.pathname === path || (path === "/messages" && location.pathname === "/");
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-background text-foreground">
+    <div className={`${immersive ? "h-[100dvh] overflow-hidden" : "min-h-[100dvh]"} flex flex-col bg-background text-foreground`}>
       {!immersive && (
         <>
       {/* Email verification banner */}
@@ -463,7 +463,7 @@ export default function Layout({ children, immersive = false }) {
         </>
       )}
 
-      <main className={immersive ? "flex-1 min-h-0 flex flex-col relative pb-0" : "flex-1 flex flex-col relative pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0"}>
+      <main className={immersive ? "flex-1 min-h-0 min-w-0 flex flex-col relative overflow-hidden pb-0" : "flex-1 min-w-0 flex flex-col relative pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0"}>
         {children}
       </main>
 
