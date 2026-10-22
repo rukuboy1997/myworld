@@ -1040,15 +1040,17 @@ export default function MessagesPage() {
   });
 
   return (
-    <Layout immersive={!!selectedUser && window.matchMedia("(max-width: 767px)").matches}>
+    <Layout>
       <div
-        className={`w-full min-w-0 min-h-0 box-border ${selectedUser ? "h-full overflow-hidden p-0" : "max-w-6xl mx-auto px-2 py-3 md:px-4 md:py-8"}`}
-        style={selectedUser ? undefined : { height: "calc(100dvh - 3.5rem - 4rem - env(safe-area-inset-bottom, 0px))" }}
+        className="max-w-6xl mx-auto w-full px-2 md:px-4 py-4 md:py-8"
+        style={{
+          height: "calc(100dvh - 4rem - env(safe-area-inset-bottom, 0px))",
+        }}
       >
-        <div className={`flex h-full min-h-0 min-w-0 gap-3 md:gap-6 ${selectedUser ? "overflow-hidden" : ""}`}>
+        <div className="flex h-full gap-3 md:gap-6">
           {/* Sidebar */}
           <div
-            className={`w-full min-h-0 md:w-80 glass-panel rounded-2xl md:rounded-3xl flex flex-col overflow-hidden flex-shrink-0 ${selectedUser ? "hidden md:flex" : "flex"}`}
+            className={`w-full md:w-80 glass-panel rounded-2xl md:rounded-3xl flex flex-col overflow-hidden flex-shrink-0 ${selectedUser ? "hidden md:flex" : "flex"}`}
           >
             <div className="px-4 md:px-5 py-4 border-b border-white/10 flex-shrink-0 flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -1183,7 +1185,7 @@ export default function MessagesPage() {
               </div>
             )}
 
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
               {isLoadingConvos ? (
                 <div className="flex flex-col gap-2 p-3">
                   {[1, 2, 3].map((i) => (
@@ -1303,7 +1305,7 @@ export default function MessagesPage() {
 
           {/* Chat Area */}
           <div
-            className={`flex-1 min-h-0 min-w-0 glass-panel rounded-none md:rounded-3xl flex flex-col overflow-hidden ${!selectedUser ? "hidden md:flex" : "flex"}`}
+            className={`flex-1 glass-panel rounded-2xl md:rounded-3xl flex flex-col overflow-hidden ${!selectedUser ? "hidden md:flex" : "flex"}`}
           >
             {!selectedUser ? (
               <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8 text-center gap-4">
@@ -1335,7 +1337,7 @@ export default function MessagesPage() {
             ) : (
               <>
                 {/* Chat Header */}
-                <div className="sticky top-0 z-20 px-4 py-3 border-b border-white/10 flex items-center gap-3 bg-background/95 backdrop-blur-md shrink-0">
+                <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3 bg-background/40 backdrop-blur-md flex-shrink-0">
                   <button
                     className="md:hidden p-2 -ml-1 rounded-full hover:bg-white/10 transition-colors"
                     onClick={() => setSelectedUser(null)}
@@ -1417,7 +1419,7 @@ export default function MessagesPage() {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 md:px-6 py-4 flex flex-col custom-scrollbar">
+                <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 flex flex-col custom-scrollbar">
                   {isLoadingChat ? (
                     <div className="flex-1 flex items-center justify-center">
                       <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
