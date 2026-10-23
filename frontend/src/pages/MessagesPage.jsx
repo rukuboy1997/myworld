@@ -583,6 +583,7 @@ export default function MessagesPage() {
   useEffect(() => {
     if (!selectedUser || !wallet) return;
 
+    shouldStickToBottomRef.current = true;
     setIsLoadingChat(true);
     setChatMessages([]);
     inputRef.current?.focus();
