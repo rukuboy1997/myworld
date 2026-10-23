@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set } from "firebase/database";
+import { getDatabase } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDDh-sB60c7NbVfXvHGIIMKzZUTKo9X6V0",
@@ -12,8 +12,8 @@ const firebaseConfig = {
   databaseURL: "https://fascoin-app-default-rtdb.firebaseio.com",
 };
 
-const app = initializeApp(firebaseConfig);
-export const firebaseDb = getDatabase(app);
+export const firebaseApp = initializeApp(firebaseConfig);
+export const firebaseDb = getDatabase(firebaseApp);
 
 /**
  * Canonical conversation ID — always the same regardless of who is sender/receiver.
@@ -21,16 +21,4 @@ export const firebaseDb = getDatabase(app);
  */
 export function convId(addrA, addrB) {
   return [addrA, addrB].sort().join("_");
-}
-
-/**
- * Write the current user's presence to Firebase.
- * Called on heartbeat (every 30 s) from Layout.jsx.
- * Path: presence/{address} = { lastSeenAt: ISO string }
- */
-export function updatePresence(address) {
-  if (!address) return;
-  set(ref(firebaseDb, `presence/${address}`), {
-    lastSeenAt: new Date().toISOString(),
-  }).catch(() => {});
 }
