@@ -66,6 +66,7 @@ function getServiceAccount() {
   parsedAccount = {
     projectId: account.project_id,
     clientEmail: account.client_email,
+    privateKeyId: typeof account.private_key_id === "string" ? account.private_key_id : "",
     privateKey: account.private_key.replace(/\\n/g, "\n"),
   };
   accessTokenCache = null;
