@@ -105,6 +105,7 @@ import {
   createFirebaseCustomToken,
   ensureFirebaseConversationMembers,
   ensureFirebaseConversationMemberships,
+  revokeFirebaseConversationMembers,
   firebaseWrite,
   firebasePatch,
   writeFirebasePresence,
@@ -1526,6 +1527,9 @@ export function buildApp() {
       const exists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [target]);
       if (!exists.rowCount) return res.status(404).json({ error: "User not found" });
       await blockUser(req.userAddress, target);
+      // Existing Firebase subscriptions must lose access as soon as a block is
+      // created. New membership requests also check the block relationship.
+      await revokeFirebaseConversationMembers(req.userAddress, target);
       res.json({ ok: true, blocked: true });
     } catch (err) {
       console.error("block_user error:", err);
@@ -1927,12 +1931,22 @@ export function buildApp() {
         .filter((address) => typeof address === "string")
         .map((address) => address.trim())
         .filter((address) => address && address !== req.userAddress))];
-      const ok = await ensureFirebaseConversationMemberships(req.userAddress, addresses);
+      const allowedAddresses = [];
+      for (const address of addresses) {
+        if (!(await isBlockedEitherWay(req.userAddress, address))) {
+          allowedAddresses.push(address);
+        }
+      }
+      const ok = await ensureFirebaseConversationMemberships(req.userAddress, allowedAddresses);
       if (!ok) {
         return res.status(503).json({ error: "Realtime conversation access is temporarily unavailable" });
       }
       res.set("Cache-Control", "private, no-store");
-      res.json({ ok: true, prepared: addresses.length });
+      res.json({
+        ok: true,
+        prepared: allowedAddresses.length,
+        skipped: addresses.length - allowedAddresses.length,
+      });
     } catch (err) {
       console.error("prepare_realtime_conversations error:", err);
       res.status(500).json({ error: "Could not prepare realtime conversations" });
@@ -1987,14 +2001,6 @@ export function buildApp() {
       if (req.params.address !== req.userAddress)
         return res.status(403).json({ error: "Forbidden" });
       const messages = await getMessages(req.userAddress);
-      const otherAddresses = [...new Set(
-        messages.map((message) =>
-          message.sender === req.userAddress ? message.receiver : message.sender,
-        ).filter((address) => address && address !== req.userAddress),
-      )];
-      // Seed membership for existing inbox conversations before the frontend
-      // attaches its Firebase listeners. A failed seed never breaks Neon reads.
-      await ensureFirebaseConversationMemberships(req.userAddress, otherAddresses);
       const profiles = await getAllProfiles();
       const enriched = messages.map((m) => ({
         ...m,
