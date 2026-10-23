@@ -11,7 +11,19 @@ Set these in the **backend/API deployment** (for example, the Vercel project tha
 
 Do not put the service-account JSON in any `VITE_*` variable, frontend environment, repository, or mobile app. Do not commit the downloaded service-account file.
 
-The service account needs access to Firebase Authentication custom-token signing and Realtime Database. Enable Firebase Authentication in the Firebase console if it is not already enabled. Add the deployed frontend domain (and `localhost` for local development) to Authentication's authorized domains if the console requires it.
+### Initialize Firebase Authentication (required)
+
+The browser error `auth/configuration-not-found` is an Authentication setup error, not a Realtime Database rules error.
+
+1. Open the [Firebase Console](https://console.firebase.google.com/) and select **fascoin-app**.
+2. Open **Build → Authentication**. If it shows **Get started**, complete that setup first.
+3. Open **Authentication → Sign-in method**. If Firebase requires a provider to finish initialization, enable **Email/Password**. myWorld will still use its existing API username/password login; the frontend uses the server-issued custom token to establish a Firebase identity, not Firebase Email/Password login.
+4. In **Authentication → Settings → Authorized domains**, confirm the deployed frontend hostname is listed. Add `localhost` only for local development.
+5. If Authentication still returns `CONFIGURATION_NOT_FOUND`, open Google Cloud Console for project `fascoin-app` and verify the **Identity Toolkit API** is enabled.
+
+Custom tokens are part of Firebase Authentication's documented custom-auth flow: https://firebase.google.com/docs/auth/web/custom-auth.
+
+The service-account key on the API server must belong to the same `fascoin-app` project as the frontend Firebase config and database. Never put its private key in frontend variables.
 
 The frontend uses the existing public Firebase app configuration in `frontend/src/lib/firebase.js`. No new frontend secret is required. Keep `VITE_API_URL` pointing to the deployed myWorld API as it does today.
 
