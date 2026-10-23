@@ -248,6 +248,25 @@ export async function ensureFirebaseConversationMembers(addressA, addressB) {
   return ensureFirebaseConversationMemberships(addressA, [addressB]);
 }
 
+/** Revokes Firebase read access for both participants after either blocks the other. */
+export async function revokeFirebaseConversationMembers(addressA, addressB) {
+  if (
+    typeof addressA !== "string" ||
+    typeof addressB !== "string" ||
+    !addressA ||
+    !addressB ||
+    addressA === addressB
+  ) {
+    return false;
+  }
+
+  const id = conversationId(addressA, addressB);
+  return firebasePatch("", {
+    [`conversationMembers/${id}/${addressA}`]: null,
+    [`conversationMembers/${id}/${addressB}`]: null,
+  });
+}
+
 export async function writeFirebasePresence(address, lastSeenAt = new Date().toISOString()) {
   if (typeof address !== "string" || !address) return false;
   return firebaseWrite(`presence/${address}`, { lastSeenAt });
