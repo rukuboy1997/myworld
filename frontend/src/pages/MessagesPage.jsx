@@ -547,18 +547,43 @@ export default function MessagesPage() {
       setIsLoadingChat(false);
     }
 
-    // 1) Load full history from Neon DB so old conversations are never blank
-    getConversation(wallet, selectedUser.address)
-      .then((msgs) => {
+    // Neon/Postgres is the source of truth. Load it first and keep polling as a
+    // fallback because Firebase client reads may be denied by production rules.
+    // This also refreshes readAt fields when the other participant reads messages.
+    let refreshInFlight = false;
+    const refreshFromDatabase = async () => {
+      if (!active || refreshInFlight) return;
+      refreshInFlight = true;
+      try {
+        const msgs = await getConversation(wallet, selectedUser.address);
+        if (!active) return;
+        const previousIds = new Set(dbMsgs.map((message) => message.id));
         dbMsgs = msgs || [];
-      })
-      .catch(() => {})
-      .finally(() => {
         dbDone = true;
         mergeAndSet();
-      });
 
-    // 2) Subscribe to Firebase for real-time updates (new messages arrive here)
+        // Update the inbox preview only when the conversation gains a message,
+        // rather than reloading the sidebar on every receipt poll.
+        if (dbMsgs.some((message) => !previousIds.has(message.id))) {
+          loadConversations();
+        }
+      } catch {
+        // Keep the last known messages visible during transient API failures.
+        dbDone = true;
+        mergeAndSet();
+      } finally {
+        refreshInFlight = false;
+      }
+    };
+
+    // 1) Load history immediately, then refresh every 3 seconds. This keeps
+    // incoming messages and read receipts current even when Firebase rules
+    // correctly reject unauthenticated client access.
+    refreshFromDatabase();
+    const databasePoll = setInterval(refreshFromDatabase, 3000);
+
+    // 2) Subscribe to Firebase for low-latency updates when authorized.
+    // The database polling above remains the reliable fallback.
 
     const unsubscribe = onValue(
       msgsRef,
@@ -582,6 +607,7 @@ export default function MessagesPage() {
 
     return () => {
       active = false;
+      clearInterval(databasePoll);
       unsubscribe();
     };
   }, [selectedUser?.address, wallet]);
