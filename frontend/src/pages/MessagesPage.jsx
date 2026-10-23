@@ -172,6 +172,8 @@ export default function MessagesPage() {
   const [presence, setPresence] = useState({});
   const [typingByUser, setTypingByUser] = useState({});
   const messagesEndRef = useRef(null);
+  const chatScrollRef = useRef(null);
+  const shouldStickToBottomRef = useRef(true);
   const inputRef = useRef(null);
   const markReadTimerRef = useRef(null);
   const typingStopTimerRef = useRef(null);
@@ -264,6 +266,7 @@ export default function MessagesPage() {
     if (!profile?.address) return;
     setReplyingToMessage(null);
     setReactionPickerMessageId(null);
+    shouldStickToBottomRef.current = true;
     setSelectedUser(profile);
     setShowNewChat(false);
     setSearchParams((previous) => {
@@ -580,6 +583,7 @@ export default function MessagesPage() {
   useEffect(() => {
     if (!selectedUser || !wallet) return;
 
+    shouldStickToBottomRef.current = true;
     setIsLoadingChat(true);
     setChatMessages([]);
     inputRef.current?.focus();
@@ -762,9 +766,18 @@ export default function MessagesPage() {
     refreshUnreadCounts,
   ]);
 
+  // Keep the scroll inside the message history. scrollIntoView() can scroll
+  // the document itself, which moves the header when the keyboard or polling
+  // updates the history. Only follow new messages when the reader is at bottom.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
+    if (!shouldStickToBottomRef.current) return;
+    const history = chatScrollRef.current;
+    if (!history) return;
+    const frame = window.requestAnimationFrame(() => {
+      history.scrollTop = history.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [chatMessages, isLoadingChat]);
 
   const stopTyping = (otherAddress = selectedUser?.address) => {
     if (typingStopTimerRef.current) {
@@ -1163,7 +1176,10 @@ export default function MessagesPage() {
   });
 
   return (
-    <Layout immersive={!!selectedUser && window.matchMedia("(max-width: 767px)").matches}>
+    <Layout
+      immersive={!!selectedUser && window.matchMedia("(max-width: 767px)").matches}
+      fixedHeight={!!selectedUser}
+    >
       <div
         className={`w-full min-w-0 min-h-0 box-border ${selectedUser ? "h-full overflow-hidden p-0" : "max-w-6xl mx-auto px-2 py-3 md:px-4 md:py-8"}`}
         style={selectedUser ? undefined : { height: "calc(100dvh - 3.5rem - 4rem - env(safe-area-inset-bottom, 0px))" }}
@@ -1458,7 +1474,7 @@ export default function MessagesPage() {
             ) : (
               <>
                 {/* Chat Header */}
-                <div className="sticky top-0 z-20 px-4 py-3 border-b border-white/10 flex items-center gap-3 bg-background/95 backdrop-blur-md shrink-0">
+                <div className="relative z-20 px-4 py-3 border-b border-white/10 flex items-center gap-3 bg-background/95 backdrop-blur-md shrink-0">
                   <button
                     className="md:hidden p-2 -ml-1 rounded-full hover:bg-white/10 transition-colors"
                     onClick={() => setSelectedUser(null)}
@@ -1502,7 +1518,6 @@ export default function MessagesPage() {
                       if (online) {
                         return (
                           <p className="text-[11px] text-green-400 font-medium flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
                             Online
                           </p>
                         );
@@ -1540,7 +1555,15 @@ export default function MessagesPage() {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 md:px-6 py-4 flex flex-col custom-scrollbar">
+                <div
+                  ref={chatScrollRef}
+                  onScroll={(event) => {
+                    const element = event.currentTarget;
+                    shouldStickToBottomRef.current =
+                      element.scrollHeight - element.scrollTop - element.clientHeight < 120;
+                  }}
+                  className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 md:px-6 py-4 flex flex-col custom-scrollbar"
+                >
                   {isLoadingChat ? (
                     <div className="flex-1 flex items-center justify-center">
                       <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
