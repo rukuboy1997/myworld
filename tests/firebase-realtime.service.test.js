@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createSign, createVerify, generateKeyPairSync } from "node:crypto";
+import { createVerify, generateKeyPairSync } from "node:crypto";
 import { createFirebaseCustomToken } from "../services/firebase-realtime.service.js";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", {
