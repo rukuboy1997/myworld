@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
-import { ref, onValue, query, limitToLast } from "firebase/database";
+import { ref, onValue, query, orderByChild, limitToLast } from "firebase/database";
 import Layout from "../components/Layout.jsx";
 import {
   getMessages,
@@ -643,8 +643,12 @@ export default function MessagesPage() {
         const msgs = page?.messages || [];
         const previousIds = new Set(dbMsgs.map((message) => message.id));
         dbMsgs = msgs;
-        hasOlderRef.current = Boolean(page?.hasMore);
-        setHasOlderMessages(Boolean(page?.hasMore));
+        // Once older pages are loaded, keep the cursor state from those pages;
+        // the latest-page response alone always hasMore when history exceeds 100.
+        if (olderMsgs.length === 0) {
+          hasOlderRef.current = Boolean(page?.hasMore);
+          setHasOlderMessages(Boolean(page?.hasMore));
+        }
         dbDone = true;
         mergeAndSet();
 
@@ -728,7 +732,7 @@ export default function MessagesPage() {
         if (!active) return;
 
         unsubscribe = onValue(
-          query(msgsRef, limitToLast(100)),
+          query(msgsRef, orderByChild("createdAt"), limitToLast(100)),
           (snapshot) => {
             const data = snapshot.val();
             fbMsgs = data
