@@ -12,7 +12,7 @@ import AuthModal from "./AuthModal.jsx";
 import InviteModal from "./InviteModal.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
 
-export default function Layout({ children, immersive = false }) {
+export default function Layout({ children, immersive = false, fixedHeight = false }) {
   const { user, address, isAuthenticated, isLoading, signOut, openAuthModal } =
     useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -142,7 +142,7 @@ export default function Layout({ children, immersive = false }) {
   }, [immersive]);
 
   return (
-    <div style={immersive ? { height: "var(--myworld-viewport-height, 100dvh)" } : undefined} className={`${immersive ? "overflow-hidden" : "min-h-[100dvh]"} flex flex-col bg-background text-foreground`}>
+    <div style={immersive ? { height: "var(--myworld-viewport-height, 100dvh)" } : undefined} className={`${immersive || fixedHeight ? "overflow-hidden" : ""} ${immersive ? "h-[var(--myworld-viewport-height,100dvh)]" : fixedHeight ? "h-[100dvh]" : "min-h-[100dvh]"} flex flex-col bg-background text-foreground`}>
       {!immersive && (
         <>
       {/* Email verification banner */}
@@ -491,7 +491,7 @@ export default function Layout({ children, immersive = false }) {
         </>
       )}
 
-      <main className={immersive ? "flex-1 min-h-0 min-w-0 flex flex-col relative overflow-hidden pb-0" : "flex-1 min-w-0 flex flex-col relative pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0"}>
+      <main className={immersive ? "flex-1 min-h-0 min-w-0 flex flex-col relative overflow-hidden pb-0" : `flex-1 min-h-0 min-w-0 flex flex-col relative ${fixedHeight ? "overflow-hidden" : ""} pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0`}>
         {children}
       </main>
 
