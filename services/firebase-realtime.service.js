@@ -16,8 +16,12 @@ function base64Url(value) {
   return Buffer.from(value).toString("base64url");
 }
 
-function signJwt(payload, privateKey) {
-  const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+function signJwt(payload, privateKey, keyId) {
+  const header = base64Url(JSON.stringify({
+    alg: "RS256",
+    typ: "JWT",
+    ...(keyId ? { kid: keyId } : {}),
+  }));
   const body = base64Url(JSON.stringify(payload));
   const signingInput = `${header}.${body}`;
   const signer = createSign("RSA-SHA256");
@@ -73,18 +77,18 @@ function signedServiceAssertion(account, { scope, audience, subject, uid, claims
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: account.clientEmail,
-    sub: subject || account.clientEmail,
     aud: audience,
     iat: now,
     exp: now + 3600,
   };
+  if (subject) payload.sub = subject;
   if (scope) payload.scope = scope;
   if (uid) {
     payload.uid = uid;
     if (claims && Object.keys(claims).length) payload.claims = claims;
     payload.aud = CUSTOM_TOKEN_AUDIENCE;
   }
-  return signJwt(payload, account.privateKey);
+  return signJwt(payload, account.privateKey, account.privateKeyId);
 }
 
 /**
