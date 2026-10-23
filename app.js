@@ -1890,6 +1890,7 @@ export function buildApp() {
   });
 
   async function publishMessageToFirebase(message) {
+    if (await isBlockedEitherWay(message.sender, message.receiver)) return false;
     const membersReady = await ensureFirebaseConversationMembers(
       message.sender,
       message.receiver,
