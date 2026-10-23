@@ -113,6 +113,7 @@ export function createFirebaseCustomToken(user) {
 
   return signedServiceAssertion(account, {
     audience: CUSTOM_TOKEN_AUDIENCE,
+    subject: account.clientEmail,
     uid,
     claims,
   });
