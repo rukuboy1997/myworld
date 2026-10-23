@@ -2025,9 +2025,18 @@ export function buildApp() {
       if (await isBlockedEitherWay(a, b))
         return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
       await ensureFirebaseConversationMembers(String(a), String(b));
-      const messages = await getConversation(a, b);
+      const requestedLimit = Number.parseInt(req.query.limit, 10) || 100;
+      const beforeCreatedAt = typeof req.query.beforeCreatedAt === "string" ? req.query.beforeCreatedAt : null;
+      const beforeId = typeof req.query.beforeId === "string" ? req.query.beforeId : null;
+      if ((beforeCreatedAt && !beforeId) || (!beforeCreatedAt && beforeId))
+        return res.status(400).json({ error: "beforeCreatedAt and beforeId must be supplied together" });
+      const page = await getConversation(a, b, {
+        limit: Math.min(100, Math.max(1, requestedLimit)),
+        beforeCreatedAt,
+        beforeId,
+      });
       res.set("Cache-Control", "private, no-store");
-      res.json(messages);
+      res.json(page);
     } catch (err) {
       console.error("get_conversation error:", err);
       res.status(500).json({ error: err.message });
