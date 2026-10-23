@@ -18,10 +18,12 @@ import {
   markConversationRead,
   setConversationTyping,
   getConversationsTyping,
+  prepareRealtimeConversations,
   truncateAddress,
 } from "../lib/api.js";
-import { useAuth } from "../lib/auth.jsx";
+import { getAuthToken, useAuth } from "../lib/auth.jsx";
 import { firebaseDb, convId as fbConvId } from "../lib/firebase.js";
+import { syncFirebaseAuth } from "../lib/firebase-auth.js";
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
@@ -355,103 +357,161 @@ export default function MessagesPage() {
     loadConversations,
   ]);
 
-  // ─── Firebase real-time presence for all conversation partners ───────────
+  // ─── Firebase real-time presence for conversation partners ───────────────
   useEffect(() => {
-    if (!conversations.length) return;
-    const addrs = conversations.map((c) => c.address).filter(Boolean);
-    const unsubs = addrs.map((addr) => {
-      const presRef = ref(firebaseDb, `presence/${addr}`);
-      return onValue(presRef, (snapshot) => {
-        const data = snapshot.val();
-        setPresence((prev) => ({ ...prev, [addr]: data?.lastSeenAt || null }));
-      });
-    });
-    return () => unsubs.forEach((u) => u());
-  }, [conversations]);
+    if (!isAuthenticated || !wallet || !conversations.length) return;
 
-  // ─── Firebase presence for the currently open conversation ───────────────
-  // Handles users not yet in the conversations list (e.g. new chats)
+    let active = true;
+    let unsubscribers = [];
+    const addresses = [...new Set(
+      conversations.map((conversation) => conversation.address).filter(Boolean),
+    )];
+
+    (async () => {
+      try {
+        const ready = await syncFirebaseAuth(getAuthToken());
+        if (!active || !ready) return;
+
+        unsubscribers = addresses.map((address) =>
+          onValue(
+            ref(firebaseDb, `presence/${address}`),
+            (snapshot) => {
+              if (!active) return;
+              const data = snapshot.val();
+              setPresence((previous) => ({
+                ...previous,
+                [address]: data?.lastSeenAt || null,
+              }));
+            },
+            (error) => console.warn("[firebase] presence listener error:", error),
+          ),
+        );
+      } catch (error) {
+        if (active) {
+          console.warn("[firebase] realtime presence unavailable:", error.message);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [conversations, isAuthenticated, wallet]);
+
+  // Handles presence for a new chat partner not yet present in the inbox list.
   useEffect(() => {
-    if (!selectedUser?.address) return;
-    const presRef = ref(firebaseDb, `presence/${selectedUser.address}`);
-    const unsub = onValue(presRef, (snapshot) => {
-      const data = snapshot.val();
-      setPresence((prev) => ({
-        ...prev,
-        [selectedUser.address]: data?.lastSeenAt || null,
-      }));
-    });
-    return () => unsub();
-  }, [selectedUser?.address]);
+    const address = selectedUser?.address;
+    if (!isAuthenticated || !wallet || !address) return;
 
-  // Every conversation row subscribes to its partner's typing state. This
-  // lets the inbox show who is typing without first opening that conversation.
-  const typingTargetAddresses = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          ...conversations.map((conversation) => conversation.address),
-          selectedUser?.address,
-        ].filter(Boolean)),
-      ).slice(0, 100),
-    [conversations, selectedUser?.address],
-  );
+    let active = true;
+    let unsubscribe = () => {};
 
+    (async () => {
+      try {
+        const ready = await syncFirebaseAuth(getAuthToken());
+        if (!active || !ready) return;
+        unsubscribe = onValue(
+          ref(firebaseDb, `presence/${address}`),
+          (snapshot) => {
+            if (!active) return;
+            const data = snapshot.val();
+            setPresence((previous) => ({
+              ...previous,
+              [address]: data?.lastSeenAt || null,
+            }));
+          },
+          (error) => console.warn("[firebase] selected presence listener error:", error),
+        );
+      } catch (error) {
+        if (active) {
+          console.warn("[firebase] selected presence unavailable:", error.message);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [selectedUser?.address, isAuthenticated, wallet]);
+
+  // Every conversation row subscribes to its partner's typing state.
+  // Wait for Firebase authentication and server-side membership preparation
+  // before attaching listeners, so permission-denied subscriptions do not race.
   useEffect(() => {
     if (!wallet || !isAuthenticated || !typingTargetAddresses.length) {
       setTypingByUser({});
       return;
     }
 
+    let active = true;
+    let unsubscribers = [];
     const expiryTimers = new Map();
-    const unsubscribers = typingTargetAddresses.map((otherAddress) => {
-      const typingRef = ref(
-        firebaseDb,
-        `conversations/${fbConvId(wallet, otherAddress)}/typing/${otherAddress}`,
-      );
 
-      return onValue(
-        typingRef,
-        (snapshot) => {
-          const status = snapshot.val();
-          const updatedAt = Date.parse(status?.updatedAt || "");
-          const ageMs = Date.now() - updatedAt;
-          const isTyping =
-            status?.isTyping === true &&
-            Number.isFinite(updatedAt) &&
-            ageMs >= -5000 &&
-            ageMs < 8000;
+    (async () => {
+      try {
+        const ready = await syncFirebaseAuth(getAuthToken());
+        if (!active || !ready) return;
+        await prepareRealtimeConversations(typingTargetAddresses);
+        if (!active) return;
 
-          setTypingByUser((previous) =>
-            previous[otherAddress] === isTyping
-              ? previous
-              : { ...previous, [otherAddress]: isTyping },
+        unsubscribers = typingTargetAddresses.map((otherAddress) => {
+          const typingRef = ref(
+            firebaseDb,
+            `conversations/${fbConvId(wallet, otherAddress)}/typing/${otherAddress}`,
           );
 
-          const existingTimer = expiryTimers.get(otherAddress);
-          if (existingTimer) clearTimeout(existingTimer);
-          if (isTyping) {
-            expiryTimers.set(
-              otherAddress,
-              setTimeout(() => {
-                setTypingByUser((previous) => ({
-                  ...previous,
-                  [otherAddress]: false,
-                }));
+          return onValue(
+            typingRef,
+            (snapshot) => {
+              if (!active) return;
+              const status = snapshot.val();
+              const updatedAt = Date.parse(status?.updatedAt || "");
+              const ageMs = Date.now() - updatedAt;
+              const isTyping =
+                status?.isTyping === true &&
+                Number.isFinite(updatedAt) &&
+                ageMs >= -5000 &&
+                ageMs < 8000;
+
+              setTypingByUser((previous) =>
+                previous[otherAddress] === isTyping
+                  ? previous
+                  : { ...previous, [otherAddress]: isTyping },
+              );
+
+              const existingTimer = expiryTimers.get(otherAddress);
+              if (existingTimer) clearTimeout(existingTimer);
+              if (isTyping) {
+                expiryTimers.set(
+                  otherAddress,
+                  setTimeout(() => {
+                    setTypingByUser((previous) => ({
+                      ...previous,
+                      [otherAddress]: false,
+                    }));
+                    expiryTimers.delete(otherAddress);
+                  }, Math.max(0, 8000 - ageMs + 100)),
+                );
+              } else {
                 expiryTimers.delete(otherAddress);
-              }, Math.max(0, 8000 - ageMs + 100)),
-            );
-          } else {
-            expiryTimers.delete(otherAddress);
-          }
-        },
-        (error) => {
-          console.warn("[firebase] typing listener error:", error);
-        },
-      );
-    });
+              }
+            },
+            (error) => {
+              console.warn("[firebase] typing listener error:", error);
+            },
+          );
+        });
+      } catch (error) {
+        if (active) {
+          console.warn("[firebase] realtime typing unavailable:", error.message);
+        }
+      }
+    })();
 
     return () => {
+      active = false;
       unsubscribers.forEach((unsubscribe) => unsubscribe());
       expiryTimers.forEach((timer) => clearTimeout(timer));
     };
@@ -585,25 +645,50 @@ export default function MessagesPage() {
     // 2) Subscribe to Firebase for low-latency updates when authorized.
     // The database polling above remains the reliable fallback.
 
-    const unsubscribe = onValue(
-      msgsRef,
-      (snapshot) => {
-        const data = snapshot.val();
-        fbMsgs = data
-          ? Object.entries(data).map(([id, msg]) => ({ ...msg, id }))
-          : [];
-        fbDone = true;
-        mergeAndSet();
+    let unsubscribe = () => {};
+    const subscribeToFirebase = async () => {
+      try {
+        const ready = await syncFirebaseAuth(getAuthToken());
+        if (!active || !ready) {
+          if (active) {
+            fbDone = true;
+            mergeAndSet();
+          }
+          return;
+        }
 
-        // Keep sidebar in sync when new messages arrive
-        if (active) loadConversations();
-      },
-      (err) => {
-        console.error("[firebase] onValue error:", err);
+        // Seed server-verified membership before attaching the Firebase listener.
+        await prepareRealtimeConversations([selectedUser.address]);
+        if (!active) return;
+
+        unsubscribe = onValue(
+          msgsRef,
+          (snapshot) => {
+            const data = snapshot.val();
+            fbMsgs = data
+              ? Object.entries(data).map(([id, msg]) => ({ ...msg, id }))
+              : [];
+            fbDone = true;
+            mergeAndSet();
+
+            // Keep sidebar in sync when new messages arrive.
+            if (active) loadConversations();
+          },
+          (error) => {
+            console.error("[firebase] onValue error:", error);
+            fbDone = true;
+            mergeAndSet();
+          },
+        );
+      } catch (error) {
+        if (!active) return;
+        console.warn("[firebase] realtime message listener unavailable:", error.message);
         fbDone = true;
         mergeAndSet();
-      },
-    );
+      }
+    };
+
+    subscribeToFirebase();
 
     return () => {
       active = false;
