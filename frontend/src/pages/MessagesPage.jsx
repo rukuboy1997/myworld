@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, query, limitToLast } from "firebase/database";
 import Layout from "../components/Layout.jsx";
 import {
   getMessages,
@@ -164,6 +164,8 @@ export default function MessagesPage() {
   const recordingLimitTimerRef = useRef(null);
   const [isLoadingConvos, setIsLoadingConvos] = useState(true);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
   const [conversationSearch, setConversationSearch] = useState("");
@@ -173,6 +175,10 @@ export default function MessagesPage() {
   const [typingByUser, setTypingByUser] = useState({});
   const messagesEndRef = useRef(null);
   const chatScrollRef = useRef(null);
+  const loadOlderMessagesRef = useRef(null);
+  const loadingOlderRef = useRef(false);
+  const hasOlderRef = useRef(false);
+  const pendingScrollAdjustmentRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const inputRef = useRef(null);
   const markReadTimerRef = useRef(null);
@@ -766,11 +772,19 @@ export default function MessagesPage() {
     refreshUnreadCounts,
   ]);
 
-  // Keep the scroll inside the message history. scrollIntoView() can scroll
-  // the document itself, which moves the header when the keyboard or polling
-  // updates the history. Only follow new messages when the reader is at bottom.
+  // Restore the reader's exact viewport after older messages are prepended.
+  useLayoutEffect(() => {
+    const pending = pendingScrollAdjustmentRef.current;
+    const history = chatScrollRef.current;
+    if (!pending || !history) return;
+    history.scrollTop = pending.scrollTop + (history.scrollHeight - pending.scrollHeight);
+    pendingScrollAdjustmentRef.current = null;
+  }, [chatMessages]);
+
+  // Keep the scroll inside the message history. Only follow the bottom when
+  // the reader was already there; polling must not interrupt older-history reading.
   useEffect(() => {
-    if (!shouldStickToBottomRef.current) return;
+    if (!shouldStickToBottomRef.current || pendingScrollAdjustmentRef.current) return;
     const history = chatScrollRef.current;
     if (!history) return;
     const frame = window.requestAnimationFrame(() => {
