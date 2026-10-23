@@ -165,7 +165,6 @@ export default function MessagesPage() {
   const [isLoadingConvos, setIsLoadingConvos] = useState(true);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
-  const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
   const [conversationSearch, setConversationSearch] = useState("");
@@ -595,7 +594,6 @@ export default function MessagesPage() {
     pendingScrollAdjustmentRef.current = null;
     setIsLoadingChat(true);
     setIsLoadingOlderMessages(false);
-    setHasOlderMessages(false);
     setChatMessages([]);
     inputRef.current?.focus();
 
@@ -647,7 +645,6 @@ export default function MessagesPage() {
         // the latest-page response alone always hasMore when history exceeds 100.
         if (olderMsgs.length === 0) {
           hasOlderRef.current = Boolean(page?.hasMore);
-          setHasOlderMessages(Boolean(page?.hasMore));
         }
         dbDone = true;
         mergeAndSet();
@@ -694,7 +691,6 @@ export default function MessagesPage() {
           };
         }
         hasOlderRef.current = Boolean(page?.hasMore);
-        setHasOlderMessages(Boolean(page?.hasMore));
         dbDone = true;
         mergeAndSet();
       } catch (error) {
