@@ -266,6 +266,11 @@ export const getConversationsTyping = (addresses) =>
     `/conversations/typing?addresses=${addresses.map(encodeURIComponent).join(",")}`,
   );
 
+export const prepareRealtimeConversations = (otherAddresses) =>
+  request("POST", "/conversations/realtime", {
+    otherAddresses: Array.isArray(otherAddresses) ? otherAddresses : [],
+  });
+
 // ─── Email verification ───────────────────────────────────────────────────────
 export const verifyEmail = (token) =>
   request("POST", "/auth/verify-email", { token });

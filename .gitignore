@@ -138,3 +138,10 @@ google-services.json
 
 # Never commit root-level key material
 /*.key
+
+
+# Firebase service-account credentials (keep outside the repository)
+service-account*.json
+*-service-account*.json
+firebase-adminsdk*.json
+*-firebase-adminsdk*.json

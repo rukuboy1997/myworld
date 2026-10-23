@@ -10,7 +10,6 @@ import {
 import { useAuth } from "../lib/auth.jsx";
 import AuthModal from "./AuthModal.jsx";
 import InviteModal from "./InviteModal.jsx";
-import { updatePresence } from "../lib/firebase.js";
 import ThemeToggle from "./ThemeToggle.jsx";
 
 export default function Layout({ children, immersive = false }) {
@@ -85,9 +84,10 @@ export default function Layout({ children, immersive = false }) {
   // Writes to Firebase (real-time) + Postgres (mobile compat)
   useEffect(() => {
     if (!isAuthenticated || !address) return;
+    // The authenticated API updates both Firebase realtime presence and the
+    // Postgres heartbeat. Client-side Firebase writes remain disabled by rules.
     const beat = () => {
-      updatePresence(address); // Firebase real-time presence
-      sendHeartbeat().catch(() => {}); // Postgres fallback for mobile
+      sendHeartbeat().catch(() => {});
     };
     beat();
     const iv = setInterval(beat, 30000);

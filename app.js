@@ -101,55 +101,21 @@ import {
 import { getClientIp } from "./utils/clientIp.js";
 import { sendNotificationEmail } from "./services/notification-email.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
+import {
+  createFirebaseCustomToken,
+  ensureFirebaseConversationMembers,
+  ensureFirebaseConversationMemberships,
+  revokeFirebaseConversationMembers,
+  firebaseWrite,
+  firebasePatch,
+  writeFirebasePresence,
+} from "./services/firebase-realtime.service.js";
 import { asyncWrapProviders } from "async_hooks";
 import { timeStamp } from "console";
 
-// ─── Firebase Realtime Database (fire-and-forget write) ───────────────────────
-const FIREBASE_DB_URL = (
-  process.env.FIREBASE_DB_URL ||
-  "https://fascoin-app-default-rtdb.firebaseio.com"
-).replace(/\/$/, "");
+// ─── Firebase Realtime Database ───────────────────────────────────────────────
 function fbConvId(a, b) {
   return [a, b].sort().join("_");
-}
-async function firebaseWrite(path, data) {
-  try {
-    const res = await fetch(`${FIREBASE_DB_URL}/${path}.json`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      console.warn(`[firebase] write to ${path} failed: ${res.status} ${detail}`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.warn("[firebase] write error:", err.message);
-    return false;
-  }
-}
-
-async function firebasePatch(path, data) {
-  try {
-    const normalizedPath = String(path || "").split("/").filter(Boolean).join("/");
-    const url = `${FIREBASE_DB_URL}/${normalizedPath ? `${normalizedPath}.json` : ".json"}`;
-    const res = await fetch(url, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      console.warn(`[firebase] patch to ${normalizedPath || "/"} failed: ${res.status} ${detail}`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.warn("[firebase] patch error:", err.message);
-    return false;
-  }
 }
 
 // Fire-and-forget email notification — never blocks the HTTP response
@@ -451,6 +417,21 @@ export function buildApp() {
   });
 
   app.get("/api/auth/me", getCurrentUser);
+
+  // Firebase identity is issued only after the existing myWorld session has
+  // been verified by requireAuth. Never accept a Firebase UID from the client.
+  app.post("/api/firebase/custom-token", requireAuth, (req, res) => {
+    try {
+      const firebaseToken = createFirebaseCustomToken(req.user);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ firebaseToken, uid: req.userAddress });
+    } catch (err) {
+      console.error("[firebase-auth] custom-token issuance failed:", err.message);
+      res.status(503).json({
+        error: "Realtime authentication is not configured on the API",
+      });
+    }
+  });
 
   app.post("/api/auth/forgot-password", async (req, res) => {
     try {
@@ -1546,6 +1527,9 @@ export function buildApp() {
       const exists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [target]);
       if (!exists.rowCount) return res.status(404).json({ error: "User not found" });
       await blockUser(req.userAddress, target);
+      // Existing Firebase subscriptions must lose access as soon as a block is
+      // created. New membership requests also check the block relationship.
+      await revokeFirebaseConversationMembers(req.userAddress, target);
       res.json({ ok: true, blocked: true });
     } catch (err) {
       console.error("block_user error:", err);
@@ -1720,6 +1704,7 @@ export function buildApp() {
   app.post("/api/presence/heartbeat", requireAuth, async (req, res) => {
     try {
       await upsertPresence(req.userAddress);
+      await writeFirebasePresence(req.userAddress);
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -1770,8 +1755,7 @@ export function buildApp() {
       if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
       const message = await updateMessageContent(req.params.id, req.userAddress, content);
       if (!message) return res.status(409).json({ error: "This message can no longer be edited. Messages can be edited for 15 minutes after sending." });
-      const conversationId = fbConvId(message.sender, message.receiver);
-      await firebaseWrite(`conversations/${conversationId}/messages/${message.id}`, message);
+      await publishMessageToFirebase(message);
       res.json(message);
     } catch (err) {
       console.error("edit_message error:", err);
@@ -1791,8 +1775,7 @@ export function buildApp() {
       if (attachmentKey) {
         deleteFromR2(attachmentKey).catch((err) => console.warn("Could not remove deleted message attachment:", err?.message));
       }
-      const conversationId = fbConvId(message.sender, message.receiver);
-      await firebaseWrite(`conversations/${conversationId}/messages/${message.id}`, message);
+      await publishMessageToFirebase(message);
       res.json(message);
     } catch (err) {
       console.error("delete_message error:", err);
@@ -1906,16 +1889,25 @@ export function buildApp() {
     }
   });
 
-  function publishMessageToFirebase(message) {
-    firebaseWrite(`conversations/${fbConvId(message.sender, message.receiver)}/messages/${message.id}`, {
-      id: message.id, sender: message.sender, receiver: message.receiver, content: message.content || "",
-      createdAt: message.createdAt, readAt: message.readAt || null,
-      attachmentUrl: message.attachmentUrl || null, attachmentKey: message.attachmentKey || null,
-      attachmentName: message.attachmentName || null, attachmentMime: message.attachmentMime || null,
-      attachmentSize: message.attachmentSize || null,
-      editedAt: message.editedAt || null, deletedAt: message.deletedAt || null, replyToMessageId: message.replyToMessageId || null,
-      ...(Array.isArray(message.reactions) ? { reactions: message.reactions } : {}),
-    });
+  async function publishMessageToFirebase(message) {
+    if (await isBlockedEitherWay(message.sender, message.receiver)) return false;
+    const membersReady = await ensureFirebaseConversationMembers(
+      message.sender,
+      message.receiver,
+    );
+    if (!membersReady) return false;
+    return firebaseWrite(
+      `conversations/${fbConvId(message.sender, message.receiver)}/messages/${message.id}`,
+      {
+        id: message.id, sender: message.sender, receiver: message.receiver, content: message.content || "",
+        createdAt: message.createdAt, readAt: message.readAt || null,
+        attachmentUrl: message.attachmentUrl || null, attachmentKey: message.attachmentKey || null,
+        attachmentName: message.attachmentName || null, attachmentMime: message.attachmentMime || null,
+        attachmentSize: message.attachmentSize || null,
+        editedAt: message.editedAt || null, deletedAt: message.deletedAt || null, replyToMessageId: message.replyToMessageId || null,
+        ...(Array.isArray(message.reactions) ? { reactions: message.reactions } : {}),
+      },
+    );
   }
 
   async function notifyMessageReceiver(receiver, sender, content) {
@@ -1924,6 +1916,43 @@ export function buildApp() {
     await createNotificationAndPush({ recipient: receiver, type: "message", actorAddress: sender, excerpt: preview.slice(0, 80) });
     fireEmailNotif({ type: "message", recipientAddress: receiver, actorAddress: sender, extra: { messagePreview: preview.slice(0, 200) } });
   }
+
+  // Prepare realtime membership for inbox/chat listeners. The helper only
+  // grants membership in conversation IDs that include the verified caller.
+  app.post("/api/conversations/realtime", requireAuth, async (req, res) => {
+    try {
+      const rawAddresses = req.body?.otherAddresses;
+      if (!Array.isArray(rawAddresses)) {
+        return res.status(400).json({ error: "otherAddresses must be an array" });
+      }
+      if (rawAddresses.length > 100) {
+        return res.status(400).json({ error: "No more than 100 conversations can be prepared at once" });
+      }
+      const addresses = [...new Set(rawAddresses
+        .filter((address) => typeof address === "string")
+        .map((address) => address.trim())
+        .filter((address) => address && address !== req.userAddress))];
+      const allowedAddresses = [];
+      for (const address of addresses) {
+        if (!(await isBlockedEitherWay(req.userAddress, address))) {
+          allowedAddresses.push(address);
+        }
+      }
+      const ok = await ensureFirebaseConversationMemberships(req.userAddress, allowedAddresses);
+      if (!ok) {
+        return res.status(503).json({ error: "Realtime conversation access is temporarily unavailable" });
+      }
+      res.set("Cache-Control", "private, no-store");
+      res.json({
+        ok: true,
+        prepared: allowedAddresses.length,
+        skipped: addresses.length - allowedAddresses.length,
+      });
+    } catch (err) {
+      console.error("prepare_realtime_conversations error:", err);
+      res.status(500).json({ error: "Could not prepare realtime conversations" });
+    }
+  });
 
   app.get("/api/conversations/pinned", requireAuth, async (req, res) => {
     try {
@@ -1995,7 +2024,9 @@ export function buildApp() {
         return res.status(403).json({ error: "Forbidden" });
       if (await isBlockedEitherWay(a, b))
         return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+      await ensureFirebaseConversationMembers(String(a), String(b));
       const messages = await getConversation(a, b);
+      res.set("Cache-Control", "private, no-store");
       res.json(messages);
     } catch (err) {
       console.error("get_conversation error:", err);
@@ -2025,6 +2056,7 @@ export function buildApp() {
             message.readAt,
           ]),
         );
+        await ensureFirebaseConversationMembers(req.userAddress, otherAddress);
         await firebasePatch("", readUpdates);
       }
       res.json({
@@ -2050,6 +2082,7 @@ export function buildApp() {
 
       const isTyping = req.body?.typing === true;
       await setMessageTyping(req.userAddress, otherAddress, isTyping);
+      await ensureFirebaseConversationMembers(req.userAddress, otherAddress);
 
       // Also publish to Realtime Database so the other open chat receives the
       // event immediately instead of waiting for a database polling interval.

@@ -5,6 +5,7 @@ import React, {
   useState,
   useCallback,
 } from "react";
+import { syncFirebaseAuth, clearFirebaseAuth } from "./firebase-auth.js";
 
 const STORAGE_KEY = "myworld_session";
 
@@ -101,6 +102,30 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // Firebase access is derived from the verified myWorld API session. Firebase
+  // listeners wait for syncFirebaseAuth before subscribing, so they never race
+  // the custom-token exchange.
+  useEffect(() => {
+    const apiToken = getAuthToken();
+    if (!user || !apiToken) {
+      clearFirebaseAuth().catch(() => {});
+      return;
+    }
+
+    let active = true;
+    syncFirebaseAuth(apiToken).catch((error) => {
+      if (active) {
+        console.warn(
+          "[firebase] realtime auth unavailable; API fallbacks remain active:",
+          error.message,
+        );
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
   const signUp = useCallback(async ({ username, email, password }) => {
     const { user, token } = await apiPost("/auth/signup", {
       username,
@@ -143,6 +168,7 @@ export function AuthProvider({ children }) {
   const signOut = useCallback(() => {
     saveCached(null);
     setUser(null);
+    clearFirebaseAuth().catch(() => {});
   }, []);
 
   const openAuthModal = useCallback((mode = "signin") => {
