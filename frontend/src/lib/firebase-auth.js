@@ -5,6 +5,7 @@ const API_ORIGIN = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 const firebaseAuth = getAuth(firebaseApp);
 
 let activeApiToken = null;
+let activeFirebaseUid = null;
 let sessionVersion = 0;
 let pendingPromise = null;
 let pendingApiToken = null;
@@ -18,9 +19,18 @@ export async function syncFirebaseAuth(apiToken) {
 
   if (activeApiToken !== apiToken) {
     activeApiToken = apiToken;
+    activeFirebaseUid = null;
     sessionVersion += 1;
     pendingPromise = null;
     pendingApiToken = null;
+  }
+
+  if (
+    activeFirebaseUid &&
+    firebaseAuth.currentUser?.uid === activeFirebaseUid &&
+    pendingApiToken !== apiToken
+  ) {
+    return true;
   }
 
   if (pendingPromise && pendingApiToken === apiToken) {
@@ -57,7 +67,9 @@ export async function syncFirebaseAuth(apiToken) {
       }
       return false;
     }
-    return firebaseAuth.currentUser?.uid === result.uid;
+    const authenticated = firebaseAuth.currentUser?.uid === result.uid;
+    if (authenticated) activeFirebaseUid = result.uid;
+    return authenticated;
   })();
 
   pendingPromise = currentPromise;
@@ -73,6 +85,7 @@ export async function syncFirebaseAuth(apiToken) {
 
 export async function clearFirebaseAuth() {
   activeApiToken = null;
+  activeFirebaseUid = null;
   sessionVersion += 1;
   pendingPromise = null;
   pendingApiToken = null;
