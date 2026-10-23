@@ -3,7 +3,10 @@
     "conversations": {
       "$conversationId": {
         ".read": "auth != null && root.child('conversationMembers').child($conversationId).child(auth.uid).val() === true",
-        ".write": false
+        ".write": false,
+        "messages": {
+          ".indexOn": ["createdAt"]
+        }
       }
     },
     "conversationMembers": {
