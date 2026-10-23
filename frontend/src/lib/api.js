@@ -249,11 +249,18 @@ export const uploadMessageAttachment = (receiver, file, content = "", onProgress
     xhr.onabort = () => reject(new Error("Attachment upload was cancelled"));
     xhr.send(form);
   });
-export const getConversation = (a, b) =>
-  request(
-    "GET",
-    `/conversation?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
-  );
+export const getConversation = (a, b, { limit = 100, beforeCreatedAt = null, beforeId = null } = {}) => {
+  const params = new URLSearchParams({
+    a,
+    b,
+    limit: String(limit),
+  });
+  if (beforeCreatedAt && beforeId) {
+    params.set("beforeCreatedAt", beforeCreatedAt);
+    params.set("beforeId", beforeId);
+  }
+  return request("GET", `/conversation?${params.toString()}`);
+};
 export const markConversationRead = (otherAddress) =>
   request("PUT", "/conversation/read", { otherAddress });
 export const setConversationTyping = (otherAddress, typing) =>

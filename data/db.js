@@ -941,15 +941,29 @@ export async function getMessages(address) {
   return rows.map(rowToMessage);
 }
 
-export async function getConversation(a, b) {
+export async function getConversation(a, b, { limit = 100, beforeCreatedAt = null, beforeId = null } = {}) {
+  const pageSize = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 100));
+  const params = [a, b];
+  let cursorClause = "";
+  if (beforeCreatedAt && beforeId) {
+    params.push(beforeCreatedAt, beforeId);
+    cursorClause = ` AND (m.created_at < $3 OR (m.created_at = $3 AND m.id::text < $4))`;
+  }
+  params.push(pageSize + 1);
+  const limitParam = `$${params.length}`;
   const { rows } = await pool.query(
     `SELECT m.*,
        COALESCE((SELECT json_agg(json_build_object('emoji', mr.emoji, 'userAddress', mr.user_address) ORDER BY mr.created_at)
                  FROM message_reactions mr WHERE mr.message_id = m.id), '[]'::json) AS reactions
-     FROM messages m WHERE (m.sender=$1 AND m.receiver=$2) OR (m.sender=$2 AND m.receiver=$1) ORDER BY m.created_at ASC`,
-    [a, b],
+     FROM messages m
+     WHERE ((m.sender=$1 AND m.receiver=$2) OR (m.sender=$2 AND m.receiver=$1))${cursorClause}
+     ORDER BY m.created_at DESC, m.id::text DESC
+     LIMIT ${limitParam}`,
+    params,
   );
-  return rows.map(rowToMessage);
+  const hasMore = rows.length > pageSize;
+  const messages = rows.slice(0, pageSize).reverse().map(rowToMessage);
+  return { messages, hasMore };
 }
 
 export async function saveMessage(message) {

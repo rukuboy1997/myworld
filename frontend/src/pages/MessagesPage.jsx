@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, query, orderByChild, limitToLast } from "firebase/database";
 import Layout from "../components/Layout.jsx";
 import {
   getMessages,
@@ -164,6 +164,7 @@ export default function MessagesPage() {
   const recordingLimitTimerRef = useRef(null);
   const [isLoadingConvos, setIsLoadingConvos] = useState(true);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
   const [conversationSearch, setConversationSearch] = useState("");
@@ -173,6 +174,10 @@ export default function MessagesPage() {
   const [typingByUser, setTypingByUser] = useState({});
   const messagesEndRef = useRef(null);
   const chatScrollRef = useRef(null);
+  const loadOlderMessagesRef = useRef(null);
+  const loadingOlderRef = useRef(false);
+  const hasOlderRef = useRef(false);
+  const pendingScrollAdjustmentRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const inputRef = useRef(null);
   const markReadTimerRef = useRef(null);
@@ -584,73 +589,118 @@ export default function MessagesPage() {
     if (!selectedUser || !wallet) return;
 
     shouldStickToBottomRef.current = true;
+    loadingOlderRef.current = false;
+    hasOlderRef.current = false;
+    pendingScrollAdjustmentRef.current = null;
     setIsLoadingChat(true);
+    setIsLoadingOlderMessages(false);
     setChatMessages([]);
     inputRef.current?.focus();
 
     const cId = fbConvId(wallet, selectedUser.address);
     const msgsRef = ref(firebaseDb, `conversations/${cId}/messages`);
 
-    // Mutable buckets shared between the DB load and the Firebase listener.
-    // Both must resolve before we render — this avoids a blank flash when
-    // Firebase fires before the DB fetch returns (or vice versa).
-    // `active` prevents stale async results from overwriting a newer conversation.
+    // Keep the latest page, previously loaded older pages, and realtime updates
+    // separate so a three-second refresh never discards history the user loaded.
     let active = true;
     let dbMsgs = [];
+    let olderMsgs = [];
     let fbMsgs = [];
     let dbDone = false;
     let fbDone = false;
     function mergeAndSet() {
       if (!active || !dbDone || !fbDone) return;
       const map = new Map();
-      // DB messages provide the complete historical record. Firebase may send
-      // partial updates (for example, a read receipt), so merge rather than
-      // replacing a complete DB message with an incomplete realtime payload.
-      dbMsgs.forEach((m) => map.set(m.id, m));
-      fbMsgs.forEach((m) => {
-        const previous = map.get(m.id) || {};
-        map.set(m.id, {
+      olderMsgs.forEach((message) => map.set(message.id, message));
+      dbMsgs.forEach((message) => map.set(message.id, { ...map.get(message.id), ...message }));
+      // Firebase may carry partial message objects; preserve the complete API copy.
+      fbMsgs.forEach((message) => {
+        const previous = map.get(message.id) || {};
+        map.set(message.id, {
           ...previous,
-          ...m,
-          id: m.id,
-          readAt: m.readAt ?? previous.readAt ?? null,
+          ...message,
+          id: message.id,
+          readAt: message.readAt ?? previous.readAt ?? null,
         });
       });
       const sorted = Array.from(map.values()).sort((a, b) =>
-        (a.createdAt || "").localeCompare(b.createdAt || ""),
+        (a.createdAt || "").localeCompare(b.createdAt || "") ||
+        String(a.id).localeCompare(String(b.id)),
       );
       setChatMessages(sorted);
       setIsLoadingChat(false);
     }
 
-    // Neon/Postgres is the source of truth. Load it first and keep polling as a
-    // fallback because Firebase client reads may be denied by production rules.
-    // This also refreshes readAt fields when the other participant reads messages.
     let refreshInFlight = false;
     const refreshFromDatabase = async () => {
       if (!active || refreshInFlight) return;
       refreshInFlight = true;
       try {
-        const msgs = await getConversation(wallet, selectedUser.address);
+        const page = await getConversation(wallet, selectedUser.address, { limit: 100 });
         if (!active) return;
+        const msgs = page?.messages || [];
         const previousIds = new Set(dbMsgs.map((message) => message.id));
-        dbMsgs = msgs || [];
+        dbMsgs = msgs;
+        // Once older pages are loaded, keep the cursor state from those pages;
+        // the latest-page response alone always hasMore when history exceeds 100.
+        if (olderMsgs.length === 0) {
+          hasOlderRef.current = Boolean(page?.hasMore);
+        }
         dbDone = true;
         mergeAndSet();
 
-        // Update the inbox preview only when the conversation gains a message,
-        // rather than reloading the sidebar on every receipt poll.
         if (dbMsgs.some((message) => !previousIds.has(message.id))) {
           loadConversations();
         }
       } catch {
-        // Keep the last known messages visible during transient API failures.
         dbDone = true;
         mergeAndSet();
       } finally {
         refreshInFlight = false;
       }
     };
+
+    const loadOlderMessages = async () => {
+      const history = chatScrollRef.current;
+      if (!active || !history || loadingOlderRef.current || !hasOlderRef.current) return;
+      const sortedCurrent = [...olderMsgs, ...dbMsgs, ...fbMsgs].sort((a, b) =>
+        (a.createdAt || "").localeCompare(b.createdAt || "") ||
+        String(a.id).localeCompare(String(b.id)),
+      );
+      const oldest = sortedCurrent[0];
+      if (!oldest?.createdAt || !oldest?.id) return;
+
+      loadingOlderRef.current = true;
+      setIsLoadingOlderMessages(true);
+      const previousHeight = history.scrollHeight;
+      const previousTop = history.scrollTop;
+      try {
+        const page = await getConversation(wallet, selectedUser.address, {
+          limit: 100,
+          beforeCreatedAt: oldest.createdAt,
+          beforeId: oldest.id,
+        });
+        if (!active) return;
+        const incoming = page?.messages || [];
+        if (incoming.length) {
+          const existing = new Set([...olderMsgs, ...dbMsgs, ...fbMsgs].map((message) => message.id));
+          olderMsgs = [...incoming.filter((message) => !existing.has(message.id)), ...olderMsgs];
+          pendingScrollAdjustmentRef.current = {
+            scrollHeight: previousHeight,
+            scrollTop: previousTop,
+          };
+        }
+        hasOlderRef.current = Boolean(page?.hasMore);
+        dbDone = true;
+        mergeAndSet();
+      } catch (error) {
+        console.warn("[messages] Could not load older history:", error?.message || error);
+      } finally {
+        loadingOlderRef.current = false;
+        if (active) setIsLoadingOlderMessages(false);
+      }
+    };
+    loadOlderMessagesRef.current = loadOlderMessages;
 
     // 1) Load history immediately, then refresh every 3 seconds. This keeps
     // incoming messages and read receipts current even when Firebase rules
@@ -678,7 +728,7 @@ export default function MessagesPage() {
         if (!active) return;
 
         unsubscribe = onValue(
-          msgsRef,
+          query(msgsRef, orderByChild("createdAt"), limitToLast(100)),
           (snapshot) => {
             const data = snapshot.val();
             fbMsgs = data
@@ -708,6 +758,7 @@ export default function MessagesPage() {
 
     return () => {
       active = false;
+      loadOlderMessagesRef.current = null;
       clearInterval(databasePoll);
       unsubscribe();
     };
@@ -766,11 +817,19 @@ export default function MessagesPage() {
     refreshUnreadCounts,
   ]);
 
-  // Keep the scroll inside the message history. scrollIntoView() can scroll
-  // the document itself, which moves the header when the keyboard or polling
-  // updates the history. Only follow new messages when the reader is at bottom.
+  // Restore the reader's exact viewport after older messages are prepended.
+  useLayoutEffect(() => {
+    const pending = pendingScrollAdjustmentRef.current;
+    const history = chatScrollRef.current;
+    if (!pending || !history) return;
+    history.scrollTop = pending.scrollTop + (history.scrollHeight - pending.scrollHeight);
+    pendingScrollAdjustmentRef.current = null;
+  }, [chatMessages]);
+
+  // Keep the scroll inside the message history. Only follow the bottom when
+  // the reader was already there; polling must not interrupt older-history reading.
   useEffect(() => {
-    if (!shouldStickToBottomRef.current) return;
+    if (!shouldStickToBottomRef.current || pendingScrollAdjustmentRef.current) return;
     const history = chatScrollRef.current;
     if (!history) return;
     const frame = window.requestAnimationFrame(() => {
@@ -1561,9 +1620,15 @@ export default function MessagesPage() {
                     const element = event.currentTarget;
                     shouldStickToBottomRef.current =
                       element.scrollHeight - element.scrollTop - element.clientHeight < 120;
+                    if (element.scrollTop < 80) loadOlderMessagesRef.current?.();
                   }}
                   className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 md:px-6 py-4 flex flex-col custom-scrollbar"
                 >
+                  {isLoadingOlderMessages && (
+                    <div className="py-2 text-center text-xs text-muted-foreground" role="status">
+                      Loading older messages…
+                    </div>
+                  )}
                   {isLoadingChat ? (
                     <div className="flex-1 flex items-center justify-center">
                       <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
