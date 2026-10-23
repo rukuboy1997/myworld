@@ -436,6 +436,19 @@ export default function MessagesPage() {
     };
   }, [selectedUser?.address, isAuthenticated, wallet]);
 
+  // Collect conversation partners for the typing subscriptions and API fallback.
+  // Keep the target list stable so the effects only restart when conversations change.
+  const typingTargetAddresses = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...conversations.map((conversation) => conversation.address),
+          selectedUser?.address,
+        ].filter(Boolean)),
+      ).slice(0, 100),
+    [conversations, selectedUser?.address],
+  );
+
   // Every conversation row subscribes to its partner's typing state.
   // Wait for Firebase authentication and server-side membership preparation
   // before attaching listeners, so permission-denied subscriptions do not race.
