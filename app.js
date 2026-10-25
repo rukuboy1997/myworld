@@ -71,6 +71,8 @@ import {
   getBatchPresence,
   getUserByAddress,
   getMembershipSubscription,
+  recordMediaUsage,
+  getMediaUsageSummary,
   saveReport,
   blockUser,
   unblockUser,
@@ -381,6 +383,25 @@ export function buildApp() {
 
   // Membership details are always resolved by the API. A client cannot
   // grant itself a paid plan by changing local state or request parameters.
+  app.get("/api/membership/usage", requireAuth, resolveMembershipPlan, async (req, res) => {
+    try {
+      const usage = await getMediaUsageSummary(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json({
+        usedBytes: usage.usedBytes,
+        storageLimitBytes: req.membershipPlan.storageBytes,
+        remainingBytes: Math.max(0, req.membershipPlan.storageBytes - usage.usedBytes),
+        objectCount: usage.objectCount,
+        counts: usage.counts,
+        planId: req.membershipPlan.id,
+        accountingScope: "media uploaded after usage accounting was enabled",
+      });
+    } catch (err) {
+      console.error("[membership] failed to load media usage:", err);
+      res.status(500).json({ error: "Could not load media usage" });
+    }
+  });
+
   app.get("/api/membership/me", requireAuth, async (req, res) => {
     try {
       const subscription = await getMembershipSubscription(req.userAddress);
@@ -830,6 +851,20 @@ export function buildApp() {
           mediaMime,
           audience,
         });
+        if (mediaKey && req.file) {
+          try {
+            await recordMediaUsage({
+              id: uuidv4(),
+              userAddress: req.userAddress,
+              objectKey: mediaKey,
+              category: "status",
+              mediaType,
+              sizeBytes: req.file.size,
+            });
+          } catch (usageErr) {
+            console.error("[membership] status media usage recording failed:", usageErr);
+          }
+        }
         res.status(201).json({ status });
       } catch (err) {
         console.error("create_status error:", err);
@@ -953,6 +988,20 @@ export function buildApp() {
           isDeleted: false,
           createdAt: new Date().toISOString(),
         });
+        if (mediaKey && req.file) {
+          try {
+            await recordMediaUsage({
+              id: uuidv4(),
+              userAddress: effectiveOwner,
+              objectKey: mediaKey,
+              category: "post",
+              mediaType,
+              sizeBytes: req.file.size,
+            });
+          } catch (usageErr) {
+            console.error("[membership] post media usage recording failed:", usageErr);
+          }
+        }
         res.json(saved);
       } catch (err) {
         console.error("create_post error:", err);
