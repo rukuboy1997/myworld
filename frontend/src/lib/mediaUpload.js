@@ -87,9 +87,7 @@ export async function uploadPostMediaDirectly(file, onUploadProgress) {
     "The server could not verify the uploaded media",
   );
   if (completed.status !== "completed" && completed.completed !== true) {
-    // Accept only the documented successful completion shapes; do not publish
-    // against a merely pending intent.
-    if (!completed.ok) throw new Error("Media upload verification did not complete.");
+    throw new Error("Media upload verification did not complete.");
   }
 
   if (onUploadProgress) onUploadProgress(1);
