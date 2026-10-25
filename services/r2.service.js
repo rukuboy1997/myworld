@@ -1,3 +1,5 @@
+import { createHash, createHmac } from "node:crypto";
+
 /**
  * Cloudflare R2 storage service.
  * Uses the Cloudflare REST API with a CF API Token.
@@ -140,9 +142,6 @@ export function sniffMime(buf) {
   return null;
 }
 
-import { createHash, createHmac } from "node:crypto";
-
-
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || "";
 const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || "";
 const AWS_REGION = "auto";
@@ -188,7 +187,7 @@ export function createPresignedR2Upload({
   if (!key || typeof key !== "string" || key.startsWith("/") || key.includes("..")) {
     throw new Error("A safe R2 object key is required");
   }
-  if (!contentType || typeof contentType !== "string" || /[\\r\\n]/.test(contentType)) {
+  if (!contentType || typeof contentType !== "string" || /[\r\n]/.test(contentType)) {
     throw new Error("A valid content type is required");
   }
   if (!Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > 900) {
@@ -202,7 +201,7 @@ export function createPresignedR2Upload({
   }
 
   const host = accountId + ".r2.cloudflarestorage.com";
-  const date = now.toISOString().replace(/[:-]|\\.\\d{3}/g, "");
+  const date = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
   const shortDate = date.slice(0, 8);
   const scope = shortDate + "/" + AWS_REGION + "/" + AWS_SERVICE + "/aws4_request";
   const canonicalUri = "/" + awsEncode(bucket) + "/" + encodeObjectKey(key);
@@ -218,7 +217,7 @@ export function createPresignedR2Upload({
     .sort()
     .map((name) => awsEncode(name) + "=" + awsEncode(query[name]))
     .join("&");
-  const canonicalHeaders = "content-type:" + contentType.trim() + "\\n" + "host:" + host + "\\n";
+  const canonicalHeaders = "content-type:" + contentType.trim() + "\n" + "host:" + host + "\n";
   const canonicalRequest = [
     "PUT",
     canonicalUri,
@@ -226,13 +225,13 @@ export function createPresignedR2Upload({
     canonicalHeaders,
     signedHeaders,
     "UNSIGNED-PAYLOAD",
-  ].join("\\n");
+  ].join("\n");
   const stringToSign = [
     "AWS4-HMAC-SHA256",
     date,
     scope,
     sha256Hex(canonicalRequest),
-  ].join("\\n");
+  ].join("\n");
   const kDate = hmac("AWS4" + secretAccessKey, shortDate);
   const kRegion = hmac(kDate, AWS_REGION);
   const kService = hmac(kRegion, AWS_SERVICE);
