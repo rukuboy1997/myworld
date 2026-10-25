@@ -306,10 +306,29 @@ export function buildApp() {
   const COMMENT_CONTENT_MAX_LENGTH = 1000;
   const MESSAGE_CONTENT_MAX_LENGTH = 2000;
 
+  // Keep the API's existing in-memory safety ceiling. Larger paid-tier media
+  // will be enabled after direct-to-R2 uploads replace memory-buffered uploads.
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 50 * 1024 * 1024 },
   });
+
+  async function resolveMembershipPlan(req, res, next) {
+    try {
+      const subscription = await getMembershipSubscription(req.userAddress);
+      const entitled = isMembershipEntitled(subscription ? {
+        status: subscription.status,
+        currentPeriodEnd: subscription.current_period_end,
+      } : null);
+      req.membershipPlan = getPublicMembershipPlan(
+        entitled ? subscription.plan_id : "free",
+      );
+      next();
+    } catch (err) {
+      console.error("[membership] failed to resolve upload limits:", err);
+      res.status(500).json({ error: "Could not verify membership upload limits" });
+    }
+  }
 
   // CORS
   // myWorld is a browser + WebView application, so the API intentionally
@@ -739,6 +758,7 @@ export function buildApp() {
   app.post(
     "/api/statuses",
     requireAuth,
+    resolveMembershipPlan,
     upload.single("media"),
     async (req, res) => {
       try {
@@ -782,10 +802,16 @@ export function buildApp() {
           // Keep the actual detected type when a mobile picker supplies a
           // generic MIME type, so browsers can play the uploaded status.
           if (!declaredType && detectedType) mediaMime = sniffed;
-          const maxBytes = mediaType === "video" ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+          const maxBytes = mediaType === "video"
+            ? req.membershipPlan.maxVideoBytes
+            : req.membershipPlan.maxImageBytes;
           if (req.file.size > maxBytes) {
-            return res.status(400).json({
-              error: mediaType === "video" ? "Status videos must be 25 MB or smaller" : "Status images must be 10 MB or smaller",
+            const maxMiB = Math.floor(maxBytes / (1024 * 1024));
+            return res.status(413).json({
+              error: `Your ${req.membershipPlan.name} plan allows status ${mediaType} files up to ${maxMiB} MiB`,
+              code: "MEMBERSHIP_MEDIA_SIZE_LIMIT",
+              planId: req.membershipPlan.id,
+              maxBytes,
             });
           }
           const ext = mediaMime.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || (mediaType === "video" ? "mp4" : "jpg");
@@ -861,6 +887,7 @@ export function buildApp() {
   app.post(
     "/api/post",
     requireAuth,
+    resolveMembershipPlan,
     upload.single("media"),
     async (req, res) => {
       try {
@@ -896,6 +923,18 @@ export function buildApp() {
             return res
               .status(400)
               .json({ error: "Only image/* or video/* media is allowed" });
+          }
+          const maxBytes = mediaType === "video"
+            ? req.membershipPlan.maxVideoBytes
+            : req.membershipPlan.maxImageBytes;
+          if (req.file.size > maxBytes) {
+            const maxMiB = Math.floor(maxBytes / (1024 * 1024));
+            return res.status(413).json({
+              error: `Your ${req.membershipPlan.name} plan allows post ${mediaType} files up to ${maxMiB} MiB`,
+              code: "MEMBERSHIP_MEDIA_SIZE_LIMIT",
+              planId: req.membershipPlan.id,
+              maxBytes,
+            });
           }
           const ext = mediaMime.split("/")[1]?.replace("+xml", "") || "bin";
           mediaKey = `posts/${uuidv4()}.${ext}`;
