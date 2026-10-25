@@ -81,6 +81,7 @@ import {
   getMediaUsageSummary,
   createMediaUploadIntent,
   getMediaUploadIntent,
+  claimCompletedMediaUploadIntent,
   getAbandonedMediaUploadIntents,
   deleteCleanedMediaUploadIntents,
   completeMediaUploadIntent,
@@ -1247,6 +1248,30 @@ export function buildApp() {
           mediaUrl = null,
           mediaType = null,
           mediaMime = null;
+        const mediaIntentId = req.body?.mediaIntentId;
+        if (mediaIntentId && req.file) {
+          return res.status(400).json({ error: "Provide either a direct-upload intent or a buffered media file, not both" });
+        }
+        if (mediaIntentId) {
+          if (process.env.ENABLE_DIRECT_R2_UPLOADS !== "true") {
+            return res.status(503).json({ error: "Direct uploads are not enabled yet" });
+          }
+          if (!/^[0-9a-f-]{36}$/i.test(String(mediaIntentId))) {
+            return res.status(400).json({ error: "Invalid media upload intent ID" });
+          }
+          const claimed = await claimCompletedMediaUploadIntent({
+            id: String(mediaIntentId),
+            userAddress: effectiveOwner,
+            category: "post",
+          });
+          if (!claimed) {
+            return res.status(409).json({ error: "This verified upload is unavailable, already attached, or not intended for a post" });
+          }
+          mediaKey = claimed.object_key;
+          mediaUrl = r2MediaUrl(mediaKey);
+          mediaType = claimed.media_type;
+          mediaMime = claimed.content_type;
+        }
         if (req.file) {
           mediaMime = req.file.mimetype;
           mediaType = detectMediaType(mediaMime);
