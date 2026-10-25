@@ -72,3 +72,33 @@ test("media signatures must match the reserved content type", () => {
   assert.equal(matchesR2UploadSignature("video/webm", Buffer.from("not a video file")), false);
   assert.equal(matchesR2UploadSignature("image/png", null), false);
 });
+
+import { parseVideoDurationSeconds } from "../services/video-duration.service.js";
+
+function makeMvhdV0(seconds, timescale = 1000) {
+  const box = Buffer.alloc(28);
+  box.writeUInt32BE(28, 0);
+  box.write("mvhd", 4, "ascii");
+  box.writeUInt32BE(timescale, 20);
+  box.writeUInt32BE(seconds * timescale, 24);
+  return box;
+}
+
+test("parses MP4/QuickTime duration from bounded mvhd metadata", () => {
+  assert.equal(parseVideoDurationSeconds("video/mp4", [makeMvhdV0(42)]), 42);
+  assert.equal(parseVideoDurationSeconds("video/quicktime", [makeMvhdV0(90, 1000)]), 90);
+});
+
+test("parses WebM duration and default timecode scale", () => {
+  const duration = Buffer.alloc(7);
+  duration[0] = 0x44; duration[1] = 0x89; duration[2] = 0x84;
+  duration.writeFloatBE(12500, 3);
+  assert.equal(parseVideoDurationSeconds("video/webm", [duration]), 12.5);
+});
+
+test("fails closed for unsupported, absent, or malformed duration metadata", () => {
+  assert.equal(parseVideoDurationSeconds("video/mp4", [Buffer.from("no duration here")]), null);
+  assert.equal(parseVideoDurationSeconds("video/webm", []), null);
+  assert.equal(parseVideoDurationSeconds("video/avi", [makeMvhdV0(3)]), null);
+  assert.equal(parseVideoDurationSeconds("video/mp4", [Buffer.from("mvhd")]), null);
+});
