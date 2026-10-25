@@ -390,6 +390,28 @@ CREATE INDEX IF NOT EXISTS idx_media_usage_user_size
   WHERE deleted_at IS NULL;
 
 
+/* Direct-to-R2 upload reservations. Pending intents reserve storage and count
+   toward upload-rate limits until completed or expired. */
+CREATE TABLE IF NOT EXISTS media_upload_intents (
+  id TEXT PRIMARY KEY,
+  user_address TEXT NOT NULL REFERENCES users(address) ON DELETE CASCADE,
+  object_key TEXT NOT NULL UNIQUE,
+  media_category TEXT NOT NULL CHECK (media_category IN ('post', 'status', 'message', 'avatar', 'banner')),
+  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  content_type TEXT NOT NULL,
+  expected_bytes BIGINT NOT NULL CHECK (expected_bytes > 0),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'expired', 'canceled')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_media_upload_intents_user_pending
+  ON media_upload_intents (user_address, expires_at)
+  WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_media_upload_intents_user_created
+  ON media_upload_intents (user_address, created_at DESC);
+
+
 
 
 `;
@@ -2373,6 +2395,81 @@ export async function getMediaUsageSummary(userAddress) {
   };
 }
 
+
+/**
+ * Atomically reserve a direct upload against the user's current storage and
+ * upload-count limits. The advisory transaction lock serializes reservations
+ * for one user so concurrent requests cannot oversubscribe quotas.
+ */
+export async function createMediaUploadIntent({
+  id, userAddress, objectKey, category, mediaType, contentType, sizeBytes,
+  storageLimitBytes, uploadsPerDay, uploadsPerMonth, expiresInSeconds = 300,
+}) {
+  const allowedCategories = ["post", "status", "message", "avatar", "banner"];
+  if (!id || !userAddress || !objectKey ||
+      !allowedCategories.includes(category) ||
+      !["image", "video"].includes(mediaType) ||
+      typeof contentType !== "string" || !contentType ||
+      !Number.isSafeInteger(sizeBytes) || sizeBytes < 1 ||
+      !Number.isSafeInteger(storageLimitBytes) || storageLimitBytes < 1 ||
+      !Number.isSafeInteger(uploadsPerDay) || uploadsPerDay < 1 ||
+      !Number.isSafeInteger(uploadsPerMonth) || uploadsPerMonth < 1 ||
+      !Number.isInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > 900) {
+    throw new TypeError("Invalid media upload reservation");
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [userAddress]);
+    await client.query(
+      "UPDATE media_upload_intents SET status = 'expired' WHERE user_address = $1 AND status = 'pending' AND expires_at <= NOW()",
+      [userAddress],
+    );
+    const { rows: quotaRows } = await client.query(
+      `SELECT
+         COALESCE((SELECT SUM(size_bytes) FROM media_usage_events WHERE user_address = $1 AND deleted_at IS NULL), 0)::text AS used_bytes,
+         COALESCE((SELECT SUM(expected_bytes) FROM media_upload_intents WHERE user_address = $1 AND status = 'pending' AND expires_at > NOW()), 0)::text AS reserved_bytes,
+         ((SELECT COUNT(*) FROM media_usage_events WHERE user_address = $1 AND deleted_at IS NULL AND created_at >= date_trunc('day', NOW())) +
+          (SELECT COUNT(*) FROM media_upload_intents WHERE user_address = $1 AND status = 'pending' AND expires_at > NOW() AND created_at >= date_trunc('day', NOW())))::int AS day_count,
+         ((SELECT COUNT(*) FROM media_usage_events WHERE user_address = $1 AND deleted_at IS NULL AND created_at >= date_trunc('month', NOW())) +
+          (SELECT COUNT(*) FROM media_upload_intents WHERE user_address = $1 AND status = 'pending' AND expires_at > NOW() AND created_at >= date_trunc('month', NOW())))::int AS month_count`,
+      [userAddress],
+    );
+    const quota = quotaRows[0];
+    const usedAndReserved = Number(quota.used_bytes || 0) + Number(quota.reserved_bytes || 0);
+    if (usedAndReserved + sizeBytes > storageLimitBytes) {
+      const error = new Error("Storage limit exceeded");
+      error.code = "MEDIA_STORAGE_LIMIT";
+      throw error;
+    }
+    if (quota.day_count >= uploadsPerDay) {
+      const error = new Error("Daily upload limit reached");
+      error.code = "MEDIA_DAILY_LIMIT";
+      throw error;
+    }
+    if (quota.month_count >= uploadsPerMonth) {
+      const error = new Error("Monthly upload limit reached");
+      error.code = "MEDIA_MONTHLY_LIMIT";
+      throw error;
+    }
+
+    const { rows } = await client.query(
+      `INSERT INTO media_upload_intents
+         (id, user_address, object_key, media_category, media_type, content_type, expected_bytes, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW() + ($8 * INTERVAL '1 second'))
+       RETURNING id, object_key, media_category, media_type, content_type, expected_bytes, status, expires_at, created_at`,
+      [id, userAddress, objectKey, category, mediaType, contentType, sizeBytes, expiresInSeconds],
+    );
+    await client.query("COMMIT");
+    return rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 export async function markMediaUsageDeleted(objectKeys) {
   const keys = [...new Set((Array.isArray(objectKeys) ? objectKeys : [objectKeys]).filter((key) => typeof key === "string" && key.length))];
