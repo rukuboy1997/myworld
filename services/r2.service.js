@@ -132,6 +132,28 @@ export async function getR2ObjectPrefix(key, byteCount = 64) {
 }
 
 /**
+ * Read a bounded byte range from an R2 object. Never downloads the whole object.
+ * Returns null for missing objects and fails closed if the provider ignores Range.
+ */
+export async function getR2ObjectRange(key, start, end) {
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end - start > 4 * 1024 * 1024 - 1) {
+    throw new Error("Invalid or oversized R2 byte range");
+  }
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error("R2 not configured");
+  const res = await fetch(r2ObjectUrl(key), {
+    headers: { Authorization: `Bearer ${CF_API_TOKEN}`, Range: `bytes=${start}-${end}` },
+  });
+  if (res.status === 404) return null;
+  if (res.status !== 206) {
+    if (res.body) await res.body.cancel().catch(() => {});
+    throw new Error(`R2 did not honor the video metadata range request (${res.status})`);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.length > end - start + 1) throw new Error("R2 returned more bytes than requested");
+  return buffer;
+}
+
+/**
  * Stream an object from R2 — used by the /api/media/:key proxy endpoint.
  * Returns the raw fetch Response so the caller can pipe headers + body.
  */
