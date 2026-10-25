@@ -9,7 +9,9 @@ import {
   createPresignedR2Upload,
   getFromR2,
   getR2ObjectMetadata,
+  getR2ObjectPrefix,
   matchesR2UploadMetadata,
+  matchesR2UploadSignature,
   r2MediaUrl,
   sniffMime,
 } from "./services/r2.service.js";
@@ -557,6 +559,22 @@ export function buildApp() {
           actualBytes: metadata.sizeBytes,
           expectedContentType: expectedType,
           actualContentType: metadata.contentType,
+        });
+      }
+
+      // Inspect real file bytes through a bounded Range request, never a full download.
+      const prefix = await getR2ObjectPrefix(intent.object_key, 64);
+      if (!prefix || !matchesR2UploadSignature(expectedType, prefix)) {
+        await pool.query(
+          "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
+          [intentId, req.userAddress],
+        );
+        await deleteFromR2(intent.object_key).catch((deleteError) => {
+          console.error("[media-upload] failed to remove invalid-signature R2 object:", deleteError.message);
+        });
+        return res.status(422).json({
+          error: "Uploaded file bytes do not match the declared media type",
+          expectedContentType: expectedType,
         });
       }
 
