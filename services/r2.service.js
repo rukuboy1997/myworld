@@ -78,6 +78,33 @@ export async function deleteFromR2(key) {
 }
 
 /**
+ * Read R2 object metadata without buffering the media body in application
+ * memory. The stream is canceled immediately after response headers arrive.
+ */
+export async function getR2ObjectMetadata(key) {
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
+    throw new Error("R2 not configured");
+  }
+  const url = r2ObjectUrl(key);
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${CF_API_TOKEN}` },
+  });
+  if (!res.ok) {
+    if (res.status === 404) return null;
+    throw new Error(`R2 metadata lookup failed (${res.status})`);
+  }
+  const metadata = {
+    sizeBytes: Number(res.headers.get("content-length")),
+    contentType: (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase(),
+  };
+  if (res.body) await res.body.cancel().catch(() => {});
+  if (!Number.isSafeInteger(metadata.sizeBytes) || metadata.sizeBytes < 0) {
+    throw new Error("R2 did not return a valid object size");
+  }
+  return metadata;
+}
+
+/**
  * Stream an object from R2 — used by the /api/media/:key proxy endpoint.
  * Returns the raw fetch Response so the caller can pipe headers + body.
  */
@@ -104,6 +131,18 @@ export function r2MediaUrl(key) {
   if (!key) return null;
   if (CF_R2_PUBLIC_BASE) return `${CF_R2_PUBLIC_BASE}/${key}`;
   return `${BACKEND_URL}/api/media/${key}`;
+}
+
+/** Compare authoritative R2 response metadata with a reserved upload intent. */
+export function matchesR2UploadMetadata({ expectedBytes, expectedContentType }, metadata) {
+  return Boolean(
+    metadata &&
+    Number.isSafeInteger(expectedBytes) &&
+    expectedBytes > 0 &&
+    metadata.sizeBytes === expectedBytes &&
+    typeof expectedContentType === "string" &&
+    metadata.contentType === expectedContentType.toLowerCase()
+  );
 }
 
 /**
