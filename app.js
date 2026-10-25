@@ -516,7 +516,7 @@ export function buildApp() {
     }
   });
 
-  app.post("/api/media/upload-intents/:intentId/complete", requireAuth, async (req, res) => {
+  app.post("/api/media/upload-intents/:intentId/complete", requireAuth, resolveMembershipPlan, async (req, res) => {
     if (process.env.ENABLE_DIRECT_R2_UPLOADS !== "true") {
       return res.status(503).json({ error: "Direct uploads are not enabled yet" });
     }
