@@ -39,3 +39,48 @@ test("media upload limits follow the server-authoritative membership plan", () =
   assert.equal(getMediaSizeLimit("unknown-plan", "image"), 10 * 1024 * 1024);
   assert.equal(getMediaSizeLimit("elite", "audio"), null);
 });
+
+
+import { createPresignedR2Upload } from "../services/r2.service.js";
+
+test("R2 presigned upload URLs are short-lived and bind the content type", () => {
+  const result = createPresignedR2Upload({
+    key: "posts/user-1/hello world.jpg",
+    contentType: "image/jpeg",
+    expiresIn: 300,
+    now: new Date("2026-10-25T12:34:56.000Z"),
+    credentials: {
+      accountId: "account123",
+      bucket: "myworld",
+      accessKeyId: "test-access",
+      secretAccessKey: "test-secret",
+    },
+  });
+
+  assert.match(result.url, /^https:\/\/account123\.r2\.cloudflarestorage\.com\/myworld\/posts\/user-1\/hello%20world\.jpg\?/);
+  assert.match(result.url, /X-Amz-Algorithm=AWS4-HMAC-SHA256/);
+  assert.match(result.url, /X-Amz-Expires=300/);
+  assert.match(result.url, /X-Amz-SignedHeaders=content-type%3Bhost/);
+  assert.match(result.url, /X-Amz-Signature=[a-f0-9]{64}$/);
+  assert.deepEqual(result.requiredHeaders, { "Content-Type": "image/jpeg" });
+  assert.equal(result.key, "posts/user-1/hello world.jpg");
+});
+
+test("R2 presigned upload URL rejects unsafe inputs and missing credentials", () => {
+  const credentials = {
+    accountId: "account123",
+    bucket: "myworld",
+    accessKeyId: "test-access",
+    secretAccessKey: "test-secret",
+  };
+  assert.throws(() => createPresignedR2Upload({
+    key: "../private.txt", contentType: "text/plain", credentials,
+  }), /safe R2 object key/);
+  assert.throws(() => createPresignedR2Upload({
+    key: "posts/a.jpg", contentType: "image/jpeg", expiresIn: 901, credentials,
+  }), /expiry must be between/);
+  assert.throws(() => createPresignedR2Upload({
+    key: "posts/a.jpg", contentType: "image/jpeg",
+    credentials: { accountId: "account123", bucket: "myworld" },
+  }), /not configured/);
+});
