@@ -403,8 +403,12 @@ CREATE TABLE IF NOT EXISTS media_upload_intents (
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'expired', 'canceled')),
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  completed_at TIMESTAMPTZ
+  completed_at TIMESTAMPTZ,
+  attached_at TIMESTAMPTZ,
+  attached_to TEXT
 );
+ALTER TABLE media_upload_intents ADD COLUMN IF NOT EXISTS attached_at TIMESTAMPTZ;
+ALTER TABLE media_upload_intents ADD COLUMN IF NOT EXISTS attached_to TEXT;
 CREATE INDEX IF NOT EXISTS idx_media_upload_intents_user_pending
   ON media_upload_intents (user_address, expires_at)
   WHERE status = 'pending';
@@ -2576,6 +2580,41 @@ export async function completeMediaUploadIntent({ id, userAddress, actualSizeByt
   } finally {
     client.release();
   }
+}
+
+/**
+ * Atomically claim a completed upload for one destination record. A verified
+ * object can only be attached once and only to its original owner's category.
+ */
+export async function claimCompletedMediaUploadIntent({ id, userAddress, category, attachmentId }) {
+  const { rows } = await pool.query(
+    `UPDATE media_upload_intents
+     SET attached_at = NOW(), attached_to = $4
+     WHERE id = $1 AND user_address = $2 AND media_category = $3
+       AND status = 'completed' AND attached_at IS NULL AND attached_to IS NULL
+     RETURNING object_key, media_type, content_type, expected_bytes`,
+    [id, userAddress, category, attachmentId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    objectKey: row.object_key,
+    mediaType: row.media_type,
+    contentType: row.content_type,
+    sizeBytes: Number(row.expected_bytes),
+  };
+}
+
+/** Release a claim only when the matching destination write failed. */
+export async function releaseMediaUploadIntentClaim({ id, userAddress, attachmentId }) {
+  const { rowCount } = await pool.query(
+    `UPDATE media_upload_intents
+     SET attached_at = NULL, attached_to = NULL
+     WHERE id = $1 AND user_address = $2 AND status = 'completed'
+       AND attached_to = $3`,
+    [id, userAddress, attachmentId],
+  );
+  return rowCount || 0;
 }
 
 export async function markMediaUsageDeleted(objectKeys) {

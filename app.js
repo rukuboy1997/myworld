@@ -81,6 +81,8 @@ import {
   getMediaUsageSummary,
   createMediaUploadIntent,
   getMediaUploadIntent,
+  claimCompletedMediaUploadIntent,
+  releaseMediaUploadIntentClaim,
   getAbandonedMediaUploadIntents,
   deleteCleanedMediaUploadIntents,
   completeMediaUploadIntent,
@@ -1229,39 +1231,57 @@ export function buildApp() {
     resolveMembershipPlan,
     upload.single("media"),
     async (req, res) => {
+      let claimedIntentId = null;
+      let claimedPostId = null;
       try {
         const title = normalizeTextInput(req.body?.title);
         const content = normalizeTextInput(req.body?.content);
         if (!title || !content)
           return res.status(400).json({ error: "title and content required" });
         if (title.length > POST_TITLE_MAX_LENGTH)
-          return res
-            .status(400)
-            .json({ error: tooLongError("title", POST_TITLE_MAX_LENGTH) });
+          return res.status(400).json({ error: tooLongError("title", POST_TITLE_MAX_LENGTH) });
         if (content.length > POST_CONTENT_MAX_LENGTH)
-          return res
-            .status(400)
-            .json({ error: tooLongError("content", POST_CONTENT_MAX_LENGTH) });
+          return res.status(400).json({ error: tooLongError("content", POST_CONTENT_MAX_LENGTH) });
+
         const effectiveOwner = req.userAddress;
-        let mediaKey = null,
-          mediaUrl = null,
-          mediaType = null,
-          mediaMime = null;
-        if (req.file) {
+        const mediaIntentId = typeof req.body?.mediaIntentId === "string"
+          ? req.body.mediaIntentId.trim()
+          : "";
+        if (req.file && mediaIntentId) {
+          return res.status(400).json({ error: "Send either a buffered media file or a verified media intent, not both" });
+        }
+
+        let mediaKey = null, mediaUrl = null, mediaType = null, mediaMime = null;
+        if (mediaIntentId) {
+          if (process.env.ENABLE_DIRECT_R2_UPLOADS !== "true") {
+            return res.status(503).json({ error: "Direct uploads are not enabled yet" });
+          }
+          if (!/^[0-9a-f-]{36}$/i.test(mediaIntentId)) {
+            return res.status(400).json({ error: "Invalid media upload intent ID" });
+          }
+          claimedPostId = uuidv4();
+          const claimed = await claimCompletedMediaUploadIntent({
+            id: mediaIntentId,
+            userAddress: effectiveOwner,
+            category: "post",
+            attachmentId: claimedPostId,
+          });
+          if (!claimed) {
+            return res.status(409).json({ error: "This verified upload is unavailable, already attached, or not a completed post upload" });
+          }
+          claimedIntentId = mediaIntentId;
+          mediaKey = claimed.objectKey;
+          mediaUrl = r2MediaUrl(mediaKey);
+          mediaType = claimed.mediaType;
+          mediaMime = claimed.contentType;
+        } else if (req.file) {
           mediaMime = req.file.mimetype;
           mediaType = detectMediaType(mediaMime);
           if (!mediaType)
-            return res
-              .status(400)
-              .json({ error: "Only image/* or video/* media is allowed" });
+            return res.status(400).json({ error: "Only image/* or video/* media is allowed" });
           const sniffed = sniffMime(req.file.buffer);
-          if (
-            sniffed &&
-            !["image/", "video/"].some((p) => sniffed.startsWith(p))
-          ) {
-            return res
-              .status(400)
-              .json({ error: "Only image/* or video/* media is allowed" });
+          if (sniffed && !["image/", "video/"].some((p) => sniffed.startsWith(p))) {
+            return res.status(400).json({ error: "Only image/* or video/* media is allowed" });
           }
           const maxBytes = mediaType === "video"
             ? req.membershipPlan.maxVideoBytes
@@ -1280,8 +1300,10 @@ export function buildApp() {
           const r2 = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
           mediaUrl = r2.url;
         }
+
+        const postId = claimedPostId || uuidv4();
         const saved = await savePost({
-          id: uuidv4(),
+          id: postId,
           mediaBlobId: mediaKey,
           mediaUrl,
           mediaType,
@@ -1308,8 +1330,17 @@ export function buildApp() {
         }
         res.json(saved);
       } catch (err) {
+        if (claimedIntentId && claimedPostId) {
+          await releaseMediaUploadIntentClaim({
+            id: claimedIntentId,
+            userAddress: req.userAddress,
+            attachmentId: claimedPostId,
+          }).catch((releaseError) => {
+            console.error("[media-upload] failed to release intent claim:", releaseError.message);
+          });
+        }
         console.error("create_post error:", err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message || "Failed to create post" });
       }
     },
   );
