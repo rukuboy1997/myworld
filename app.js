@@ -73,6 +73,7 @@ import {
   getMembershipSubscription,
   recordMediaUsage,
   getMediaUsageSummary,
+  markMediaUsageDeleted,
   saveReport,
   blockUser,
   unblockUser,
@@ -757,6 +758,10 @@ export function buildApp() {
         deletableIds.push(status.id);
       }
       const deleted = await deleteExpiredStatusIds(deletableIds);
+      const expiredMediaKeys = expired
+        .filter((status) => deletableIds.includes(status.id) && status.media_key)
+        .map((status) => status.media_key);
+      if (expiredMediaKeys.length) await markMediaUsageDeleted(expiredMediaKeys);
       res.json({ ok: true, scanned: expired.length, deleted, mediaFailures });
     } catch (err) {
       console.error("status_cleanup error:", err);
@@ -1071,6 +1076,7 @@ export function buildApp() {
         return res.status(403).json({ error: "Forbidden" });
       const updated = await updatePost(req.params.id, { isDeleted: true });
       if (!updated) return res.status(404).json({ error: "Not found" });
+      if (post.mediaBlobId) await markMediaUsageDeleted(post.mediaBlobId);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
