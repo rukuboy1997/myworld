@@ -80,6 +80,8 @@ import {
   getMediaUsageSummary,
   createMediaUploadIntent,
   getMediaUploadIntent,
+  getAbandonedMediaUploadIntents,
+  deleteCleanedMediaUploadIntents,
   completeMediaUploadIntent,
   markMediaUsageDeleted,
   saveReport,
@@ -976,7 +978,46 @@ export function buildApp() {
         .filter((status) => deletableIds.includes(status.id) && status.media_key)
         .map((status) => status.media_key);
       if (expiredMediaKeys.length) await markMediaUsageDeleted(expiredMediaKeys);
-      res.json({ ok: true, scanned: expired.length, deleted, mediaFailures });
+      // Clean abandoned direct-upload objects in bounded batches. The DB query
+      // excludes completed intents and any object already registered as media.
+      let uploadIntentsScanned = 0;
+      let uploadObjectsDeleted = 0;
+      let uploadCleanupFailures = 0;
+      try {
+        const abandoned = await getAbandonedMediaUploadIntents({ limit: 100 });
+        uploadIntentsScanned = abandoned.length;
+        const cleanedIds = [];
+        for (const intent of abandoned) {
+          // Object keys are server-generated under the direct-upload prefixes.
+          const allowedPrefixes = ["posts/", "statuses/", "messages/", "avatars/", "banners/"];
+          if (!allowedPrefixes.some((prefix) => intent.object_key.startsWith(prefix))) {
+            uploadCleanupFailures += 1;
+            console.warn("[upload-cleanup] skipped unexpected object key", intent.id);
+            continue;
+          }
+          try {
+            await deleteFromR2(intent.object_key);
+            cleanedIds.push(intent.id);
+            uploadObjectsDeleted += 1;
+          } catch (deleteError) {
+            uploadCleanupFailures += 1;
+            console.warn("[upload-cleanup] R2 deletion failed; will retry", intent.id, deleteError.message);
+          }
+        }
+        if (cleanedIds.length) await deleteCleanedMediaUploadIntents(cleanedIds);
+      } catch (uploadCleanupError) {
+        uploadCleanupFailures += 1;
+        console.error("[upload-cleanup] abandoned upload cleanup failed:", uploadCleanupError.message);
+      }
+      res.json({
+        ok: true,
+        scanned: expired.length,
+        deleted,
+        mediaFailures,
+        uploadIntentsScanned,
+        uploadObjectsDeleted,
+        uploadCleanupFailures,
+      });
     } catch (err) {
       console.error("status_cleanup error:", err);
       res.status(500).json({ error: "Status cleanup failed" });
