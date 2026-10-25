@@ -2372,3 +2372,16 @@ export async function getMediaUsageSummary(userAddress) {
     },
   };
 }
+
+
+export async function markMediaUsageDeleted(objectKeys) {
+  const keys = [...new Set((Array.isArray(objectKeys) ? objectKeys : [objectKeys]).filter((key) => typeof key === "string" && key.length))];
+  if (!keys.length) return 0;
+  const { rowCount } = await pool.query(
+    `UPDATE media_usage_events
+     SET deleted_at = COALESCE(deleted_at, NOW())
+     WHERE object_key = ANY($1::text[]) AND deleted_at IS NULL`,
+    [keys],
+  );
+  return rowCount || 0;
+}
