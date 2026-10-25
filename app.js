@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 import {
   uploadToR2,
   deleteFromR2,
+  createPresignedR2Upload,
   getFromR2,
   r2MediaUrl,
   sniffMime,
@@ -73,6 +74,7 @@ import {
   getMembershipSubscription,
   recordMediaUsage,
   getMediaUsageSummary,
+  createMediaUploadIntent,
   markMediaUsageDeleted,
   saveReport,
   blockUser,
@@ -103,7 +105,7 @@ import {
   resendVerification,
 } from "./services/auth.service.js";
 import { getClientIp } from "./utils/clientIp.js";
-import { getPublicMembershipPlan, isMembershipEntitled } from "./services/membership.service.js";
+import { getPublicMembershipPlan, isMembershipEntitled, getMediaSizeLimit } from "./services/membership.service.js";
 import { sendNotificationEmail } from "./services/notification-email.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
 import {
@@ -400,6 +402,107 @@ export function buildApp() {
     } catch (err) {
       console.error("[membership] failed to load media usage:", err);
       res.status(500).json({ error: "Could not load media usage" });
+    }
+  });
+
+  // Direct uploads are not used by the current frontend yet. This endpoint
+  // issues a short-lived, size-reserved upload intent for the future R2 flow.
+  app.post("/api/media/upload-intents", requireAuth, resolveMembershipPlan, async (req, res) => {
+    // Keep direct uploads fail-closed until the completion endpoint verifies
+    // the actual R2 object size/type and atomically consumes the reservation.
+    if (process.env.ENABLE_DIRECT_R2_UPLOADS !== "true") {
+      return res.status(503).json({ error: "Direct uploads are not enabled yet" });
+    }
+    try {
+      const { category, mediaType, contentType, sizeBytes } = req.body || {};
+      const allowedContentTypes = {
+        image: new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]),
+        video: new Set(["video/mp4", "video/webm", "video/quicktime"]),
+      };
+      if (!["post", "status", "message", "avatar", "banner"].includes(category)) {
+        return res.status(400).json({ error: "Invalid media category" });
+      }
+      if (!["image", "video"].includes(mediaType) ||
+          !allowedContentTypes[mediaType].has(contentType) ||
+          !Number.isSafeInteger(sizeBytes) || sizeBytes < 1) {
+        return res.status(400).json({ error: "Invalid media type, content type, or size" });
+      }
+      if (["avatar", "banner"].includes(category) && mediaType !== "image") {
+        return res.status(400).json({ error: "Profile media must be an image" });
+      }
+
+      const maxBytes = getMediaSizeLimit(req.membershipPlan.id, mediaType);
+      if (!maxBytes || sizeBytes > maxBytes) {
+        return res.status(413).json({
+          error: "Media exceeds your membership upload limit",
+          maxBytes,
+          planId: req.membershipPlan.id,
+        });
+      }
+
+      const folder = {
+        post: "posts", status: "statuses", message: "messages",
+        avatar: "avatars", banner: "banners",
+      }[category];
+      const extension = {
+        "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+        "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm",
+        "video/quicktime": "mov",
+      }[contentType];
+      const intentId = uuidv4();
+      const objectKey = folder + "/" + req.userAddress.replace(/[^a-zA-Z0-9_-]/g, "_") +
+        "/" + intentId + "." + extension;
+      const expiresIn = 300;
+
+      const intent = await createMediaUploadIntent({
+        id: intentId,
+        userAddress: req.userAddress,
+        objectKey,
+        category,
+        mediaType,
+        contentType,
+        sizeBytes,
+        storageLimitBytes: req.membershipPlan.storageBytes,
+        uploadsPerDay: req.membershipPlan.uploadsPerDay,
+        uploadsPerMonth: req.membershipPlan.uploadsPerMonth,
+        expiresInSeconds: expiresIn,
+      });
+      let signed;
+      try {
+        signed = createPresignedR2Upload({
+          key: objectKey,
+          contentType,
+          expiresIn,
+        });
+      } catch (signingError) {
+        // Do not leave a reservation behind if R2 credentials are missing.
+        await pool.query(
+          "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
+          [intentId, req.userAddress],
+        );
+        throw signingError;
+      }
+
+      res.set("Cache-Control", "private, no-store");
+      return res.status(201).json({
+        intentId: intent.id,
+        uploadUrl: signed.url,
+        method: "PUT",
+        headers: signed.requiredHeaders,
+        expiresIn: signed.expiresIn,
+        expectedBytes: Number(intent.expected_bytes),
+        objectKey: intent.object_key,
+        status: "pending",
+        note: "Upload completion verification is not enabled yet; this intent does not publish or attach media.",
+      });
+    } catch (err) {
+      if (["MEDIA_STORAGE_LIMIT", "MEDIA_DAILY_LIMIT", "MEDIA_MONTHLY_LIMIT"].includes(err.code)) {
+        return res.status(429).json({ error: err.message, code: err.code });
+      }
+      console.error("[media-upload] failed to create upload intent:", err);
+      return res.status(503).json({
+        error: "Could not authorize direct upload. Check R2 S3 credentials and bucket configuration.",
+      });
     }
   });
 
