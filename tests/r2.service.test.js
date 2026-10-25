@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sniffMime, matchesR2UploadMetadata } from "../services/r2.service.js";
+import { sniffMime, matchesR2UploadMetadata, matchesR2UploadSignature } from "../services/r2.service.js";
 
 test("detects PNG image signatures", () => {
   assert.equal(sniffMime(Buffer.from([0x89, 0x50, 0x4e, 0x47])), "image/png");
@@ -61,4 +61,14 @@ test("R2 upload metadata must match the reserved byte size and content type", ()
     sizeBytes: Number.MAX_SAFE_INTEGER + 1,
     contentType: "image/jpeg",
   }), false);
+});
+
+
+test("media signatures must match the reserved content type", () => {
+  assert.equal(matchesR2UploadSignature("image/png", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d])), true);
+  assert.equal(matchesR2UploadSignature("image/jpeg", Buffer.from("RIFFxxxxWEBP")), false);
+  assert.equal(matchesR2UploadSignature("video/mp4", Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d])), true);
+  assert.equal(matchesR2UploadSignature("video/quicktime", Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20])), true);
+  assert.equal(matchesR2UploadSignature("video/webm", Buffer.from("not a video file")), false);
+  assert.equal(matchesR2UploadSignature("image/png", null), false);
 });
