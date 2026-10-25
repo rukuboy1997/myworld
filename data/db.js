@@ -2471,6 +2471,57 @@ export async function createMediaUploadIntent({
   }
 }
 
+/**
+ * Expire timed-out reservations and return abandoned R2 objects that are safe
+ * to remove. Completed intents are excluded, and objects already registered in
+ * media_usage_events are never treated as abandoned.
+ */
+export async function getAbandonedMediaUploadIntents({ limit = 100 } = {}) {
+  const safeLimit = Number.isInteger(limit) ? Math.min(250, Math.max(1, limit)) : 100;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "UPDATE media_upload_intents SET status = 'expired' WHERE status = 'pending' AND expires_at <= NOW()",
+    );
+    const { rows } = await client.query(
+      `SELECT i.id, i.object_key, i.status
+       FROM media_upload_intents i
+       WHERE i.status IN ('expired', 'canceled')
+         AND i.created_at <= NOW() - INTERVAL '10 minutes'
+         AND NOT EXISTS (
+           SELECT 1 FROM media_usage_events u WHERE u.object_key = i.object_key
+         )
+       ORDER BY i.created_at ASC
+       LIMIT $1
+       FOR UPDATE OF i SKIP LOCKED`,
+      [safeLimit],
+    );
+    await client.query("COMMIT");
+    return rows;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Remove terminal upload-intent rows only after their R2 objects were deleted. */
+export async function deleteCleanedMediaUploadIntents(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+  const { rowCount } = await pool.query(
+    `DELETE FROM media_upload_intents i
+     WHERE i.id = ANY($1::text[])
+       AND i.status IN ('expired', 'canceled')
+       AND NOT EXISTS (
+         SELECT 1 FROM media_usage_events u WHERE u.object_key = i.object_key
+       )`,
+    [ids],
+  );
+  return rowCount || 0;
+}
+
 export async function getMediaUploadIntent(id, userAddress) {
   const { rows } = await pool.query(
     "SELECT id, user_address, object_key, media_category, media_type, content_type, expected_bytes, status, expires_at FROM media_upload_intents WHERE id = $1 AND user_address = $2 LIMIT 1",
