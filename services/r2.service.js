@@ -105,6 +105,33 @@ export async function getR2ObjectMetadata(key) {
 }
 
 /**
+ * Fetch only a small byte range from R2 for media signature inspection.
+ * Never fall back to downloading the whole object. Fail closed if Range is ignored.
+ */
+export async function getR2ObjectPrefix(key, byteCount = 64) {
+  if (!Number.isInteger(byteCount) || byteCount < 12 || byteCount > 4096) {
+    throw new Error("Invalid R2 prefix byte count");
+  }
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error("R2 not configured");
+  const res = await fetch(r2ObjectUrl(key), {
+    headers: {
+      Authorization: `Bearer ${CF_API_TOKEN}`,
+      Range: `bytes=0-${byteCount - 1}`,
+    },
+  });
+  if (res.status === 404) return null;
+  if (res.status !== 206) {
+    if (res.body) await res.body.cancel().catch(() => {});
+    throw new Error(`R2 did not honor the media signature range request (${res.status})`);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.length === 0 || buffer.length > byteCount) {
+    throw new Error("R2 returned an invalid media signature prefix");
+  }
+  return buffer;
+}
+
+/**
  * Stream an object from R2 — used by the /api/media/:key proxy endpoint.
  * Returns the raw fetch Response so the caller can pipe headers + body.
  */
@@ -131,6 +158,12 @@ export function r2MediaUrl(key) {
   if (!key) return null;
   if (CF_R2_PUBLIC_BASE) return `${CF_R2_PUBLIC_BASE}/${key}`;
   return `${BACKEND_URL}/api/media/${key}`;
+}
+
+/** Compare declared MIME type with the object's actual leading-byte signature. */
+export function matchesR2UploadSignature(expectedContentType, prefix) {
+  if (typeof expectedContentType !== "string" || !Buffer.isBuffer(prefix)) return false;
+  return sniffMime(prefix) === expectedContentType.toLowerCase();
 }
 
 /** Compare authoritative R2 response metadata with a reserved upload intent. */
@@ -174,8 +207,12 @@ export function sniffMime(buf) {
     b[5] === 0x74 &&
     b[6] === 0x79 &&
     b[7] === 0x70
-  )
+  ) {
+    if (b[8] === 0x71 && b[9] === 0x74 && b[10] === 0x20 && b[11] === 0x20) {
+      return "video/quicktime";
+    }
     return "video/mp4";
+  }
   if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3)
     return "video/webm";
   return null;
