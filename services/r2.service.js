@@ -139,3 +139,112 @@ export function sniffMime(buf) {
     return "video/webm";
   return null;
 }
+
+import { createHash, createHmac } from "node:crypto";
+
+
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || "";
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || "";
+const AWS_REGION = "auto";
+const AWS_SERVICE = "s3";
+
+function awsEncode(value) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
+    "%" + char.charCodeAt(0).toString(16).toUpperCase(),
+  );
+}
+
+function encodeObjectKey(key) {
+  return String(key).split("/").map(awsEncode).join("/");
+}
+
+function sha256Hex(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function hmac(key, value, encoding) {
+  return createHmac("sha256", key).update(value).digest(encoding);
+}
+
+/**
+ * Create a short-lived, content-type-bound R2 S3 presigned PUT URL.
+ * Requires R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY (S3 API credentials),
+ * separate from the Cloudflare REST API token used by existing uploads.
+ *
+ * The caller must send the returned requiredHeaders exactly as provided.
+ */
+export function createPresignedR2Upload({
+  key,
+  contentType,
+  expiresIn = 300,
+  now = new Date(),
+  credentials = {
+    accountId: CF_ACCOUNT_ID,
+    bucket: CF_R2_BUCKET,
+    accessKeyId: R2_ACCESS_KEY_ID,
+    secretAccessKey: R2_SECRET_ACCESS_KEY,
+  },
+} = {}) {
+  if (!key || typeof key !== "string" || key.startsWith("/") || key.includes("..")) {
+    throw new Error("A safe R2 object key is required");
+  }
+  if (!contentType || typeof contentType !== "string" || /[\\r\\n]/.test(contentType)) {
+    throw new Error("A valid content type is required");
+  }
+  if (!Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > 900) {
+    throw new Error("Presigned upload expiry must be between 1 and 900 seconds");
+  }
+  const { accountId, bucket, accessKeyId, secretAccessKey } = credentials || {};
+  if (!accountId || !bucket || !accessKeyId || !secretAccessKey) {
+    throw new Error(
+      "Direct R2 uploads are not configured: set CF_ACCOUNT_ID, CF_R2_BUCKET, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY",
+    );
+  }
+
+  const host = accountId + ".r2.cloudflarestorage.com";
+  const date = now.toISOString().replace(/[:-]|\\.\\d{3}/g, "");
+  const shortDate = date.slice(0, 8);
+  const scope = shortDate + "/" + AWS_REGION + "/" + AWS_SERVICE + "/aws4_request";
+  const canonicalUri = "/" + awsEncode(bucket) + "/" + encodeObjectKey(key);
+  const signedHeaders = "content-type;host";
+  const query = {
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Credential": accessKeyId + "/" + scope,
+    "X-Amz-Date": date,
+    "X-Amz-Expires": String(expiresIn),
+    "X-Amz-SignedHeaders": signedHeaders,
+  };
+  const canonicalQuery = Object.keys(query)
+    .sort()
+    .map((name) => awsEncode(name) + "=" + awsEncode(query[name]))
+    .join("&");
+  const canonicalHeaders = "content-type:" + contentType.trim() + "\\n" + "host:" + host + "\\n";
+  const canonicalRequest = [
+    "PUT",
+    canonicalUri,
+    canonicalQuery,
+    canonicalHeaders,
+    signedHeaders,
+    "UNSIGNED-PAYLOAD",
+  ].join("\\n");
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    date,
+    scope,
+    sha256Hex(canonicalRequest),
+  ].join("\\n");
+  const kDate = hmac("AWS4" + secretAccessKey, shortDate);
+  const kRegion = hmac(kDate, AWS_REGION);
+  const kService = hmac(kRegion, AWS_SERVICE);
+  const kSigning = hmac(kService, "aws4_request");
+  const signature = hmac(kSigning, stringToSign, "hex");
+  const url = "https://" + host + canonicalUri + "?" + canonicalQuery +
+    "&X-Amz-Signature=" + signature;
+
+  return {
+    url,
+    key,
+    expiresIn,
+    requiredHeaders: { "Content-Type": contentType.trim() },
+  };
+}
