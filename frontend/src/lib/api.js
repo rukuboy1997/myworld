@@ -72,13 +72,21 @@ export const getStats = () => request("GET", "/stats");
 // ─── Posts ────────────────────────────────────────────────────────────────────
 export const getPost = (id) => request("GET", `/post/${id}`);
 
-export const createPost = ({
+export const createPost = async ({
   title,
   content,
   owner,
   media,
   onUploadProgress,
 }) => {
+  if (media && import.meta.env.VITE_ENABLE_DIRECT_R2_UPLOADS === "true") {
+    const { uploadPostMediaDirectly } = await import("./mediaUpload.js");
+    const completed = await uploadPostMediaDirectly(media, onUploadProgress);
+    const payload = { title, content, mediaIntentId: completed.intentId };
+    if (owner) payload.owner = owner;
+    return request("POST", "/post", payload);
+  }
+
   if (media) {
     const fd = new FormData();
     fd.append("title", title);
