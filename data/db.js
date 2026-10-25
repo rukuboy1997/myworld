@@ -325,6 +325,71 @@ FROM reports r
 WHERE r.triage_priority = 'critical'
 ON CONFLICT (report_id) DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS membership_subscriptions (
+  user_address TEXT PRIMARY KEY REFERENCES users(address) ON DELETE CASCADE,
+  plan_id TEXT NOT NULL DEFAULT 'free'
+    CHECK (plan_id IN ('free', 'premium', 'business', 'elite')),
+  billing_interval TEXT
+    CHECK (billing_interval IS NULL OR billing_interval IN ('monthly', 'yearly')),
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'past_due', 'canceled', 'expired', 'pending')),
+  started_at TIMESTAMPTZ,
+  current_period_start TIMESTAMPTZ,
+  current_period_end TIMESTAMPTZ,
+  cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+  flutterwave_customer_id TEXT,
+  flutterwave_subscription_id TEXT,
+  identity_verification_status TEXT NOT NULL DEFAULT 'not_required'
+    CHECK (identity_verification_status IN ('not_required', 'pending', 'verified', 'rejected')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    (plan_id = 'free' AND billing_interval IS NULL)
+    OR (plan_id <> 'free' AND billing_interval IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_membership_status_period
+  ON membership_subscriptions (status, current_period_end);
+
+CREATE TABLE IF NOT EXISTS membership_payment_events (
+  id TEXT PRIMARY KEY,
+  user_address TEXT NOT NULL REFERENCES users(address) ON DELETE CASCADE,
+  provider TEXT NOT NULL DEFAULT 'flutterwave',
+  provider_transaction_id TEXT,
+  provider_reference TEXT NOT NULL UNIQUE,
+  plan_id TEXT NOT NULL CHECK (plan_id IN ('premium', 'business', 'elite')),
+  billing_interval TEXT NOT NULL CHECK (billing_interval IN ('monthly', 'yearly')),
+  amount_minor BIGINT NOT NULL CHECK (amount_minor >= 0),
+  currency TEXT NOT NULL DEFAULT 'NGN',
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'successful', 'failed', 'refunded', 'reversed')),
+  provider_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  verified_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_membership_payment_user_created
+  ON membership_payment_events (user_address, created_at DESC);
+
+-- Upload accounting is introduced before enforcement so media limits can be
+-- added without scattering usage calculations across routes.
+CREATE TABLE IF NOT EXISTS media_usage_events (
+  id TEXT PRIMARY KEY,
+  user_address TEXT NOT NULL REFERENCES users(address) ON DELETE CASCADE,
+  object_key TEXT NOT NULL UNIQUE,
+  media_category TEXT NOT NULL CHECK (media_category IN ('post', 'status', 'message', 'avatar', 'banner')),
+  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video', 'audio', 'other')),
+  size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_media_usage_user_created
+  ON media_usage_events (user_address, created_at DESC)
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_media_usage_user_size
+  ON media_usage_events (user_address, size_bytes)
+  WHERE deleted_at IS NULL;
+
+
 
 
 `;
@@ -2244,4 +2309,18 @@ export async function getTrendingReelsPage({ limit = 10, beforeScore = null, bef
     [beforeScore, beforeCreatedAt, beforeId, safeLimit, viewer],
   );
   return rows.map((row) => ({ ...rowToPost(row), score: Number(row.reel_score) }));
+}
+
+
+export async function getMembershipSubscription(userAddress) {
+  const { rows } = await pool.query(
+    `SELECT user_address, plan_id, billing_interval, status, started_at,
+            current_period_start, current_period_end, cancel_at_period_end,
+            identity_verification_status, created_at, updated_at
+     FROM membership_subscriptions
+     WHERE user_address = $1
+     LIMIT 1`,
+    [userAddress],
+  );
+  return rows[0] || null;
 }
