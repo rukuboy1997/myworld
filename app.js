@@ -70,6 +70,7 @@ import {
   upsertPresence,
   getBatchPresence,
   getUserByAddress,
+  getMembershipSubscription,
   saveReport,
   blockUser,
   unblockUser,
@@ -99,6 +100,7 @@ import {
   resendVerification,
 } from "./services/auth.service.js";
 import { getClientIp } from "./utils/clientIp.js";
+import { getPublicMembershipPlan, isMembershipEntitled } from "./services/membership.service.js";
 import { sendNotificationEmail } from "./services/notification-email.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
 import {
@@ -355,6 +357,38 @@ export function buildApp() {
       next();
     } catch (err) {
       next(err);
+    }
+  });
+
+  // Membership details are always resolved by the API. A client cannot
+  // grant itself a paid plan by changing local state or request parameters.
+  app.get("/api/membership/me", requireAuth, async (req, res) => {
+    try {
+      const subscription = await getMembershipSubscription(req.userAddress);
+      const normalizedSubscription = subscription ? {
+        status: subscription.status,
+        currentPeriodEnd: subscription.current_period_end,
+      } : null;
+      const entitled = isMembershipEntitled(normalizedSubscription);
+      const effectivePlanId = entitled ? subscription.plan_id : "free";
+      const plan = getPublicMembershipPlan(effectivePlanId);
+
+      res.set("Cache-Control", "private, no-store");
+      res.json({
+        plan,
+        subscription: subscription ? {
+          planId: subscription.plan_id,
+          status: subscription.status,
+          billingInterval: subscription.billing_interval,
+          currentPeriodStart: subscription.current_period_start,
+          currentPeriodEnd: subscription.current_period_end,
+          cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
+          identityVerificationStatus: subscription.identity_verification_status,
+        } : null,
+      });
+    } catch (err) {
+      console.error("get_membership error:", err);
+      res.status(500).json({ error: "Failed to load membership" });
     }
   });
 
