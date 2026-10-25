@@ -1,11 +1,11 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
-import { createPost } from "../lib/api.js";
+import { createPost, getMyMembership } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 
-const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
-const MAX_VIDEO_DURATION_S = 180; // 3 minutes
+const FREE_MEDIA_LIMITS = { maxImageBytes: 10 * 1024 * 1024, maxVideoBytes: 25 * 1024 * 1024, reelDurationSeconds: 180 };
+const BUFFERED_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024; // Existing backend Multer memory ceiling
 
 function formatBytes(bytes) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -39,6 +39,46 @@ export default function CreatePostPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [uploadPct, setUploadPct] = useState(null);
+  const [membershipPlan, setMembershipPlan] = useState(FREE_MEDIA_LIMITS);
+  const [membershipLoaded, setMembershipLoaded] = useState(false);
+  const directUploadsEnabled = import.meta.env.VITE_ENABLE_DIRECT_R2_UPLOADS === "true";
+
+  useEffect(() => {
+    let active = true;
+    if (!isAuthenticated) {
+      setMembershipPlan(FREE_MEDIA_LIMITS);
+      setMembershipLoaded(true);
+      return () => { active = false; };
+    }
+    getMyMembership()
+      .then((data) => {
+        if (!active) return;
+        const plan = data?.plan;
+        setMembershipPlan({
+          maxImageBytes: Number.isSafeInteger(plan?.maxImageBytes) && plan.maxImageBytes > 0 ? plan.maxImageBytes : FREE_MEDIA_LIMITS.maxImageBytes,
+          maxVideoBytes: Number.isSafeInteger(plan?.maxVideoBytes) && plan.maxVideoBytes > 0 ? plan.maxVideoBytes : FREE_MEDIA_LIMITS.maxVideoBytes,
+          reelDurationSeconds: Number.isSafeInteger(plan?.reelDurationSeconds) && plan.reelDurationSeconds > 0 ? plan.reelDurationSeconds : FREE_MEDIA_LIMITS.reelDurationSeconds,
+          name: typeof plan?.name === "string" ? plan.name : "Free",
+        });
+      })
+      .catch(() => {
+        if (active) setMembershipPlan(FREE_MEDIA_LIMITS);
+      })
+      .finally(() => { if (active) setMembershipLoaded(true); });
+    return () => { active = false; };
+  }, [isAuthenticated]);
+
+  const getMaxBytesFor = (type) => {
+    const planLimit = type === "video" ? membershipPlan.maxVideoBytes : membershipPlan.maxImageBytes;
+    return directUploadsEnabled ? planLimit : Math.min(planLimit, BUFFERED_UPLOAD_LIMIT_BYTES);
+  };
+  const formatDuration = (seconds) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return minutes > 0
+      ? (remainingSeconds ? `${minutes} minutes ${remainingSeconds} seconds` : `${minutes} minutes`)
+      : `${seconds} seconds`;
+  };
   const fileRef = useRef(null);
   const navigate = useNavigate();
 
@@ -55,9 +95,11 @@ export default function CreatePostPage() {
       return;
     }
 
-    if (file.size > MAX_FILE_SIZE_BYTES) {
+    const selectedMediaType = isVid ? "video" : "image";
+    const maxFileSizeBytes = getMaxBytesFor(selectedMediaType);
+    if (file.size > maxFileSizeBytes) {
       setError(
-        `File too large. Maximum size is 100 MB (your file is ${formatBytes(file.size)}).`,
+        `File too large for your ${membershipPlan.name || "Free"} plan. Maximum ${selectedMediaType} size is ${formatBytes(maxFileSizeBytes)} (your file is ${formatBytes(file.size)}).`,
       );
       if (fileRef.current) fileRef.current.value = "";
       return;
@@ -66,11 +108,11 @@ export default function CreatePostPage() {
     if (isVid) {
       try {
         const duration = await checkVideoDuration(file);
-        if (duration > MAX_VIDEO_DURATION_S) {
+        if (duration > membershipPlan.reelDurationSeconds) {
           const mins = Math.floor(duration / 60);
           const secs = Math.floor(duration % 60);
           setError(
-            `Video too long (${mins}m ${secs}s). Maximum video length is 3 minutes. Please trim your video and try again.`,
+            `Video too long (${mins}m ${secs}s). Your ${membershipPlan.name || "Free"} plan allows videos up to ${formatDuration(membershipPlan.reelDurationSeconds)}. Please trim your video and try again.`,
           );
           if (fileRef.current) fileRef.current.value = "";
           return;
@@ -227,7 +269,7 @@ export default function CreatePostPage() {
             <label className="text-sm font-bold text-muted-foreground uppercase tracking-wider pl-1">
               Media{" "}
               <span className="text-xs normal-case font-normal opacity-70">
-                (optional — image or video up to 100 MB · videos max 3 minutes)
+                (optional — {membershipLoaded ? `${formatBytes(getMaxBytesFor("image"))} images, ${formatBytes(getMaxBytesFor("video"))} videos · max ${formatDuration(membershipPlan.reelDurationSeconds)}` : "loading your membership limits…"})
               </span>
             </label>
 
@@ -259,7 +301,7 @@ export default function CreatePostPage() {
                     Click to upload an image or video
                   </p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    Max 100 MB · Videos up to 3 minutes
+                    {membershipLoaded ? `Images up to ${formatBytes(getMaxBytesFor("image"))} · Videos up to ${formatBytes(getMaxBytesFor("video"))} · ${formatDuration(membershipPlan.reelDurationSeconds)} max` : "Loading membership limits…"}
                   </p>
                 </div>
               </button>
