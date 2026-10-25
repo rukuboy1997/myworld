@@ -13,7 +13,7 @@ function findMp4Duration(buffer) {
       continue;
     }
     const boxSize = buffer.readUInt32BE(boxOffset);
-    if (boxSize < 24 || boxOffset + boxSize > buffer.length) {
+    if (boxSize < 24) {
       offset += 4;
       continue;
     }
@@ -88,12 +88,11 @@ function findWebmDuration(buffer) {
 
 export function parseVideoDurationSeconds(contentType, samples) {
   if (!Array.isArray(samples) || !samples.length || samples.some((sample) => !Buffer.isBuffer(sample))) return null;
-  const buffer = Buffer.concat(samples);
-  let seconds = null;
-  if (contentType === "video/mp4" || contentType === "video/quicktime") {
-    seconds = findMp4Duration(buffer);
-  } else if (contentType === "video/webm") {
-    seconds = findWebmDuration(buffer);
+  for (const buffer of samples) {
+    let seconds = null;
+    if (contentType === "video/mp4" || contentType === "video/quicktime") seconds = findMp4Duration(buffer);
+    else if (contentType === "video/webm") seconds = findWebmDuration(buffer);
+    if (Number.isFinite(seconds) && seconds > 0) return seconds;
   }
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  return null;
 }
