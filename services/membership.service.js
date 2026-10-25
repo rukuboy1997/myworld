@@ -91,3 +91,15 @@ export function isMembershipEntitled(subscription, now = new Date()) {
   const end = new Date(subscription.currentPeriodEnd);
   return Number.isFinite(end.getTime()) && end.getTime() > now.getTime();
 }
+
+
+/**
+ * Maximum permitted upload size for the selected media type under a plan.
+ * Unknown media types are rejected rather than silently treated as images.
+ */
+export function getMediaSizeLimit(planId = "free", mediaType) {
+  const plan = getMembershipPlan(planId);
+  if (mediaType === "image") return plan.maxImageBytes;
+  if (mediaType === "video") return plan.maxVideoBytes;
+  return null;
+}
