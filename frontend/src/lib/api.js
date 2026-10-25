@@ -66,6 +66,9 @@ export const recordReelWatch = (postId, data) =>
 
 export const getReelAnalytics = () => request("GET", "/reels/analytics");
 
+// ─── Membership ──────────────────────────────────────────────────────────────
+export const getMyMembership = () => request("GET", "/membership/me");
+
 // ─── Stats ────────────────────────────────────────────────────────────────────
 export const getStats = () => request("GET", "/stats");
 
