@@ -8,6 +8,7 @@ import {
   deleteFromR2,
   createPresignedR2Upload,
   getFromR2,
+  getR2ObjectMetadata,
   r2MediaUrl,
   sniffMime,
 } from "./services/r2.service.js";
@@ -75,6 +76,8 @@ import {
   recordMediaUsage,
   getMediaUsageSummary,
   createMediaUploadIntent,
+  getMediaUploadIntent,
+  completeMediaUploadIntent,
   markMediaUsageDeleted,
   saveReport,
   blockUser,
@@ -503,6 +506,92 @@ export function buildApp() {
       return res.status(503).json({
         error: "Could not authorize direct upload. Check R2 S3 credentials and bucket configuration.",
       });
+    }
+  });
+
+  app.post("/api/media/upload-intents/:intentId/complete", requireAuth, async (req, res) => {
+    if (process.env.ENABLE_DIRECT_R2_UPLOADS !== "true") {
+      return res.status(503).json({ error: "Direct uploads are not enabled yet" });
+    }
+    const intentId = String(req.params.intentId || "");
+    if (!/^[0-9a-f-]{36}$/i.test(intentId)) {
+      return res.status(400).json({ error: "Invalid upload intent ID" });
+    }
+
+    let intent;
+    try {
+      intent = await getMediaUploadIntent(intentId, req.userAddress);
+      if (!intent) return res.status(404).json({ error: "Upload intent not found" });
+      if (intent.status !== "pending") {
+        return res.status(409).json({ error: "Upload intent is not pending", status: intent.status });
+      }
+      if (new Date(intent.expires_at).getTime() <= Date.now()) {
+        await pool.query(
+          "UPDATE media_upload_intents SET status = 'expired' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
+          [intentId, req.userAddress],
+        );
+        return res.status(410).json({ error: "Upload intent expired" });
+      }
+
+      const metadata = await getR2ObjectMetadata(intent.object_key);
+      if (!metadata) {
+        return res.status(409).json({ error: "R2 object not found; upload it before completing the intent" });
+      }
+      const expectedBytes = Number(intent.expected_bytes);
+      const expectedType = String(intent.content_type).toLowerCase();
+      if (metadata.sizeBytes !== expectedBytes || metadata.contentType !== expectedType) {
+        await pool.query(
+          "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
+          [intentId, req.userAddress],
+        );
+        await deleteFromR2(intent.object_key).catch((deleteError) => {
+          console.error("[media-upload] failed to remove mismatched R2 object:", deleteError.message);
+        });
+        return res.status(422).json({
+          error: "Uploaded object size or content type does not match the reservation",
+          expectedBytes,
+          actualBytes: metadata.sizeBytes,
+          expectedContentType: expectedType,
+          actualContentType: metadata.contentType,
+        });
+      }
+
+      const completed = await completeMediaUploadIntent({
+        id: intentId,
+        userAddress: req.userAddress,
+        actualSizeBytes: metadata.sizeBytes,
+        actualContentType: metadata.contentType,
+      });
+      res.set("Cache-Control", "private, no-store");
+      return res.json({
+        ok: true,
+        status: "completed",
+        objectKey: completed.objectKey,
+        category: completed.category,
+        mediaType: completed.mediaType,
+        sizeBytes: completed.sizeBytes,
+      });
+    } catch (err) {
+      if (err.code === "MEDIA_INTENT_EXPIRED") {
+        await pool.query(
+          "UPDATE media_upload_intents SET status = 'expired' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
+          [intentId, req.userAddress],
+        ).catch(() => {});
+        return res.status(410).json({ error: "Upload intent expired" });
+      }
+      if (err.code === "MEDIA_INTENT_NOT_PENDING") {
+        return res.status(409).json({ error: "Upload intent is no longer pending" });
+      }
+      if (err.code === "MEDIA_OBJECT_MISMATCH") {
+        await pool.query(
+          "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
+          [intentId, req.userAddress],
+        ).catch(() => {});
+        if (intent?.object_key) await deleteFromR2(intent.object_key).catch(() => {});
+        return res.status(422).json({ error: err.message });
+      }
+      console.error("[media-upload] completion verification failed:", err);
+      return res.status(502).json({ error: "Could not verify uploaded media with R2" });
     }
   });
 
