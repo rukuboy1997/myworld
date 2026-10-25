@@ -408,6 +408,11 @@ export function buildApp() {
   // Direct uploads are not used by the current frontend yet. This endpoint
   // issues a short-lived, size-reserved upload intent for the future R2 flow.
   app.post("/api/media/upload-intents", requireAuth, resolveMembershipPlan, async (req, res) => {
+    // Keep direct uploads fail-closed until the completion endpoint verifies
+    // the actual R2 object size/type and atomically consumes the reservation.
+    if (process.env.ENABLE_DIRECT_R2_UPLOADS !== "true") {
+      return res.status(503).json({ error: "Direct uploads are not enabled yet" });
+    }
     try {
       const { category, mediaType, contentType, sizeBytes } = req.body || {};
       const allowedContentTypes = {
