@@ -1550,6 +1550,24 @@ export function buildApp() {
           update.bannerUrl = String(req.body.bannerUrl);
         }
         const profile = await saveProfile(effectiveAddress, update);
+        for (const item of [
+          { file: req.files?.avatar?.[0], key: update.avatarBlobId, category: "avatar" },
+          { file: req.files?.banner?.[0], key: update.bannerBlobId, category: "banner" },
+        ]) {
+          if (!item.file || !item.key) continue;
+          try {
+            await recordMediaUsage({
+              id: uuidv4(),
+              userAddress: effectiveAddress,
+              objectKey: item.key,
+              category: item.category,
+              mediaType: "image",
+              sizeBytes: item.file.size,
+            });
+          } catch (usageErr) {
+            console.error(`[membership] ${item.category} media usage recording failed:`, usageErr);
+          }
+        }
         res.json(profile);
       } catch (err) {
         console.error("profile error:", err);
@@ -1901,6 +1919,11 @@ export function buildApp() {
       if (!message) return res.status(409).json({ error: "This message has already been deleted" });
       const attachmentKey = existing.rows[0].attachment_key;
       if (attachmentKey) {
+        try {
+          await markMediaUsageDeleted([attachmentKey]);
+        } catch (usageErr) {
+          console.error("[membership] deleted message usage update failed:", usageErr);
+        }
         deleteFromR2(attachmentKey).catch((err) => console.warn("Could not remove deleted message attachment:", err?.message));
       }
       await publishMessageToFirebase(message);
@@ -2006,6 +2029,23 @@ export function buildApp() {
         attachmentUrl: stored.url, attachmentKey: stored.key, attachmentName: originalName,
         attachmentMime: mimeType, attachmentSize: file.size, replyToMessageId: replyToMessageId || null, createdAt: new Date().toISOString(),
       });
+      try {
+        const mediaType = mimeType.startsWith("image/")
+          ? "image"
+          : mimeType.startsWith("audio/")
+            ? "audio"
+            : "other";
+        await recordMediaUsage({
+          id: uuidv4(),
+          userAddress: sender,
+          objectKey: stored.key,
+          category: "message",
+          mediaType,
+          sizeBytes: file.size,
+        });
+      } catch (usageErr) {
+        console.error("[membership] message attachment usage recording failed:", usageErr);
+      }
       publishMessageToFirebase(message);
       await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
       res.json(message);
