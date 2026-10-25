@@ -403,8 +403,10 @@ CREATE TABLE IF NOT EXISTS media_upload_intents (
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'expired', 'canceled')),
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  completed_at TIMESTAMPTZ
+  completed_at TIMESTAMPTZ,
+  attached_at TIMESTAMPTZ
 );
+ALTER TABLE media_upload_intents ADD COLUMN IF NOT EXISTS attached_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_media_upload_intents_user_pending
   ON media_upload_intents (user_address, expires_at)
   WHERE status = 'pending';
@@ -2526,6 +2528,29 @@ export async function getMediaUploadIntent(id, userAddress) {
   const { rows } = await pool.query(
     "SELECT id, user_address, object_key, media_category, media_type, content_type, expected_bytes, status, expires_at FROM media_upload_intents WHERE id = $1 AND user_address = $2 LIMIT 1",
     [id, userAddress],
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Atomically claims a completed upload intent for one destination record.
+ * A completed object can only be attached once, preventing cross-post reuse.
+ */
+export async function claimCompletedMediaUploadIntent({ id, userAddress, category }) {
+  const allowedCategories = ["post", "status", "message", "avatar", "banner"];
+  if (!id || !userAddress || !allowedCategories.includes(category)) {
+    throw new TypeError("Invalid completed media intent claim");
+  }
+  const { rows } = await pool.query(
+    `UPDATE media_upload_intents
+     SET attached_at = NOW()
+     WHERE id = $1
+       AND user_address = $2
+       AND media_category = $3
+       AND status = 'completed'
+       AND attached_at IS NULL
+     RETURNING id, user_address, object_key, media_category, media_type, content_type, expected_bytes`,
+    [id, userAddress, category],
   );
   return rows[0] || null;
 }
