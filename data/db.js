@@ -2471,6 +2471,62 @@ export async function createMediaUploadIntent({
   }
 }
 
+export async function getMediaUploadIntent(id, userAddress) {
+  const { rows } = await pool.query(
+    "SELECT id, user_address, object_key, media_category, media_type, content_type, expected_bytes, status, expires_at FROM media_upload_intents WHERE id = $1 AND user_address = $2 LIMIT 1",
+    [id, userAddress],
+  );
+  return rows[0] || null;
+}
+
+export async function completeMediaUploadIntent({ id, userAddress, actualSizeBytes, actualContentType }) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      "SELECT id, object_key, media_category, media_type, content_type, expected_bytes, status, expires_at FROM media_upload_intents WHERE id = $1 AND user_address = $2 FOR UPDATE",
+      [id, userAddress],
+    );
+    const intent = rows[0];
+    if (!intent) {
+      const error = new Error("Upload intent not found");
+      error.code = "MEDIA_INTENT_NOT_FOUND";
+      throw error;
+    }
+    if (intent.status !== "pending") {
+      const error = new Error("Upload intent is not pending");
+      error.code = "MEDIA_INTENT_NOT_PENDING";
+      throw error;
+    }
+    if (new Date(intent.expires_at).getTime() <= Date.now()) {
+      const error = new Error("Upload intent expired");
+      error.code = "MEDIA_INTENT_EXPIRED";
+      throw error;
+    }
+    if (actualSizeBytes !== Number(intent.expected_bytes) ||
+        actualContentType !== String(intent.content_type).toLowerCase()) {
+      const error = new Error("Uploaded object metadata does not match the reservation");
+      error.code = "MEDIA_OBJECT_MISMATCH";
+      throw error;
+    }
+    await client.query(
+      "INSERT INTO media_usage_events (id, user_address, object_key, media_category, media_type, size_bytes) VALUES ($1, $2, $3, $4, $5, $6)",
+      [intent.id, userAddress, intent.object_key, intent.media_category, intent.media_type, actualSizeBytes],
+    );
+    await client.query(
+      "UPDATE media_upload_intents SET status = 'completed', completed_at = NOW() WHERE id = $1 AND user_address = $2 AND status = 'pending'",
+      [id, userAddress],
+    );
+    await client.query("COMMIT");
+    return { id: intent.id, objectKey: intent.object_key, category: intent.media_category, mediaType: intent.media_type, sizeBytes: actualSizeBytes };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function markMediaUsageDeleted(objectKeys) {
   const keys = [...new Set((Array.isArray(objectKeys) ? objectKeys : [objectKeys]).filter((key) => typeof key === "string" && key.length))];
   if (!keys.length) return 0;
