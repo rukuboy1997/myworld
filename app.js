@@ -71,6 +71,9 @@ import {
   getBatchPresence,
   getUserByAddress,
   getMembershipSubscription,
+  recordMediaUsage,
+  getMediaUsageSummary,
+  markMediaUsageDeleted,
   saveReport,
   blockUser,
   unblockUser,
@@ -381,6 +384,25 @@ export function buildApp() {
 
   // Membership details are always resolved by the API. A client cannot
   // grant itself a paid plan by changing local state or request parameters.
+  app.get("/api/membership/usage", requireAuth, resolveMembershipPlan, async (req, res) => {
+    try {
+      const usage = await getMediaUsageSummary(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json({
+        usedBytes: usage.usedBytes,
+        storageLimitBytes: req.membershipPlan.storageBytes,
+        remainingBytes: Math.max(0, req.membershipPlan.storageBytes - usage.usedBytes),
+        objectCount: usage.objectCount,
+        counts: usage.counts,
+        planId: req.membershipPlan.id,
+        accountingScope: "media uploaded after usage accounting was enabled",
+      });
+    } catch (err) {
+      console.error("[membership] failed to load media usage:", err);
+      res.status(500).json({ error: "Could not load media usage" });
+    }
+  });
+
   app.get("/api/membership/me", requireAuth, async (req, res) => {
     try {
       const subscription = await getMembershipSubscription(req.userAddress);
@@ -736,6 +758,10 @@ export function buildApp() {
         deletableIds.push(status.id);
       }
       const deleted = await deleteExpiredStatusIds(deletableIds);
+      const expiredMediaKeys = expired
+        .filter((status) => deletableIds.includes(status.id) && status.media_key)
+        .map((status) => status.media_key);
+      if (expiredMediaKeys.length) await markMediaUsageDeleted(expiredMediaKeys);
       res.json({ ok: true, scanned: expired.length, deleted, mediaFailures });
     } catch (err) {
       console.error("status_cleanup error:", err);
@@ -830,6 +856,20 @@ export function buildApp() {
           mediaMime,
           audience,
         });
+        if (mediaKey && req.file) {
+          try {
+            await recordMediaUsage({
+              id: uuidv4(),
+              userAddress: req.userAddress,
+              objectKey: mediaKey,
+              category: "status",
+              mediaType,
+              sizeBytes: req.file.size,
+            });
+          } catch (usageErr) {
+            console.error("[membership] status media usage recording failed:", usageErr);
+          }
+        }
         res.status(201).json({ status });
       } catch (err) {
         console.error("create_status error:", err);
@@ -953,6 +993,20 @@ export function buildApp() {
           isDeleted: false,
           createdAt: new Date().toISOString(),
         });
+        if (mediaKey && req.file) {
+          try {
+            await recordMediaUsage({
+              id: uuidv4(),
+              userAddress: effectiveOwner,
+              objectKey: mediaKey,
+              category: "post",
+              mediaType,
+              sizeBytes: req.file.size,
+            });
+          } catch (usageErr) {
+            console.error("[membership] post media usage recording failed:", usageErr);
+          }
+        }
         res.json(saved);
       } catch (err) {
         console.error("create_post error:", err);
@@ -1022,6 +1076,7 @@ export function buildApp() {
         return res.status(403).json({ error: "Forbidden" });
       const updated = await updatePost(req.params.id, { isDeleted: true });
       if (!updated) return res.status(404).json({ error: "Not found" });
+      if (post.mediaBlobId) await markMediaUsageDeleted(post.mediaBlobId);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

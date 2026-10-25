@@ -2324,3 +2324,64 @@ export async function getMembershipSubscription(userAddress) {
   );
   return rows[0] || null;
 }
+
+
+/**
+ * Record a successfully persisted media object for membership usage accounting.
+ * Object keys are unique so retrying a request cannot double-count storage.
+ */
+export async function recordMediaUsage({ id, userAddress, objectKey, category, mediaType, sizeBytes }) {
+  if (!userAddress || !objectKey || !["post", "status", "message", "avatar", "banner"].includes(category) ||
+      !["image", "video", "audio", "other"].includes(mediaType) ||
+      !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+    throw new TypeError("Invalid media usage event");
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO media_usage_events
+       (id, user_address, object_key, media_category, media_type, size_bytes)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (object_key) DO NOTHING
+     RETURNING id, size_bytes`,
+    [id, userAddress, objectKey, category, mediaType, sizeBytes],
+  );
+  return rows[0] || null;
+}
+
+export async function getMediaUsageSummary(userAddress) {
+  const { rows } = await pool.query(
+    `SELECT
+       COALESCE(SUM(size_bytes), 0)::text AS used_bytes,
+       COUNT(*)::int AS object_count,
+       COUNT(*) FILTER (WHERE media_category = 'post')::int AS post_count,
+       COUNT(*) FILTER (WHERE media_category = 'status')::int AS status_count,
+       COUNT(*) FILTER (WHERE media_category = 'message')::int AS message_count,
+       COUNT(*) FILTER (WHERE media_category IN ('avatar', 'banner'))::int AS profile_media_count
+     FROM media_usage_events
+     WHERE user_address = $1 AND deleted_at IS NULL`,
+    [userAddress],
+  );
+  const row = rows[0] || {};
+  return {
+    usedBytes: Number(row.used_bytes || 0),
+    objectCount: Number(row.object_count || 0),
+    counts: {
+      posts: Number(row.post_count || 0),
+      statuses: Number(row.status_count || 0),
+      messages: Number(row.message_count || 0),
+      profileMedia: Number(row.profile_media_count || 0),
+    },
+  };
+}
+
+
+export async function markMediaUsageDeleted(objectKeys) {
+  const keys = [...new Set((Array.isArray(objectKeys) ? objectKeys : [objectKeys]).filter((key) => typeof key === "string" && key.length))];
+  if (!keys.length) return 0;
+  const { rowCount } = await pool.query(
+    `UPDATE media_usage_events
+     SET deleted_at = COALESCE(deleted_at, NOW())
+     WHERE object_key = ANY($1::text[]) AND deleted_at IS NULL`,
+    [keys],
+  );
+  return rowCount || 0;
+}
