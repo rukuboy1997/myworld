@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sniffMime } from "../services/r2.service.js";
+import { sniffMime, matchesR2UploadMetadata } from "../services/r2.service.js";
 
 test("detects PNG image signatures", () => {
   assert.equal(sniffMime(Buffer.from([0x89, 0x50, 0x4e, 0x47])), "image/png");
@@ -36,4 +36,29 @@ test("returns null for missing, short, and unknown signatures", () => {
   assert.equal(sniffMime(null), null);
   assert.equal(sniffMime(Buffer.from([0x89, 0x50, 0x4e])), null);
   assert.equal(sniffMime(Buffer.from("not a media file")), null);
+});
+
+
+test("R2 upload metadata must match the reserved byte size and content type", () => {
+  const intent = { expectedBytes: 1024, expectedContentType: "image/jpeg" };
+  assert.equal(matchesR2UploadMetadata(intent, {
+    sizeBytes: 1024,
+    contentType: "image/jpeg",
+  }), true);
+  assert.equal(matchesR2UploadMetadata(intent, {
+    sizeBytes: 1023,
+    contentType: "image/jpeg",
+  }), false);
+  assert.equal(matchesR2UploadMetadata(intent, {
+    sizeBytes: 1024,
+    contentType: "image/png",
+  }), false);
+  assert.equal(matchesR2UploadMetadata(intent, null), false);
+  assert.equal(matchesR2UploadMetadata({
+    expectedBytes: Number.MAX_SAFE_INTEGER + 1,
+    expectedContentType: "image/jpeg",
+  }, {
+    sizeBytes: Number.MAX_SAFE_INTEGER + 1,
+    contentType: "image/jpeg",
+  }), false);
 });
