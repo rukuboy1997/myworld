@@ -9,6 +9,7 @@ import {
   createPresignedR2Upload,
   getFromR2,
   getR2ObjectMetadata,
+  matchesR2UploadMetadata,
   r2MediaUrl,
   sniffMime,
 } from "./services/r2.service.js";
@@ -539,7 +540,10 @@ export function buildApp() {
       }
       const expectedBytes = Number(intent.expected_bytes);
       const expectedType = String(intent.content_type).toLowerCase();
-      if (metadata.sizeBytes !== expectedBytes || metadata.contentType !== expectedType) {
+      if (!matchesR2UploadMetadata({
+        expectedBytes,
+        expectedContentType: expectedType,
+      }, metadata)) {
         await pool.query(
           "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
           [intentId, req.userAddress],
