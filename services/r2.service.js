@@ -133,6 +133,18 @@ export function r2MediaUrl(key) {
   return `${BACKEND_URL}/api/media/${key}`;
 }
 
+/** Compare authoritative R2 response metadata with a reserved upload intent. */
+export function matchesR2UploadMetadata({ expectedBytes, expectedContentType }, metadata) {
+  return Boolean(
+    metadata &&
+    Number.isSafeInteger(expectedBytes) &&
+    expectedBytes > 0 &&
+    metadata.sizeBytes === expectedBytes &&
+    typeof expectedContentType === "string" &&
+    metadata.contentType === expectedContentType.toLowerCase()
+  );
+}
+
 /**
  * Detect a simple MIME type from buffer magic bytes (for server-side validation).
  */
