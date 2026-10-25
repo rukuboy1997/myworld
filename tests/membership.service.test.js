@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   MEMBERSHIP_PLANS,
   getMembershipPlan,
+  getMediaSizeLimit,
   isMembershipEntitled,
 } from "../services/membership.service.js";
 
@@ -27,4 +28,14 @@ test("only active subscriptions with a future period end are entitled", () => {
   assert.equal(isMembershipEntitled({ status: "active", currentPeriodEnd: "2026-10-25T11:59:59.000Z" }, now), false);
   assert.equal(isMembershipEntitled({ status: "past_due", currentPeriodEnd: "2026-11-25T12:00:00.000Z" }, now), false);
   assert.equal(isMembershipEntitled(null, now), false);
+});
+
+
+test("media upload limits follow the server-authoritative membership plan", () => {
+  assert.equal(getMediaSizeLimit("free", "image"), 10 * 1024 * 1024);
+  assert.equal(getMediaSizeLimit("premium", "video"), 100 * 1024 * 1024);
+  assert.equal(getMediaSizeLimit("business", "video"), 250 * 1024 * 1024);
+  assert.equal(getMediaSizeLimit("elite", "video"), 500 * 1024 * 1024);
+  assert.equal(getMediaSizeLimit("unknown-plan", "image"), 10 * 1024 * 1024);
+  assert.equal(getMediaSizeLimit("elite", "audio"), null);
 });
