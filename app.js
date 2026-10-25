@@ -10,6 +10,7 @@ import {
   getFromR2,
   getR2ObjectMetadata,
   getR2ObjectPrefix,
+  getR2ObjectRange,
   matchesR2UploadMetadata,
   matchesR2UploadSignature,
   r2MediaUrl,
@@ -114,6 +115,7 @@ import {
 } from "./services/auth.service.js";
 import { getClientIp } from "./utils/clientIp.js";
 import { getPublicMembershipPlan, isMembershipEntitled, getMediaSizeLimit } from "./services/membership.service.js";
+import { parseVideoDurationSeconds } from "./services/video-duration.service.js";
 import { sendNotificationEmail } from "./services/notification-email.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
 import {
@@ -578,6 +580,48 @@ export function buildApp() {
           error: "Uploaded file bytes do not match the declared media type",
           expectedContentType: expectedType,
         });
+      }
+
+      if (intent.media_type === "video") {
+        // Inspect at most 8 MiB total (head + tail); never buffer the full video.
+        const sampleBytes = 4 * 1024 * 1024;
+        const head = await getR2ObjectRange(intent.object_key, 0, sampleBytes - 1);
+        const tailStart = Math.max(0, metadata.sizeBytes - sampleBytes);
+        const tail = tailStart === 0 ? null : await getR2ObjectRange(
+          intent.object_key,
+          tailStart,
+          metadata.sizeBytes - 1,
+        );
+        const durationSeconds = parseVideoDurationSeconds(expectedType, [head, tail].filter(Boolean));
+        const maxDurationSeconds = getPublicMembershipPlan(req.membershipPlan?.id || "free").reelDurationSeconds;
+        if (!Number.isFinite(durationSeconds)) {
+          await pool.query(
+            "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
+            [intentId, req.userAddress],
+          );
+          await deleteFromR2(intent.object_key).catch((deleteError) => {
+            console.error("[media-upload] failed to remove video with unverifiable duration:", deleteError.message);
+          });
+          return res.status(422).json({
+            error: "Could not verify video duration from its container metadata",
+            code: "VIDEO_DURATION_UNVERIFIABLE",
+          });
+        }
+        if (durationSeconds > maxDurationSeconds) {
+          await pool.query(
+            "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
+            [intentId, req.userAddress],
+          );
+          await deleteFromR2(intent.object_key).catch((deleteError) => {
+            console.error("[media-upload] failed to remove over-duration video:", deleteError.message);
+          });
+          return res.status(422).json({
+            error: "Video exceeds your membership duration limit",
+            code: "VIDEO_DURATION_LIMIT",
+            durationSeconds: Math.ceil(durationSeconds),
+            maxDurationSeconds,
+          });
+        }
       }
 
       const completed = await completeMediaUploadIntent({
