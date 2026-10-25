@@ -90,7 +90,7 @@ test("parses MP4/QuickTime duration from bounded mvhd metadata", () => {
 });
 
 test("parses WebM duration and default timecode scale", () => {
-  const duration = Buffer.alloc(6);
+  const duration = Buffer.alloc(7);
   duration[0] = 0x44; duration[1] = 0x89; duration[2] = 0x84;
   duration.writeFloatBE(12500, 3);
   assert.equal(parseVideoDurationSeconds("video/webm", [duration]), 12.5);
