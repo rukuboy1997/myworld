@@ -595,7 +595,7 @@ export function buildApp() {
           metadata.sizeBytes - 1,
         );
         const durationSeconds = parseVideoDurationSeconds(expectedType, [head, tail].filter(Boolean));
-        const maxDurationSeconds = intent.category === "status" ? 180 : getPublicMembershipPlan(req.membershipPlan?.id || "free").reelDurationSeconds;
+        const maxDurationSeconds = intent.media_category === "status" ? 180 : getPublicMembershipPlan(req.membershipPlan?.id || "free").reelDurationSeconds;
         if (!Number.isFinite(durationSeconds)) {
           await pool.query(
             "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
