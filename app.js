@@ -595,7 +595,7 @@ export function buildApp() {
           metadata.sizeBytes - 1,
         );
         const durationSeconds = parseVideoDurationSeconds(expectedType, [head, tail].filter(Boolean));
-        const maxDurationSeconds = getPublicMembershipPlan(req.membershipPlan?.id || "free").reelDurationSeconds;
+        const maxDurationSeconds = intent.media_category === "status" ? 180 : getPublicMembershipPlan(req.membershipPlan?.id || "free").reelDurationSeconds;
         if (!Number.isFinite(durationSeconds)) {
           await pool.query(
             "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
@@ -1088,91 +1088,82 @@ export function buildApp() {
     resolveMembershipPlan,
     upload.single("media"),
     async (req, res) => {
+      let claimedIntentId = null;
+      let claimedStatusId = null;
       try {
         const content = normalizeTextInput(req.body?.content || "");
         const audience = req.body?.audience === "everyone" ? "everyone" : "followers";
-        if (content.length > 700) {
-          return res.status(400).json({ error: "Status text must be 700 characters or fewer" });
-        }
-        if (!content && !req.file) {
-          return res.status(400).json({ error: "Add text or choose an image/video" });
-        }
+        const mediaIntentId = typeof req.body?.mediaIntentId === "string" ? req.body.mediaIntentId : "";
+        if (content.length > 700) return res.status(400).json({ error: "Status text must be 700 characters or fewer" });
+        if (mediaIntentId && req.file) return res.status(400).json({ error: "Choose either a verified direct upload or a buffered media file, not both" });
+        if (mediaIntentId && !/^[0-9a-f-]{36}$/i.test(mediaIntentId)) return res.status(400).json({ error: "Invalid media upload intent ID" });
+        if (!content && !req.file && !mediaIntentId) return res.status(400).json({ error: "Add text or choose an image/video" });
 
         let mediaKey = null;
         let mediaUrl = null;
         let mediaType = null;
         let mediaMime = null;
-        if (req.file) {
+        let mediaSizeBytes = null;
+        const statusId = uuidv4();
+
+        if (mediaIntentId) {
+          const claimed = await claimCompletedMediaUploadIntent({
+            id: mediaIntentId,
+            userAddress: req.userAddress,
+            category: "status",
+            attachmentId: statusId,
+          });
+          if (!claimed) return res.status(409).json({ error: "This verified upload is unavailable, already attached, or not a completed status upload" });
+          claimedIntentId = mediaIntentId;
+          claimedStatusId = statusId;
+          mediaKey = claimed.objectKey;
+          mediaUrl = r2MediaUrl(mediaKey);
+          mediaType = claimed.mediaType;
+          mediaMime = claimed.contentType;
+          mediaSizeBytes = claimed.sizeBytes;
+        } else if (req.file) {
           mediaMime = (req.file.mimetype || "").toLowerCase();
           const sniffed = sniffMime(req.file.buffer);
           const declaredType = detectMediaType(mediaMime);
           const detectedType = detectMediaType(sniffed);
-
-          // Some Android/WebView file pickers report video files as
-          // application/octet-stream or omit the MIME type entirely. Prefer
-          // the file signature in that case, rather than rejecting a valid clip.
           mediaType = declaredType || detectedType;
-          if (!mediaType) {
-            return res.status(400).json({
-              error: "We couldn't recognize that file. Please choose an image, MP4, or WebM video.",
-            });
-          }
-          if (declaredType && detectedType && declaredType !== detectedType) {
-            return res.status(400).json({
-              error: "The selected file type doesn't match its contents. Please choose another file.",
-            });
-          }
-          if (sniffed && !["image/", "video/"].some((prefix) => sniffed.startsWith(prefix))) {
-            return res.status(400).json({ error: "The uploaded file does not appear to be an image or video" });
-          }
-
-          // Keep the actual detected type when a mobile picker supplies a
-          // generic MIME type, so browsers can play the uploaded status.
+          if (!mediaType) return res.status(400).json({ error: "We couldn't recognize that file. Please choose an image, MP4, or WebM video." });
+          if (declaredType && detectedType && declaredType !== detectedType) return res.status(400).json({ error: "The selected file type doesn't match its contents. Please choose another file." });
+          if (sniffed && !["image/", "video/"].some((prefix) => sniffed.startsWith(prefix))) return res.status(400).json({ error: "The uploaded file does not appear to be an image or video" });
           if (!declaredType && detectedType) mediaMime = sniffed;
-          const maxBytes = mediaType === "video"
-            ? req.membershipPlan.maxVideoBytes
-            : req.membershipPlan.maxImageBytes;
+
+          const maxBytes = mediaType === "video" ? req.membershipPlan.maxVideoBytes : req.membershipPlan.maxImageBytes;
           if (req.file.size > maxBytes) {
             const maxMiB = Math.floor(maxBytes / (1024 * 1024));
-            return res.status(413).json({
-              error: `Your ${req.membershipPlan.name} plan allows status ${mediaType} files up to ${maxMiB} MiB`,
-              code: "MEMBERSHIP_MEDIA_SIZE_LIMIT",
-              planId: req.membershipPlan.id,
-              maxBytes,
-            });
+            return res.status(413).json({ error: `Your ${req.membershipPlan.name} plan allows status ${mediaType} files up to ${maxMiB} MiB`, code: "MEMBERSHIP_MEDIA_SIZE_LIMIT", planId: req.membershipPlan.id, maxBytes });
+          }
+          if (mediaType === "video") {
+            const durationSeconds = parseVideoDurationSeconds(mediaMime, [req.file.buffer]);
+            if (!Number.isFinite(durationSeconds)) return res.status(422).json({ error: "Could not verify video duration. Please choose a supported MP4, MOV, or WebM video.", code: "VIDEO_DURATION_UNVERIFIABLE" });
+            if (durationSeconds > 180) return res.status(422).json({ error: "Status videos must be 3 minutes (180 seconds) or shorter.", code: "STATUS_VIDEO_DURATION_LIMIT", durationSeconds: Math.ceil(durationSeconds), maxDurationSeconds: 180 });
           }
           const ext = mediaMime.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || (mediaType === "video" ? "mp4" : "jpg");
           mediaKey = `statuses/${req.userAddress}/${uuidv4()}.${ext}`;
           const uploaded = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
           mediaUrl = uploaded.url;
+          mediaSizeBytes = req.file.size;
         }
 
-        const status = await createStatus({
-          id: uuidv4(),
-          owner: req.userAddress,
-          content,
-          mediaKey,
-          mediaUrl,
-          mediaType,
-          mediaMime,
-          audience,
-        });
+        const status = await createStatus({ id: statusId, owner: req.userAddress, content, mediaKey, mediaUrl, mediaType, mediaMime, audience });
         if (mediaKey && req.file) {
           try {
-            await recordMediaUsage({
-              id: uuidv4(),
-              userAddress: req.userAddress,
-              objectKey: mediaKey,
-              category: "status",
-              mediaType,
-              sizeBytes: req.file.size,
-            });
+            await recordMediaUsage({ id: uuidv4(), userAddress: req.userAddress, objectKey: mediaKey, category: "status", mediaType, sizeBytes: mediaSizeBytes });
           } catch (usageErr) {
             console.error("[membership] status media usage recording failed:", usageErr);
           }
         }
         res.status(201).json({ status });
       } catch (err) {
+        if (claimedIntentId && claimedStatusId) {
+          await releaseMediaUploadIntentClaim({ id: claimedIntentId, userAddress: req.userAddress, attachmentId: claimedStatusId }).catch((releaseError) => {
+            console.error("[media-upload] failed to release status intent claim:", releaseError.message);
+          });
+        }
         console.error("create_status error:", err);
         res.status(500).json({ error: "Failed to create status" });
       }

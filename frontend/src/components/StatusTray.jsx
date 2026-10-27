@@ -2,6 +2,28 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../lib/auth.jsx";
 import { createStatus, getStatuses, getStatusMedia, getStatusViewers, recordStatusView } from "../lib/api.js";
 
+const STATUS_VIDEO_MAX_SECONDS = 180;
+const STATUS_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+const STATUS_IMAGE_MAX_BYTES = 25 * 1024 * 1024;
+
+function readVideoDuration(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      const duration = video.duration;
+      URL.revokeObjectURL(url);
+      resolve(Number.isFinite(duration) ? duration : NaN);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(NaN);
+    };
+    video.src = url;
+  });
+}
+
 function initials(status) {
   const label = status?.profile?.displayName || status?.profile?.username || status?.owner || "?";
   return label.slice(0, 1).toUpperCase();
@@ -41,8 +63,8 @@ export default function StatusTray() {
         for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
         const selected = new File([bytes], fileName, { type: mimeType });
         const isVideo = mimeType.startsWith("video/");
-        const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
-        if (selected.size > maxBytes) { setError(isVideo ? "Videos must be 25 MB or smaller." : "Images must be 10 MB or smaller."); return; }
+        const maxBytes = isVideo ? STATUS_VIDEO_MAX_BYTES : STATUS_IMAGE_MAX_BYTES;
+        if (selected.size > maxBytes) { setError(isVideo ? "Status videos cannot exceed 500 MiB." : "Status images cannot exceed 25 MiB."); return; }
         setError(""); setFile(selected);
       } catch (err) { setError(err.message || "Could not use the selected media."); }
     };
@@ -79,9 +101,9 @@ export default function StatusTray() {
       setFile(null);
       return;
     }
-    const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+    const maxBytes = isVideo ? STATUS_VIDEO_MAX_BYTES : STATUS_IMAGE_MAX_BYTES;
     if (selected.size > maxBytes) {
-      setError(isVideo ? "Videos must be 25 MB or smaller." : "Images must be 10 MB or smaller.");
+      setError(isVideo ? "Status videos cannot exceed 500 MiB." : "Status images cannot exceed 25 MiB.");
       event.target.value = "";
       setFile(null);
       return;
@@ -177,13 +199,29 @@ export default function StatusTray() {
       setError("Write something or choose a photo/video.");
       return;
     }
-    const form = new FormData();
-    form.append("content", content.trim());
-    form.append("audience", audience);
-    if (file) form.append("media", file);
     setSaving(true);
     try {
-      await createStatus(form);
+      const isVideo = file && (file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(file.name));
+      if (isVideo) {
+        const duration = await readVideoDuration(file);
+        if (!Number.isFinite(duration)) {
+          throw new Error("Could not verify this video's duration. Please choose a supported MP4, MOV, or WebM video.");
+        }
+        if (duration > STATUS_VIDEO_MAX_SECONDS) {
+          throw new Error("Status videos must be 3 minutes (180 seconds) or shorter.");
+        }
+      }
+      if (file && import.meta.env.VITE_ENABLE_DIRECT_R2_UPLOADS === "true") {
+        const { uploadStatusMediaDirectly } = await import("../lib/mediaUpload.js");
+        const completed = await uploadStatusMediaDirectly(file);
+        await createStatus({ content: content.trim(), audience, mediaIntentId: completed.intentId });
+      } else {
+        const form = new FormData();
+        form.append("content", content.trim());
+        form.append("audience", audience);
+        if (file) form.append("media", file);
+        await createStatus(form);
+      }
       setContent("");
       setFile(null);
       setAudience("followers");
@@ -296,7 +334,7 @@ export default function StatusTray() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block font-semibold">{file ? "Media selected" : "Add a photo or video"}</span>
-                  <span className="mt-1 block truncate text-xs text-muted-foreground">{file ? file.name : "Photos up to 10 MB · Videos up to 25 MB"}</span>
+                  <span className="mt-1 block truncate text-xs text-muted-foreground">{file ? file.name : "Photos up to 25 MiB · Videos up to 500 MiB, maximum 3 minutes"}</span>
                 </span>
                 <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold">{file ? "Change" : "Browse"}</span>
                 <input key={file?.name || "status-media-input"} type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.heif,.bmp,.mp4,.m4v,.mov,.webm,.3gp,.mkv" className="sr-only" onChange={handleFileChange} />
