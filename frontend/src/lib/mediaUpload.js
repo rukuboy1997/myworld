@@ -41,6 +41,14 @@ function putFile(url, headers, file, onUploadProgress) {
  * verification before the post can attach the completed intent.
  */
 export async function uploadPostMediaDirectly(file, onUploadProgress) {
+  return uploadMediaDirectly(file, "post", onUploadProgress);
+}
+
+export async function uploadStatusMediaDirectly(file, onUploadProgress) {
+  return uploadMediaDirectly(file, "status", onUploadProgress);
+}
+
+async function uploadMediaDirectly(file, category, onUploadProgress) {
   const contentType = (file.type || "").toLowerCase();
   const mediaType = contentType.startsWith("image/")
     ? "image"
@@ -62,7 +70,7 @@ export async function uploadPostMediaDirectly(file, onUploadProgress) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      category: "post",
+      category,
       mediaType,
       contentType,
       sizeBytes: file.size,
