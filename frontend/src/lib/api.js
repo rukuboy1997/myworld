@@ -307,7 +307,10 @@ export function truncateAddress(addr) {
 
 // ─── Status ────────────────────────────────────────────────────────────────────
 export const getStatuses = () => request("GET", "/statuses");
-export const createStatus = (formData) => requestForm("POST", "/statuses", formData);
+export const createStatus = (payload) =>
+  payload instanceof FormData
+    ? requestForm("POST", "/statuses", payload)
+    : request("POST", "/statuses", payload);
 export const recordStatusView = (statusId) => request("POST", `/statuses/${encodeURIComponent(statusId)}/view`, {});
 export const getStatusViewers = (statusId) => request("GET", `/statuses/${encodeURIComponent(statusId)}/viewers`);
 
