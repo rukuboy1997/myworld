@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import PostCard from "../components/PostCard.jsx";
 import { getPost } from "../lib/api.js";
 
 export default function PostPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [post, setPost] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -57,7 +58,7 @@ export default function PostPage() {
             </Link>
           </div>
         ) : (
-          <PostCard post={post} />
+          <PostCard post={post} onPostDelete={() => navigate(`/profile/${encodeURIComponent(post.owner)}`, { replace: true })} />
         )}
       </div>
     </Layout>
