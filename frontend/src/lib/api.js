@@ -335,3 +335,9 @@ export const getAdminMediaStorageAudit = ({ limit = 50, offset = 0 } = {}) => {
   });
   return request("GET", `/admin/media-storage-audit?${params.toString()}`);
 };
+
+export const getAdminMediaStorageInventory = ({ limit = 100, cursor = null } = {}) => {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return request("GET", `/admin/media-storage-inventory?${params.toString()}`);
+};
