@@ -2059,12 +2059,20 @@ export function buildApp() {
         const replacedProfileMedia = [
           {
             key: getManagedKey(previousProfile?.avatarUrl, "avatars"),
-            nextKey: update.avatarBlobId || getManagedKey(update.avatarUrl, "avatars"),
+            nextKey: req.files?.avatar?.[0]
+              ? update.avatarBlobId
+              : req.body.avatarUrl
+                ? getManagedKey(update.avatarUrl, "avatars")
+                : getManagedKey(previousProfile?.avatarUrl, "avatars"),
             category: "avatar",
           },
           {
             key: getManagedKey(previousProfile?.bannerUrl, "banners"),
-            nextKey: update.bannerBlobId || getManagedKey(update.bannerUrl, "banners"),
+            nextKey: req.files?.banner?.[0]
+              ? update.bannerBlobId
+              : req.body.bannerUrl
+                ? getManagedKey(update.bannerUrl, "banners")
+                : getManagedKey(previousProfile?.bannerUrl, "banners"),
             category: "banner",
           },
         ];
