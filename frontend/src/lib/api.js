@@ -341,3 +341,6 @@ export const getAdminMediaStorageInventory = ({ limit = 100, cursor = null } = {
   if (cursor) params.set("cursor", cursor);
   return request("GET", `/admin/media-storage-inventory?${params.toString()}`);
 };
+
+export const queueAdminMediaStorageCleanup = (objectKeys) =>
+  request("POST", "/admin/media-storage-cleanup/queue", { objectKeys });
