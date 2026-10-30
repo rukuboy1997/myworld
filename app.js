@@ -698,6 +698,82 @@ export function buildApp() {
   });
 
   // Restricted to configured administrators; diagnostics expire after seven days.
+  // Read-only integrity audit: inspect active usage records against R2 metadata
+  // and live database references. No objects or accounting records are changed.
+  app.get("/api/admin/media-storage-audit", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const parsedLimit = Number.parseInt(String(req.query.limit || "50"), 10);
+      const parsedOffset = Number.parseInt(String(req.query.offset || "0"), 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 50;
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : 0;
+      const audit = await getMediaIntegrityAuditCandidates({ limit, offset });
+      const inspectItem = async (item) => {
+        try {
+          const metadata = await getR2ObjectMetadata(item.object_key);
+          if (!metadata) {
+            return {
+              objectKey: item.object_key,
+              category: item.media_category,
+              recordedSizeBytes: Number(item.recorded_size_bytes),
+              referenced: Boolean(item.is_referenced),
+              status: "missing_in_r2",
+            };
+          }
+          const recordedSizeBytes = Number(item.recorded_size_bytes);
+          const sizeMatches = metadata.sizeBytes === recordedSizeBytes;
+          return {
+            objectKey: item.object_key,
+            category: item.media_category,
+            recordedSizeBytes,
+            actualSizeBytes: metadata.sizeBytes,
+            contentType: metadata.contentType,
+            referenced: Boolean(item.is_referenced),
+            status: !sizeMatches ? "size_mismatch" : !item.is_referenced ? "unreferenced_usage" : "healthy",
+          };
+        } catch (error) {
+          return {
+            objectKey: item.object_key,
+            category: item.media_category,
+            recordedSizeBytes: Number(item.recorded_size_bytes),
+            referenced: Boolean(item.is_referenced),
+            status: "check_failed",
+            error: String(error?.message || "R2 metadata check failed").slice(0, 180),
+          };
+        }
+      };
+      // Keep R2 metadata requests bounded instead of fanning out the whole page.
+      const results = [];
+      for (let index = 0; index < audit.items.length; index += 10) {
+        const batch = audit.items.slice(index, index + 10);
+        results.push(...await Promise.all(batch.map(inspectItem)));
+      }
+      const counts = results.reduce((summary, item) => {
+        summary[item.status] = (summary[item.status] || 0) + 1;
+        return summary;
+      }, {});
+      res.set("Cache-Control", "private, no-store");
+      return res.json({
+        generatedAt: new Date().toISOString(),
+        pagination: { limit, offset, total: audit.total, hasMore: offset + results.length < audit.total },
+        summary: {
+          checked: results.length,
+          healthy: counts.healthy || 0,
+          missingInR2: counts.missing_in_r2 || 0,
+          sizeMismatches: counts.size_mismatch || 0,
+          unreferencedUsage: counts.unreferenced_usage || 0,
+          checkFailures: counts.check_failed || 0,
+          pendingDeletionJobs: audit.pendingDeletions,
+          expiredPendingUploads: audit.expiredPendingUploads,
+        },
+        results,
+        safety: "Read-only audit. No media objects, usage records, or upload intents were modified.",
+      });
+    } catch (err) {
+      console.error("[media-storage-audit] failed:", err?.message || "Unknown error");
+      return res.status(500).json({ error: "Could not run media storage integrity audit" });
+    }
+  });
+
   app.get("/api/admin/media-upload-diagnostics", requireAuth, requireAdmin, async (req, res) => {
     try {
       const parsedLimit = Number.parseInt(String(req.query.limit || "50"), 10);

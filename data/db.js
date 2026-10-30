@@ -2744,3 +2744,47 @@ export async function failMediaDeletion(objectKey, errorMessage) {
   );
 }
 
+
+
+/**
+ * Read-only candidates for the admin media-storage integrity audit.
+ * The query deliberately does not mutate usage records or media references.
+ */
+export async function getMediaIntegrityAuditCandidates({ limit = 50, offset = 0 } = {}) {
+  const safeLimit = Number.isInteger(limit) ? Math.min(100, Math.max(1, limit)) : 50;
+  const safeOffset = Number.isInteger(offset) ? Math.max(0, Math.min(offset, 1000000)) : 0;
+  const [{ rows }, countResult, queueResult, intentResult] = await Promise.all([
+    pool.query(
+      `SELECT
+         u.object_key,
+         u.media_category,
+         u.media_type,
+         u.size_bytes::text AS recorded_size_bytes,
+         u.created_at,
+         (
+           EXISTS (SELECT 1 FROM posts p WHERE p.media_blob_id = u.object_key AND p.is_deleted = false)
+           OR EXISTS (SELECT 1 FROM statuses s WHERE s.media_key = u.object_key AND s.expires_at > NOW())
+           OR EXISTS (SELECT 1 FROM messages m WHERE m.attachment_key = u.object_key AND m.deleted_at IS NULL)
+           OR EXISTS (SELECT 1 FROM profiles pr WHERE pr.avatar_blob_id = u.object_key OR pr.banner_blob_id = u.object_key)
+         ) AS is_referenced
+       FROM media_usage_events u
+       WHERE u.deleted_at IS NULL
+       ORDER BY u.created_at ASC, u.object_key ASC
+       LIMIT $1 OFFSET $2`,
+      [safeLimit, safeOffset],
+    ),
+    pool.query("SELECT COUNT(*)::int AS total FROM media_usage_events WHERE deleted_at IS NULL"),
+    pool.query("SELECT COUNT(*)::int AS pending FROM media_deletion_queue"),
+    pool.query(
+      `SELECT COUNT(*)::int AS pending
+       FROM media_upload_intents
+       WHERE status = 'pending' AND expires_at <= NOW()`,
+    ),
+  ]);
+  return {
+    items: rows,
+    total: Number(countResult.rows[0]?.total || 0),
+    pendingDeletions: Number(queueResult.rows[0]?.pending || 0),
+    expiredPendingUploads: Number(intentResult.rows[0]?.pending || 0),
+  };
+}
