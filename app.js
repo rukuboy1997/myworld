@@ -2852,8 +2852,9 @@ export function buildApp() {
     "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "audio/wav", "audio/aac", "audio/3gpp",
   ]);
-  app.post("/api/message/attachment", requireAuth, messageAttachmentUpload.single("file"), async (req, res) => {
+  app.post("/api/message/attachment", requireAuth, resolveMembershipPlan, messageAttachmentUpload.single("file"), async (req, res) => {
     let uploadedKey = null;
+    let uploadedMediaCompleted = false;
     try {
       const receiver = normalizeTextInput(req.body?.receiver);
       const content = normalizeTextInput(req.body?.content);
@@ -2883,36 +2884,33 @@ export function buildApp() {
       const nameExt = originalName.includes(".") ? originalName.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 10) : "";
       const mimeExt = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/").pop().split("+")[0].replace(/[^a-z0-9]/g, "").slice(0, 10);
       uploadedKey = `messages/${sender}/${uuidv4()}.${nameExt || mimeExt || "bin"}`;
-      const stored = await uploadToR2(uploadedKey, file.buffer, mimeType);
+      const mediaType = mimeType.startsWith("image/")
+        ? "image"
+        : mimeType.startsWith("audio/")
+          ? "audio"
+          : "other";
+      const stored = await uploadBufferedMedia({
+        req, objectKey: uploadedKey, category: "message", mediaType,
+        contentType: mimeType, file,
+      });
+      uploadedMediaCompleted = true;
       const message = await saveMessage({
         id: uuidv4(), sender, receiver, content,
         attachmentUrl: stored.url, attachmentKey: stored.key, attachmentName: originalName,
         attachmentMime: mimeType, attachmentSize: file.size, replyToMessageId: replyToMessageId || null, createdAt: new Date().toISOString(),
       });
-      try {
-        const mediaType = mimeType.startsWith("image/")
-          ? "image"
-          : mimeType.startsWith("audio/")
-            ? "audio"
-            : "other";
-        await recordMediaUsage({
-          id: uuidv4(),
-          userAddress: sender,
-          objectKey: stored.key,
-          category: "message",
-          mediaType,
-          sizeBytes: file.size,
-        });
-      } catch (usageErr) {
-        console.error("[membership] message attachment usage recording failed:", usageErr);
-      }
       publishMessageToFirebase(message);
       await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
       res.json(message);
     } catch (err) {
-      if (uploadedKey) deleteFromR2(uploadedKey).catch(() => {});
+      if (uploadedMediaCompleted && uploadedKey) {
+        await cleanupAttachedMediaFailure({ objectKey: uploadedKey, userAddress: req.userAddress, category: "message" });
+      }
       if (err?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "Files must be 25 MB or smaller" });
       console.error("message attachment upload failed:", err);
+      if (["MEDIA_STORAGE_LIMIT", "MEDIA_DAILY_LIMIT", "MEDIA_MONTHLY_LIMIT"].includes(err?.code)) {
+        return res.status(429).json({ error: err.message, code: err.code });
+      }
       res.status(500).json({ error: "Could not send attachment" });
     }
   });
