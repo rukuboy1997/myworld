@@ -305,7 +305,7 @@ function createPresignedR2ReadUrl(key, expiresIn = 60, now = new Date()) {
     date,
     scope,
     sha256Hex(canonicalRequest),
-  ].join("\\n");
+  ].join("\n");
   const kDate = hmac("AWS4" + R2_SECRET_ACCESS_KEY, shortDate);
   const kRegion = hmac(kDate, AWS_REGION);
   const kService = hmac(kRegion, AWS_SERVICE);
