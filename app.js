@@ -79,7 +79,6 @@ import {
   getBatchPresence,
   getUserByAddress,
   getMembershipSubscription,
-  recordMediaUsage,
   getMediaUsageSummary,
   getMediaIntegrityAuditCandidates,
   createMediaUploadIntent,
@@ -2855,6 +2854,7 @@ export function buildApp() {
   app.post("/api/message/attachment", requireAuth, resolveMembershipPlan, messageAttachmentUpload.single("file"), async (req, res) => {
     let uploadedKey = null;
     let uploadedMediaCompleted = false;
+    let messageSaved = false;
     try {
       const receiver = normalizeTextInput(req.body?.receiver);
       const content = normalizeTextInput(req.body?.content);
@@ -2899,11 +2899,12 @@ export function buildApp() {
         attachmentUrl: stored.url, attachmentKey: stored.key, attachmentName: originalName,
         attachmentMime: mimeType, attachmentSize: file.size, replyToMessageId: replyToMessageId || null, createdAt: new Date().toISOString(),
       });
+      messageSaved = true;
       publishMessageToFirebase(message);
       await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
       res.json(message);
     } catch (err) {
-      if (uploadedMediaCompleted && uploadedKey) {
+      if (uploadedMediaCompleted && uploadedKey && !messageSaved) {
         await cleanupAttachedMediaFailure({ objectKey: uploadedKey, userAddress: req.userAddress, category: "message" });
       }
       if (err?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "Files must be 25 MB or smaller" });
