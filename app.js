@@ -394,11 +394,9 @@ export function buildApp() {
 
   async function cleanupAttachedMediaFailure({ objectKey, userAddress, category }) {
     if (!objectKey) return;
-    await markMediaUsageDeleted([objectKey]).catch((err) => {
-      console.error("[media-upload] failed to release usage after attachment failure:", err.message);
-    });
     try {
       await deleteFromR2(objectKey);
+      await markMediaUsageDeleted([objectKey]);
     } catch (err) {
       console.error("[media-upload] failed to delete unattached R2 object:", err.message);
       await enqueueMediaDeletion({ objectKey, userAddress, category }).catch((queueError) => {
