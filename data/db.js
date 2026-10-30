@@ -2624,6 +2624,18 @@ export async function getMediaUploadIntent(id, userAddress) {
   return rows[0] || null;
 }
 
+/** Release a reservation when a buffered upload fails before it is completed. */
+export async function cancelMediaUploadIntent({ id, userAddress }) {
+  if (!id || !userAddress) return 0;
+  const { rowCount } = await pool.query(
+    `UPDATE media_upload_intents
+     SET status = 'canceled'
+     WHERE id = $1 AND user_address = $2 AND status = 'pending'`,
+    [id, userAddress],
+  );
+  return rowCount || 0;
+}
+
 export async function completeMediaUploadIntent({ id, userAddress, actualSizeBytes, actualContentType }) {
   const client = await pool.connect();
   try {
