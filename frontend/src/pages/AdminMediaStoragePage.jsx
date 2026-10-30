@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Layout from "../components/Layout.jsx";
-import { getAdminMediaStorageAudit } from "../lib/api.js";
+import { getAdminMediaStorageAudit, getAdminMediaStorageInventory } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 
 const PAGE_SIZE = 50;
@@ -31,6 +31,9 @@ const STATUS_META = {
   unreferenced_usage: { label: "No live reference", tone: "border-orange-500/30 bg-orange-500/10 text-orange-600" },
   untracked_reference: { label: "Legacy · no usage record", tone: "border-violet-500/30 bg-violet-500/10 text-violet-600" },
   check_failed: { label: "Check failed", tone: "border-slate-500/30 bg-slate-500/10 text-muted-foreground" },
+  orphaned: { label: "Orphaned · no live reference", tone: "border-red-500/30 bg-red-500/10 text-red-600" },
+  legacy_untracked: { label: "Legacy · untracked", tone: "border-violet-500/30 bg-violet-500/10 text-violet-600" },
+  unsupported_namespace: { label: "Outside managed media folders", tone: "border-slate-500/30 bg-slate-500/10 text-muted-foreground" },
 };
 
 function SummaryCard({ label, value, detail, tone = "border-border" }) {
@@ -49,6 +52,10 @@ export default function AdminMediaStoragePage() {
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [inventory, setInventory] = useState(null);
+  const [inventoryCursor, setInventoryCursor] = useState(null);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState("");
 
   const refresh = useCallback(async (nextOffset = offset) => {
     setLoading(true);
@@ -68,6 +75,21 @@ export default function AdminMediaStoragePage() {
     if (!authLoading && isAuthenticated) void refresh(0);
     else if (!authLoading) setLoading(false);
   }, [authLoading, isAuthenticated, refresh]);
+
+
+  const scanBucket = useCallback(async (cursor = null) => {
+    setInventoryLoading(true);
+    setInventoryError("");
+    try {
+      const result = await getAdminMediaStorageInventory({ limit: 100, cursor });
+      setInventory(result);
+      setInventoryCursor(result.nextCursor || null);
+    } catch (err) {
+      setInventoryError(err.message || "Could not scan the R2 bucket.");
+    } finally {
+      setInventoryLoading(false);
+    }
+  }, []);
 
   const summary = audit?.summary || {};
   const pagination = audit?.pagination || {};
@@ -93,6 +115,61 @@ export default function AdminMediaStoragePage() {
           <p className="font-semibold">Read-only inspection</p>
           <p className="mt-1 text-muted-foreground">This audit does not delete R2 objects or modify usage records. Review flagged records before taking any repair action.</p>
         </div>
+
+
+        <section className="mb-8 rounded-2xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold">Full R2 bucket inventory</h2>
+              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Lists actual objects directly from Cloudflare R2, then compares each key with live database references, deleted records, usage history, and the cleanup queue.</p>
+            </div>
+            <button type="button" onClick={() => void scanBucket(null)} disabled={inventoryLoading || !isAuthenticated} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary disabled:opacity-50">
+              {inventoryLoading ? "Scanning…" : inventory ? "Restart bucket scan" : "Scan R2 bucket"}
+            </button>
+          </div>
+          <p className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-muted-foreground">Read-only scan. This feature does not delete objects, change usage records, or enqueue cleanup jobs. Scan results are page-based; use the next-page button to continue through the bucket.</p>
+          {inventoryError && <p role="alert" className="mt-3 rounded-lg bg-red-500/10 p-3 text-sm text-red-600">{inventoryError}</p>}
+          {inventory && (
+            <>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <SummaryCard label="Objects scanned" value={inventory.summary?.scanned ?? 0} />
+                <SummaryCard label="Orphaned" value={inventory.summary?.orphaned ?? 0} tone="border-red-500/30" />
+                <SummaryCard label="Healthy" value={inventory.summary?.healthy ?? 0} tone="border-emerald-500/30" />
+                <SummaryCard label="Legacy / untracked" value={inventory.summary?.legacy_untracked ?? 0} tone="border-violet-500/30" />
+                <SummaryCard label="Page size" value={formatBytes(inventory.summary?.totalSizeBytes)} detail="Combined size of this page" />
+                <SummaryCard label="Outside managed folders" value={inventory.summary?.unsupported_namespace ?? 0} />
+              </div>
+              <p className="mt-4 text-xs text-muted-foreground">Inventory page generated {formatDate(inventory.generatedAt)} · {inventory.hasMore ? "More objects are available." : "End of bucket reached."}</p>
+              <div className="mt-3 space-y-3">
+                {(inventory.results || []).map((item) => {
+                  const meta = STATUS_META[item.status] || STATUS_META.check_failed;
+                  return (
+                    <article key={item.objectKey} className="rounded-xl border border-border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${meta.tone}`}>{meta.label}</span>
+                        <span className="text-xs capitalize text-muted-foreground">{item.category || "unknown"}</span>
+                      </div>
+                      <p className="mt-2 break-all font-mono text-xs">{item.objectKey}</p>
+                      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+                        <span>R2 size: {formatBytes(item.sizeBytes)}</span>
+                        <span>Usage record: {item.hasUsageRecord ? "Yes" : "No"}</span>
+                        <span>Live reference: {item.referenced ? "Yes" : "No"}</span>
+                        <span>Cleanup queued: {item.queuedForDeletion ? "Yes" : "No"}</span>
+                      </div>
+                      {item.reasons?.length > 0 && <p className="mt-2 text-xs text-amber-600">Findings: {item.reasons.join(", ").replaceAll("_", " ")}</p>}
+                      {item.lastModified && <p className="mt-1 text-xs text-muted-foreground">Last modified: {formatDate(item.lastModified)}</p>}
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button type="button" onClick={() => void scanBucket(inventoryCursor)} disabled={inventoryLoading || !inventoryCursor} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold disabled:opacity-40">
+                  {inventoryLoading ? "Scanning…" : "Scan next bucket page"}
+                </button>
+              </div>
+            </>
+          )}
+        </section>
 
         {!authLoading && !isAuthenticated && <p role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm">Sign in with an administrator account to inspect storage health.</p>}
         {error && <div role="alert" className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm">{error}</div>}
