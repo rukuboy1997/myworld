@@ -1098,6 +1098,46 @@ export function buildApp() {
         uploadCleanupFailures += 1;
         console.error("[upload-cleanup] abandoned upload cleanup failed:", uploadCleanupError.message);
       }
+
+      // Retry media cleanup for soft-deleted posts. This makes a transient R2
+      // outage recoverable without requiring the user to delete the post again.
+      let deletedPostMediaScanned = 0;
+      let deletedPostMediaCleaned = 0;
+      let deletedPostMediaFailures = 0;
+      try {
+        const { rows: deletedPosts } = await pool.query(
+          `SELECT p.id, p.media_blob_id
+           FROM posts p
+           WHERE p.is_deleted = true
+             AND p.media_blob_id LIKE 'posts/%'
+             AND NOT EXISTS (
+               SELECT 1 FROM posts live
+               WHERE live.media_blob_id = p.media_blob_id
+                 AND live.is_deleted = false
+             )
+           ORDER BY p.created_at ASC
+           LIMIT 100`,
+        );
+        deletedPostMediaScanned = deletedPosts.length;
+        for (const post of deletedPosts) {
+          if (!/^posts\/[a-zA-Z0-9_./-]+$/.test(post.media_blob_id) || post.media_blob_id.includes("..")) {
+            deletedPostMediaFailures += 1;
+            continue;
+          }
+          try {
+            await deleteFromR2(post.media_blob_id);
+            await markMediaUsageDeleted(post.media_blob_id);
+            deletedPostMediaCleaned += 1;
+          } catch (cleanupError) {
+            deletedPostMediaFailures += 1;
+            console.warn("[post-media-cleanup] retry failed:", post.id, cleanupError.message);
+          }
+        }
+      } catch (postCleanupError) {
+        deletedPostMediaFailures += 1;
+        console.error("[post-media-cleanup] retry scan failed:", postCleanupError.message);
+      }
+
       res.json({
         ok: true,
         scanned: expired.length,
@@ -1106,6 +1146,9 @@ export function buildApp() {
         uploadIntentsScanned,
         uploadObjectsDeleted,
         uploadCleanupFailures,
+        deletedPostMediaScanned,
+        deletedPostMediaCleaned,
+        deletedPostMediaFailures,
       });
     } catch (err) {
       console.error("status_cleanup error:", err);
