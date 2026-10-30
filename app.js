@@ -10,6 +10,7 @@ import {
   createPresignedR2Upload,
   getFromR2,
   getR2ObjectMetadata,
+  listR2Objects,
   getR2ObjectPrefix,
   getR2ObjectRange,
   matchesR2UploadMetadata,
