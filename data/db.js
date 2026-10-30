@@ -389,6 +389,20 @@ CREATE INDEX IF NOT EXISTS idx_media_usage_user_size
   ON media_usage_events (user_address, size_bytes)
   WHERE deleted_at IS NULL;
 
+-- Durable retry queue for media objects whose owning record has been replaced
+-- or deleted. The object key is unique so repeated enqueue attempts are safe.
+CREATE TABLE IF NOT EXISTS media_deletion_queue (
+  object_key TEXT PRIMARY KEY,
+  user_address TEXT,
+  media_category TEXT NOT NULL CHECK (media_category IN ('message', 'avatar', 'banner')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_media_deletion_queue_created
+  ON media_deletion_queue (created_at ASC);
+
 
 /* Direct-to-R2 upload reservations. Pending intents reserve storage and count
    toward upload-rate limits until completed or expired. */
@@ -2681,3 +2695,52 @@ export async function markMediaUsageDeleted(objectKeys) {
   );
   return rowCount || 0;
 }
+
+export async function enqueueMediaDeletion({ objectKey, userAddress, category }) {
+  if (typeof objectKey !== "string" || !objectKey) return false;
+  if (!["message", "avatar", "banner"].includes(category)) {
+    throw new Error("Unsupported media deletion category");
+  }
+  await pool.query(
+    `INSERT INTO media_deletion_queue (object_key, user_address, media_category)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (object_key) DO UPDATE SET
+       user_address = COALESCE(EXCLUDED.user_address, media_deletion_queue.user_address),
+       media_category = EXCLUDED.media_category,
+       updated_at = NOW()`,
+    [objectKey, userAddress || null, category],
+  );
+  return true;
+}
+
+export async function getPendingMediaDeletions({ limit = 100 } = {}) {
+  const safeLimit = Number.isInteger(limit) ? Math.min(250, Math.max(1, limit)) : 100;
+  const { rows } = await pool.query(
+    `SELECT object_key, user_address, media_category, attempts
+     FROM media_deletion_queue
+     ORDER BY created_at ASC
+     LIMIT $1`,
+    [safeLimit],
+  );
+  return rows;
+}
+
+export async function completeMediaDeletion(objectKey) {
+  const { rowCount } = await pool.query(
+    "DELETE FROM media_deletion_queue WHERE object_key = $1",
+    [objectKey],
+  );
+  return rowCount || 0;
+}
+
+export async function failMediaDeletion(objectKey, errorMessage) {
+  await pool.query(
+    `UPDATE media_deletion_queue
+     SET attempts = attempts + 1,
+         last_error = $2,
+         updated_at = NOW()
+     WHERE object_key = $1`,
+    [objectKey, String(errorMessage || "Unknown cleanup error").slice(0, 500)],
+  );
+}
+
