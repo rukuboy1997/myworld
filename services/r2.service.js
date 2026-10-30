@@ -277,7 +277,7 @@ function createPresignedR2ReadUrl(key, expiresIn = 60, now = new Date()) {
   }
 
   const host = CF_ACCOUNT_ID + ".r2.cloudflarestorage.com";
-  const date = now.toISOString().replace(/[:-]|\\.\\d{3}/g, "");
+  const date = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
   const shortDate = date.slice(0, 8);
   const scope = shortDate + "/" + AWS_REGION + "/" + AWS_SERVICE + "/aws4_request";
   const canonicalUri = "/" + awsEncode(CF_R2_BUCKET) + "/" + encodeObjectKey(key);
@@ -296,10 +296,10 @@ function createPresignedR2ReadUrl(key, expiresIn = 60, now = new Date()) {
     "GET",
     canonicalUri,
     canonicalQuery,
-    "host:" + host + "\\n",
+    "host:" + host + "\n",
     "host",
     "UNSIGNED-PAYLOAD",
-  ].join("\\n");
+  ].join("\n");
   const stringToSign = [
     "AWS4-HMAC-SHA256",
     date,
