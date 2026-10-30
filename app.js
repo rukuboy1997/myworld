@@ -2254,11 +2254,13 @@ export function buildApp() {
   app.post(
     "/api/profile",
     requireAuth,
+    resolveMembershipPlan,
     upload.fields([
       { name: "avatar", maxCount: 1 },
       { name: "banner", maxCount: 1 },
     ]),
     async (req, res) => {
+      const uploadedProfileMedia = [];
       try {
         const username = normalizeTextInput(req.body?.username);
         const bio = normalizeTextInput(req.body?.bio);
@@ -2326,11 +2328,17 @@ export function buildApp() {
         };
         if (req.files?.avatar?.[0]) {
           const f = req.files.avatar[0];
-          if (!f.mimetype.startsWith("image/"))
-            return res.status(400).json({ error: "Avatar must be an image" });
-          const ext = f.mimetype.split("/")[1] || "jpg";
-          const key = `avatars/${effectiveAddress}-${Date.now()}.${ext}`;
-          const r2 = await uploadToR2(key, f.buffer, f.mimetype);
+          const contentType = String(f.mimetype || "").toLowerCase();
+          const detected = sniffMime(f.buffer);
+          if (!contentType.startsWith("image/") || !detected || detected !== contentType)
+            return res.status(400).json({ error: "Avatar must be a valid image file" });
+          if (f.size > req.membershipPlan.maxImageBytes) {
+            return res.status(413).json({ error: `Your ${req.membershipPlan.name} plan allows profile images up to ${Math.floor(req.membershipPlan.maxImageBytes / (1024 * 1024))} MiB`, code: "MEMBERSHIP_MEDIA_SIZE_LIMIT", maxBytes: req.membershipPlan.maxImageBytes });
+          }
+          const ext = contentType.split("/")[1] || "jpg";
+          const key = `avatars/${effectiveAddress}-${uuidv4()}.${ext}`;
+          const r2 = await uploadBufferedMedia({ req, objectKey: key, category: "avatar", mediaType: "image", contentType, file: f });
+          uploadedProfileMedia.push({ key, category: "avatar" });
           update.avatarBlobId = r2.key;
           update.avatarUrl = r2.url;
         } else if (req.body.avatarUrl) {
@@ -2338,11 +2346,17 @@ export function buildApp() {
         }
         if (req.files?.banner?.[0]) {
           const f = req.files.banner[0];
-          if (!f.mimetype.startsWith("image/"))
-            return res.status(400).json({ error: "Banner must be an image" });
-          const ext = f.mimetype.split("/")[1] || "jpg";
-          const key = `banners/${effectiveAddress}-${Date.now()}.${ext}`;
-          const r2 = await uploadToR2(key, f.buffer, f.mimetype);
+          const contentType = String(f.mimetype || "").toLowerCase();
+          const detected = sniffMime(f.buffer);
+          if (!contentType.startsWith("image/") || !detected || detected !== contentType)
+            return res.status(400).json({ error: "Banner must be a valid image file" });
+          if (f.size > req.membershipPlan.maxImageBytes) {
+            return res.status(413).json({ error: `Your ${req.membershipPlan.name} plan allows profile images up to ${Math.floor(req.membershipPlan.maxImageBytes / (1024 * 1024))} MiB`, code: "MEMBERSHIP_MEDIA_SIZE_LIMIT", maxBytes: req.membershipPlan.maxImageBytes });
+          }
+          const ext = contentType.split("/")[1] || "jpg";
+          const key = `banners/${effectiveAddress}-${uuidv4()}.${ext}`;
+          const r2 = await uploadBufferedMedia({ req, objectKey: key, category: "banner", mediaType: "image", contentType, file: f });
+          uploadedProfileMedia.push({ key, category: "banner" });
           update.bannerBlobId = r2.key;
           update.bannerUrl = r2.url;
         } else if (req.body.bannerUrl) {
@@ -2398,27 +2412,15 @@ export function buildApp() {
           }
         }
 
-        for (const item of [
-          { file: req.files?.avatar?.[0], key: update.avatarBlobId, category: "avatar" },
-          { file: req.files?.banner?.[0], key: update.bannerBlobId, category: "banner" },
-        ]) {
-          if (!item.file || !item.key) continue;
-          try {
-            await recordMediaUsage({
-              id: uuidv4(),
-              userAddress: effectiveAddress,
-              objectKey: item.key,
-              category: item.category,
-              mediaType: "image",
-              sizeBytes: item.file.size,
-            });
-          } catch (usageErr) {
-            console.error(`[membership] ${item.category} media usage recording failed:`, usageErr);
-          }
-        }
         res.json(profile);
       } catch (err) {
+        for (const item of uploadedProfileMedia) {
+          await cleanupAttachedMediaFailure({ objectKey: item.key, userAddress: req.userAddress, category: item.category });
+        }
         console.error("profile error:", err);
+        if (["MEDIA_STORAGE_LIMIT", "MEDIA_DAILY_LIMIT", "MEDIA_MONTHLY_LIMIT"].includes(err?.code)) {
+          return res.status(429).json({ error: err.message, code: err.code });
+        }
         res.status(500).json({ error: err.message });
       }
     },
