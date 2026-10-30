@@ -89,6 +89,10 @@ import {
   recordMediaUploadDiagnostic,
   getRecentMediaUploadDiagnostics,
   markMediaUsageDeleted,
+  enqueueMediaDeletion,
+  getPendingMediaDeletions,
+  completeMediaDeletion,
+  failMediaDeletion,
   saveReport,
   blockUser,
   unblockUser,
@@ -1138,6 +1142,55 @@ export function buildApp() {
         console.error("[post-media-cleanup] retry scan failed:", postCleanupError.message);
       }
 
+      // Drain durable cleanup jobs for replaced profile images and deleted
+      // message attachments. Failed deletes remain queued for the next run.
+      let queuedMediaScanned = 0;
+      let queuedMediaDeleted = 0;
+      let queuedMediaFailures = 0;
+      try {
+        const pendingMedia = await getPendingMediaDeletions({ limit: 100 });
+        queuedMediaScanned = pendingMedia.length;
+        for (const item of pendingMedia) {
+          const allowedPrefix = item.media_category === "avatar"
+            ? "avatars/"
+            : item.media_category === "banner"
+              ? "banners/"
+              : "messages/";
+          if (!item.object_key.startsWith(allowedPrefix) || item.object_key.includes("..")) {
+            queuedMediaFailures += 1;
+            await failMediaDeletion(item.object_key, "Unexpected object key prefix");
+            continue;
+          }
+          try {
+            // Never remove an object that is still referenced by a live record.
+            const referenced = await pool.query(
+              `SELECT
+                EXISTS (SELECT 1 FROM posts WHERE media_blob_id = $1 AND is_deleted = false)
+                OR EXISTS (SELECT 1 FROM statuses WHERE media_key = $1 AND expires_at > NOW())
+                OR EXISTS (SELECT 1 FROM messages WHERE attachment_key = $1 AND deleted_at IS NULL)
+                OR EXISTS (SELECT 1 FROM profiles WHERE avatar_blob_id = $1 OR banner_blob_id = $1)
+                AS in_use`,
+              [item.object_key],
+            );
+            if (referenced.rows[0]?.in_use) {
+              await completeMediaDeletion(item.object_key);
+              continue;
+            }
+            await deleteFromR2(item.object_key);
+            await markMediaUsageDeleted(item.object_key);
+            await completeMediaDeletion(item.object_key);
+            queuedMediaDeleted += 1;
+          } catch (cleanupError) {
+            queuedMediaFailures += 1;
+            await failMediaDeletion(item.object_key, cleanupError.message);
+            console.warn("[media-cleanup] queued object deletion failed; will retry:", cleanupError.message);
+          }
+        }
+      } catch (queueError) {
+        queuedMediaFailures += 1;
+        console.error("[media-cleanup] queue processing failed:", queueError.message);
+      }
+
       res.json({
         ok: true,
         scanned: expired.length,
@@ -1149,6 +1202,9 @@ export function buildApp() {
         deletedPostMediaScanned,
         deletedPostMediaCleaned,
         deletedPostMediaFailures,
+        queuedMediaScanned,
+        queuedMediaDeleted,
+        queuedMediaFailures,
       });
     } catch (err) {
       console.error("status_cleanup error:", err);
@@ -1984,7 +2040,52 @@ export function buildApp() {
         } else if (req.body.bannerUrl) {
           update.bannerUrl = String(req.body.bannerUrl);
         }
+        const previousProfile = await getProfile(effectiveAddress);
         const profile = await saveProfile(effectiveAddress, update);
+
+        // Replaced profile images are no longer referenced by the profile.
+        // Delete them immediately; persist failures for the cron retry worker.
+        const getManagedKey = (value, folder) => {
+          if (typeof value !== "string" || !value) return null;
+          try {
+            const pathname = new URL(value).pathname;
+            const marker = `/${folder}/`;
+            const index = pathname.indexOf(marker);
+            return index >= 0 ? pathname.slice(index + 1) : null;
+          } catch {
+            return value.startsWith(`${folder}/`) ? value : null;
+          }
+        };
+        const replacedProfileMedia = [
+          {
+            key: getManagedKey(previousProfile?.avatarUrl, "avatars"),
+            nextKey: update.avatarBlobId || getManagedKey(update.avatarUrl, "avatars"),
+            category: "avatar",
+          },
+          {
+            key: getManagedKey(previousProfile?.bannerUrl, "banners"),
+            nextKey: update.bannerBlobId || getManagedKey(update.bannerUrl, "banners"),
+            category: "banner",
+          },
+        ];
+        for (const item of replacedProfileMedia) {
+          if (!item.key || item.key === item.nextKey) continue;
+          try {
+            await deleteFromR2(item.key);
+            await markMediaUsageDeleted(item.key);
+          } catch (cleanupError) {
+            try {
+              await enqueueMediaDeletion({
+                objectKey: item.key,
+                userAddress: effectiveAddress,
+                category: item.category,
+              });
+            } catch (queueError) {
+              console.error("[profile-media] cleanup and retry scheduling failed:", cleanupError.message, queueError.message);
+            }
+          }
+        }
+
         for (const item of [
           { file: req.files?.avatar?.[0], key: update.avatarBlobId, category: "avatar" },
           { file: req.files?.banner?.[0], key: update.bannerBlobId, category: "banner" },
@@ -2350,19 +2451,29 @@ export function buildApp() {
       if (!existing.rowCount || existing.rows[0].sender !== req.userAddress) {
         return res.status(404).json({ error: "Message not found" });
       }
+      const attachmentKey = existing.rows[0].attachment_key;
       const message = await deleteMessageForEveryone(req.params.id, req.userAddress);
       if (!message) return res.status(409).json({ error: "This message has already been deleted" });
-      const attachmentKey = existing.rows[0].attachment_key;
+      let attachmentCleanupPending = false;
       if (attachmentKey) {
         try {
+          await deleteFromR2(attachmentKey);
           await markMediaUsageDeleted([attachmentKey]);
-        } catch (usageErr) {
-          console.error("[membership] deleted message usage update failed:", usageErr);
+        } catch (cleanupError) {
+          attachmentCleanupPending = true;
+          try {
+            await enqueueMediaDeletion({
+              objectKey: attachmentKey,
+              userAddress: req.userAddress,
+              category: "message",
+            });
+          } catch (queueError) {
+            console.error("[message-media] cleanup retry scheduling failed:", cleanupError.message, queueError.message);
+          }
         }
-        deleteFromR2(attachmentKey).catch((err) => console.warn("Could not remove deleted message attachment:", err?.message));
       }
       await publishMessageToFirebase(message);
-      res.json(message);
+      res.json({ ...message, attachmentCleanupPending });
     } catch (err) {
       console.error("delete_message error:", err);
       res.status(500).json({ error: "Could not delete message" });
