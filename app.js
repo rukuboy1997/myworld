@@ -707,7 +707,7 @@ export function buildApp() {
       const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 50;
       const offset = Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : 0;
       const audit = await getMediaIntegrityAuditCandidates({ limit, offset });
-      const results = await Promise.all(audit.items.map(async (item) => {
+      const inspectItem = async (item) => {
         try {
           const metadata = await getR2ObjectMetadata(item.object_key);
           if (!metadata) {
@@ -740,7 +740,13 @@ export function buildApp() {
             error: String(error?.message || "R2 metadata check failed").slice(0, 180),
           };
         }
-      }));
+      };
+      // Keep R2 metadata requests bounded instead of fanning out the whole page.
+      const results = [];
+      for (let index = 0; index < audit.items.length; index += 10) {
+        const batch = audit.items.slice(index, index + 10);
+        results.push(...await Promise.all(batch.map(inspectItem)));
+      }
       const counts = results.reduce((summary, item) => {
         summary[item.status] = (summary[item.status] || 0) + 1;
         return summary;
