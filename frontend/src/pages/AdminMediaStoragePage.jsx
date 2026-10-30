@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Layout from "../components/Layout.jsx";
-import { getAdminMediaStorageAudit, getAdminMediaStorageInventory } from "../lib/api.js";
+import { getAdminMediaStorageAudit, getAdminMediaStorageInventory, queueAdminMediaStorageCleanup } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 
 const PAGE_SIZE = 50;
@@ -56,6 +56,10 @@ export default function AdminMediaStoragePage() {
   const [inventoryCursor, setInventoryCursor] = useState(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState("");
+  const [selectedOrphans, setSelectedOrphans] = useState([]);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [queueMessage, setQueueMessage] = useState("");
+  const [queueError, setQueueError] = useState("");
 
   const refresh = useCallback(async (nextOffset = offset) => {
     setLoading(true);
@@ -80,6 +84,9 @@ export default function AdminMediaStoragePage() {
   const scanBucket = useCallback(async (cursor = null) => {
     setInventoryLoading(true);
     setInventoryError("");
+    setQueueMessage("");
+    setQueueError("");
+    if (!cursor) setSelectedOrphans([]);
     try {
       const result = await getAdminMediaStorageInventory({ limit: 100, cursor });
       setInventory(result);
@@ -90,6 +97,38 @@ export default function AdminMediaStoragePage() {
       setInventoryLoading(false);
     }
   }, []);
+
+  const queueSelectedOrphans = useCallback(async () => {
+    if (!selectedOrphans.length || queueLoading) return;
+    const selectedItems = (inventory?.results || []).filter((item) => selectedOrphans.includes(item.objectKey));
+    const totalBytes = selectedItems.reduce((sum, item) => sum + (Number(item.sizeBytes) || 0), 0);
+    const confirmed = window.confirm(
+      `Queue ${selectedOrphans.length} orphaned object(s) for deletion?\n\nCombined R2 size: ${formatBytes(totalBytes)}\n\nNothing is deleted now. The cleanup worker will recheck all live references before deleting each object.`
+    );
+    if (!confirmed) return;
+
+    setQueueLoading(true);
+    setQueueError("");
+    setQueueMessage("");
+    try {
+      const result = await queueAdminMediaStorageCleanup(selectedOrphans);
+      const queuedKeys = new Set((result.queued || []).map((item) => item.objectKey));
+      setInventory((current) => current ? {
+        ...current,
+        results: (current.results || []).map((item) =>
+          queuedKeys.has(item.objectKey) ? { ...item, queuedForDeletion: true } : item
+        ),
+      } : current);
+      setSelectedOrphans((current) => current.filter((key) => !queuedKeys.has(key)));
+      setQueueMessage(
+        `Queued ${result.summary?.queued || 0} object(s) (${formatBytes(result.summary?.queuedSizeBytes || 0)}). ${result.summary?.skipped || 0} skipped after fresh safety checks.`
+      );
+    } catch (err) {
+      setQueueError(err.message || "Could not queue selected media.");
+    } finally {
+      setQueueLoading(false);
+    }
+  }, [selectedOrphans, queueLoading, inventory]);
 
   const summary = audit?.summary || {};
   const pagination = audit?.pagination || {};
@@ -127,7 +166,17 @@ export default function AdminMediaStoragePage() {
               {inventoryLoading ? "Scanning…" : inventory ? "Restart bucket scan" : "Scan R2 bucket"}
             </button>
           </div>
-          <p className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-muted-foreground">Read-only scan. This feature does not delete objects, change usage records, or enqueue cleanup jobs. Scan results are page-based; use the next-page button to continue through the bucket.</p>
+          <p className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-muted-foreground">Scanning is read-only. You may explicitly queue selected orphaned objects for cleanup; queued objects are not deleted immediately. The scheduled cleanup worker performs another live-reference check immediately before deletion.</p>
+          {selectedOrphans.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-3">
+              <p className="text-sm font-semibold">{selectedOrphans.length} orphaned object(s) selected</p>
+              <button type="button" onClick={() => void queueSelectedOrphans()} disabled={queueLoading || inventoryLoading} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                {queueLoading ? "Queueing…" : "Queue selected for deletion"}
+              </button>
+            </div>
+          )}
+          {queueMessage && <p role="status" className="mt-3 rounded-lg bg-emerald-500/10 p-3 text-sm text-emerald-700">{queueMessage}</p>}
+          {queueError && <p role="alert" className="mt-3 rounded-lg bg-red-500/10 p-3 text-sm text-red-600">{queueError}</p>}
           {inventoryError && <p role="alert" className="mt-3 rounded-lg bg-red-500/10 p-3 text-sm text-red-600">{inventoryError}</p>}
           {inventory && (
             <>
@@ -146,7 +195,22 @@ export default function AdminMediaStoragePage() {
                   return (
                     <article key={item.objectKey} className="rounded-xl border border-border p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${meta.tone}`}>{meta.label}</span>
+                        <div className="flex items-center gap-2">
+                          {item.status === "orphaned" && !item.queuedForDeletion && (
+                            <input
+                              type="checkbox"
+                              aria-label={`Select orphaned object ${item.objectKey}`}
+                              checked={selectedOrphans.includes(item.objectKey)}
+                              onChange={(event) => setSelectedOrphans((current) =>
+                                event.target.checked
+                                  ? [...current, item.objectKey]
+                                  : current.filter((key) => key !== item.objectKey)
+                              )}
+                              className="h-4 w-4 accent-red-600"
+                            />
+                          )}
+                          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${item.cleanupAttempts > 0 ? "border-amber-500/30 bg-amber-500/10 text-amber-700" : meta.tone}`}>{item.queuedForDeletion ? (item.cleanupAttempts > 0 ? "Retry pending" : "Pending deletion") : meta.label}</span>
+                        </div>
                         <span className="text-xs capitalize text-muted-foreground">{item.category || "unknown"}</span>
                       </div>
                       <p className="mt-2 break-all font-mono text-xs">{item.objectKey}</p>
@@ -157,6 +221,7 @@ export default function AdminMediaStoragePage() {
                         <span>Cleanup queued: {item.queuedForDeletion ? "Yes" : "No"}</span>
                       </div>
                       {item.reasons?.length > 0 && <p className="mt-2 text-xs text-amber-600">Findings: {item.reasons.join(", ").replaceAll("_", " ")}</p>}
+                      {item.cleanupAttempts > 0 && <p className="mt-2 text-xs text-amber-700">Cleanup attempts: {item.cleanupAttempts} · {item.cleanupLastError || "Previous attempt failed; retry is pending."}</p>}
                       {item.lastModified && <p className="mt-1 text-xs text-muted-foreground">Last modified: {formatDate(item.lastModified)}</p>}
                     </article>
                   );

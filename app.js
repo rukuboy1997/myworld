@@ -802,6 +802,8 @@ export function buildApp() {
           u.user_address, u.media_category, u.size_bytes, u.object_key IS NOT NULL AS has_usage,
           u.deleted_at IS NULL AND u.object_key IS NOT NULL AS active_usage,
           EXISTS (SELECT 1 FROM media_deletion_queue q WHERE q.object_key = o.object_key) AS queued,
+          (SELECT q.attempts FROM media_deletion_queue q WHERE q.object_key = o.object_key LIMIT 1) AS queue_attempts,
+          (SELECT q.last_error FROM media_deletion_queue q WHERE q.object_key = o.object_key LIMIT 1) AS queue_last_error,
           EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = true AND (p.media_blob_id = o.object_key OR p.media_url LIKE '%' || o.object_key)) AS deleted_post,
           EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NOT NULL AND (m.attachment_key = o.object_key OR m.attachment_url LIKE '%' || o.object_key)) AS deleted_message,
           EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at <= NOW() AND (s.media_key = o.object_key OR s.media_url LIKE '%' || o.object_key)) AS expired_status
@@ -824,7 +826,10 @@ export function buildApp() {
           userAddress: row.user_address || null,
           recordedSizeBytes: row.size_bytes == null ? null : Number(row.size_bytes),
           referenced: Boolean(row.referenced), hasUsageRecord: Boolean(row.has_usage),
-          queuedForDeletion: Boolean(row.queued), reasons,
+          queuedForDeletion: Boolean(row.queued),
+          cleanupAttempts: Number(row.queue_attempts || 0),
+          cleanupLastError: row.queue_last_error || null,
+          reasons,
           status: !managed ? "unsupported_namespace" : !row.referenced ? "orphaned" : !row.active_usage ? "legacy_untracked" : "healthy",
         };
       });
@@ -838,6 +843,105 @@ export function buildApp() {
     } catch (err) {
       console.error("[media-storage-inventory] failed:", err?.message || "Unknown error");
       return res.status(500).json({ error: "Could not scan the R2 bucket inventory" });
+    }
+  });
+
+  // Queue only explicitly selected orphaned R2 objects. The inventory is advisory:
+  // every key is revalidated against current database references and R2 before enqueue.
+  app.post("/api/admin/media-storage-cleanup/queue", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const submitted = Array.isArray(req.body?.objectKeys) ? req.body.objectKeys : [];
+      const objectKeys = [...new Set(submitted.filter((key) => typeof key === "string"))];
+      if (!objectKeys.length) return res.status(400).json({ error: "Select at least one orphaned object" });
+      if (objectKeys.length > 50) return res.status(400).json({ error: "Queue at most 50 objects per request" });
+
+      const prefixToCategory = {
+        "posts/": "post",
+        "statuses/": "status",
+        "messages/": "message",
+        "avatars/": "avatar",
+        "banners/": "banner",
+      };
+      const invalid = objectKeys.filter((key) =>
+        key.length > 1024 ||
+        key.includes("..") ||
+        key.startsWith("/") ||
+        !Object.keys(prefixToCategory).some((prefix) => key.startsWith(prefix)) ||
+        !/^(posts|statuses|messages|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(key)
+      );
+      if (invalid.length) return res.status(400).json({ error: "One or more selected object keys are not eligible for cleanup" });
+
+      const { rows } = await pool.query(
+        `SELECT o.object_key,
+          EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = false AND (p.media_blob_id = o.object_key OR p.media_url LIKE '%' || o.object_key)) OR
+          EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at > NOW() AND (s.media_key = o.object_key OR s.media_url LIKE '%' || o.object_key)) OR
+          EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NULL AND (m.attachment_key = o.object_key OR m.attachment_url LIKE '%' || o.object_key)) OR
+          EXISTS (SELECT 1 FROM profiles pr WHERE pr.avatar_blob_id = o.object_key OR pr.banner_blob_id = o.object_key OR pr.avatar_url LIKE '%' || o.object_key OR pr.banner_url LIKE '%' || o.object_key) AS referenced,
+          u.user_address,
+          EXISTS (SELECT 1 FROM media_deletion_queue q WHERE q.object_key = o.object_key) AS queued
+         FROM unnest($1::text[]) AS o(object_key)
+         LEFT JOIN media_usage_events u ON u.object_key = o.object_key`,
+        [objectKeys],
+      );
+      const byKey = new Map(rows.map((row) => [row.object_key, row]));
+      const queued = [];
+      const skipped = [];
+
+      // Bound concurrent R2 metadata checks; do not enqueue missing objects.
+      for (let offset = 0; offset < objectKeys.length; offset += 10) {
+        const batch = objectKeys.slice(offset, offset + 10);
+        const metadata = await Promise.all(batch.map(async (key) => {
+          try {
+            return [key, await getR2ObjectMetadata(key), null];
+          } catch (error) {
+            return [key, null, error?.message || "R2 metadata check failed"];
+          }
+        }));
+
+        for (const [key, objectMetadata, metadataError] of metadata) {
+          const row = byKey.get(key);
+          if (!row) {
+            skipped.push({ objectKey: key, reason: "not_found_in_database_check" });
+            continue;
+          }
+          if (row.referenced) {
+            skipped.push({ objectKey: key, reason: "live_reference_found" });
+            continue;
+          }
+          if (row.queued) {
+            skipped.push({ objectKey: key, reason: "already_queued" });
+            continue;
+          }
+          if (metadataError) {
+            skipped.push({ objectKey: key, reason: "r2_check_failed", error: metadataError });
+            continue;
+          }
+          if (!objectMetadata) {
+            skipped.push({ objectKey: key, reason: "missing_in_r2" });
+            continue;
+          }
+
+          const category = Object.entries(prefixToCategory).find(([prefix]) => key.startsWith(prefix))?.[1];
+          await enqueueMediaDeletion({ objectKey: key, userAddress: row.user_address || null, category });
+          queued.push({ objectKey: key, sizeBytes: objectMetadata.sizeBytes });
+        }
+      }
+
+      res.set("Cache-Control", "private, no-store");
+      return res.json({
+        queued,
+        skipped,
+        summary: {
+          requested: objectKeys.length,
+          queued: queued.length,
+          skipped: skipped.length,
+          queuedSizeBytes: queued.reduce((total, item) => total + item.sizeBytes, 0),
+        },
+        safety: "Objects are queued only after a fresh reference check. The cleanup worker rechecks references immediately before deletion.",
+      });
+    } catch (err) {
+      console.error("[media-storage-cleanup] queue request failed:", err?.message || "Unknown error");
+      return res.status(500).json({ error: "Could not queue selected orphaned media" });
     }
   });
 
@@ -1294,12 +1398,16 @@ export function buildApp() {
         const pendingMedia = await getPendingMediaDeletions({ limit: 100 });
         queuedMediaScanned = pendingMedia.length;
         for (const item of pendingMedia) {
-          const allowedPrefix = item.media_category === "avatar"
-            ? "avatars/"
-            : item.media_category === "banner"
-              ? "banners/"
-              : "messages/";
-          if (!item.object_key.startsWith(allowedPrefix) || item.object_key.includes("..")) {
+          const allowedPrefix = {
+            post: "posts/",
+            status: "statuses/",
+            message: "messages/",
+            avatar: "avatars/",
+            banner: "banners/",
+          }[item.media_category];
+          if (!allowedPrefix || !item.object_key.startsWith(allowedPrefix) ||
+              !/^(posts|statuses|messages|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(item.object_key) ||
+              item.object_key.includes("..")) {
             queuedMediaFailures += 1;
             await failMediaDeletion(item.object_key, "Unexpected object key prefix");
             continue;
@@ -1308,10 +1416,10 @@ export function buildApp() {
             // Never remove an object that is still referenced by a live record.
             const referenced = await pool.query(
               `SELECT
-                EXISTS (SELECT 1 FROM posts WHERE media_blob_id = $1 AND is_deleted = false)
-                OR EXISTS (SELECT 1 FROM statuses WHERE media_key = $1 AND expires_at > NOW())
-                OR EXISTS (SELECT 1 FROM messages WHERE attachment_key = $1 AND deleted_at IS NULL)
-                OR EXISTS (SELECT 1 FROM profiles WHERE avatar_blob_id = $1 OR banner_blob_id = $1)
+                EXISTS (SELECT 1 FROM posts WHERE is_deleted = false AND (media_blob_id = $1 OR media_url LIKE '%' || $1))
+                OR EXISTS (SELECT 1 FROM statuses WHERE expires_at > NOW() AND (media_key = $1 OR media_url LIKE '%' || $1))
+                OR EXISTS (SELECT 1 FROM messages WHERE deleted_at IS NULL AND (attachment_key = $1 OR attachment_url LIKE '%' || $1))
+                OR EXISTS (SELECT 1 FROM profiles WHERE avatar_blob_id = $1 OR banner_blob_id = $1 OR avatar_url LIKE '%' || $1 OR banner_url LIKE '%' || $1)
                 AS in_use`,
               [item.object_key],
             );

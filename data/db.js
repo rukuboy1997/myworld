@@ -394,7 +394,7 @@ CREATE INDEX IF NOT EXISTS idx_media_usage_user_size
 CREATE TABLE IF NOT EXISTS media_deletion_queue (
   object_key TEXT PRIMARY KEY,
   user_address TEXT,
-  media_category TEXT NOT NULL CHECK (media_category IN ('message', 'avatar', 'banner')),
+  media_category TEXT NOT NULL CHECK (media_category IN ('message', 'avatar', 'banner', 'post', 'status')),
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -402,6 +402,13 @@ CREATE TABLE IF NOT EXISTS media_deletion_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_media_deletion_queue_created
   ON media_deletion_queue (created_at ASC);
+ALTER TABLE media_deletion_queue
+  DROP CONSTRAINT IF EXISTS media_deletion_queue_media_category_check;
+ALTER TABLE media_deletion_queue
+  DROP CONSTRAINT IF EXISTS media_deletion_queue_category_check;
+ALTER TABLE media_deletion_queue
+  ADD CONSTRAINT media_deletion_queue_category_check
+  CHECK (media_category IN ('message', 'avatar', 'banner', 'post', 'status'));
 
 
 /* Direct-to-R2 upload reservations. Pending intents reserve storage and count
@@ -2698,7 +2705,7 @@ export async function markMediaUsageDeleted(objectKeys) {
 
 export async function enqueueMediaDeletion({ objectKey, userAddress, category }) {
   if (typeof objectKey !== "string" || !objectKey) return false;
-  if (!["message", "avatar", "banner"].includes(category)) {
+  if (!["message", "avatar", "banner", "post", "status"].includes(category)) {
     throw new Error("Unsupported media deletion category");
   }
   await pool.query(
