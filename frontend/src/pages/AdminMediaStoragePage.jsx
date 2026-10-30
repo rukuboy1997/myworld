@@ -139,6 +139,7 @@ export default function AdminMediaStoragePage() {
                         <div><dt className="text-xs text-muted-foreground">Live reference</dt><dd className="mt-1 font-semibold">{item.referenced ? "Yes" : "No"}</dd></div>
                         <div><dt className="text-xs text-muted-foreground">Content type</dt><dd className="mt-1 break-all text-xs">{item.contentType || "—"}</dd></div>
                       </dl>
+                      {item.source && <p className="mt-3 text-xs text-muted-foreground">Database source: <span className="font-mono">{item.source}</span> · No active usage-ledger record was found.</p>}
                       {item.error && <p className="mt-3 break-words rounded-lg bg-secondary/60 p-3 text-xs text-muted-foreground">{item.error}</p>}
                     </article>
                   );
