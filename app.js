@@ -715,7 +715,7 @@ export function buildApp() {
             return {
               objectKey: item.object_key,
               category: item.media_category,
-              recordedSizeBytes: Number(item.recorded_size_bytes),
+              recordedSizeBytes: item.recorded_size_bytes == null ? null : Number(item.recorded_size_bytes),
               referenced: Boolean(item.is_referenced),
               hasUsageRecord: Boolean(item.has_usage_record),
               source: item.source_table || undefined,
