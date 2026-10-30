@@ -345,6 +345,16 @@ export default function ProfilePage() {
     }
   };
 
+  const handlePostDelete = (postId) => {
+    setProfile((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        posts: (current.posts || []).filter((post) => post.id !== postId),
+      };
+    });
+  };
+
   const handleLikeUpdate = (postId, newLikes, newCommentCount) => {
     if (!profile) return;
     setProfile((current) => ({
@@ -861,6 +871,7 @@ export default function ProfilePage() {
                 key={post.id}
                 post={{ ...post, profile }}
                 onLikeUpdate={handleLikeUpdate}
+                onPostDelete={handlePostDelete}
               />
             ))
           )}
