@@ -83,6 +83,7 @@ import {
   getMediaUsageSummary,
   getMediaIntegrityAuditCandidates,
   createMediaUploadIntent,
+  cancelMediaUploadIntent,
   getMediaUploadIntent,
   claimCompletedMediaUploadIntent,
   releaseMediaUploadIntentClaim,
@@ -353,6 +354,57 @@ export function buildApp() {
     } catch (err) {
       console.error("[membership] failed to resolve upload limits:", err);
       res.status(500).json({ error: "Could not verify membership upload limits" });
+    }
+  }
+
+  // Buffered uploads reserve membership quota before touching R2. Completion
+  // records usage atomically; callers clean up completed media if their DB
+  // attachment subsequently fails.
+  async function uploadBufferedMedia({ req, objectKey, category, mediaType, contentType, file }) {
+    const intentId = uuidv4();
+    await createMediaUploadIntent({
+      id: intentId,
+      userAddress: req.userAddress,
+      objectKey,
+      category,
+      mediaType,
+      contentType,
+      sizeBytes: file.size,
+      storageLimitBytes: req.membershipPlan.storageBytes,
+      uploadsPerDay: req.membershipPlan.uploadsPerDay,
+      uploadsPerMonth: req.membershipPlan.uploadsPerMonth,
+      expiresInSeconds: 300,
+    });
+    try {
+      const stored = await uploadToR2(objectKey, file.buffer, contentType);
+      await completeMediaUploadIntent({
+        id: intentId,
+        userAddress: req.userAddress,
+        actualSizeBytes: file.size,
+        actualContentType: contentType,
+      });
+      return { ...stored, intentId, sizeBytes: file.size };
+    } catch (err) {
+      await cancelMediaUploadIntent({ id: intentId, userAddress: req.userAddress }).catch((cancelError) => {
+        console.error("[media-upload] failed to cancel buffered reservation:", cancelError.message);
+      });
+      await deleteFromR2(objectKey).catch(() => {});
+      throw err;
+    }
+  }
+
+  async function cleanupAttachedMediaFailure({ objectKey, userAddress, category }) {
+    if (!objectKey) return;
+    await markMediaUsageDeleted([objectKey]).catch((err) => {
+      console.error("[media-upload] failed to release usage after attachment failure:", err.message);
+    });
+    try {
+      await deleteFromR2(objectKey);
+    } catch (err) {
+      console.error("[media-upload] failed to delete unattached R2 object:", err.message);
+      await enqueueMediaDeletion({ objectKey, userAddress, category }).catch((queueError) => {
+        console.error("[media-upload] failed to queue unattached R2 object:", queueError.message);
+      });
     }
   }
 
@@ -1483,6 +1535,9 @@ export function buildApp() {
     async (req, res) => {
       let claimedIntentId = null;
       let claimedStatusId = null;
+      let bufferedMediaKey = null;
+      let bufferedMediaCompleted = false;
+      const statusId = uuidv4();
       try {
         const content = normalizeTextInput(req.body?.content || "");
         const audience = req.body?.audience === "everyone" ? "everyone" : "followers";
@@ -1497,7 +1552,6 @@ export function buildApp() {
         let mediaType = null;
         let mediaMime = null;
         let mediaSizeBytes = null;
-        const statusId = uuidv4();
 
         if (mediaIntentId) {
           const claimed = await claimCompletedMediaUploadIntent({
@@ -1537,27 +1591,31 @@ export function buildApp() {
           }
           const ext = mediaMime.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || (mediaType === "video" ? "mp4" : "jpg");
           mediaKey = `statuses/${req.userAddress}/${uuidv4()}.${ext}`;
-          const uploaded = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
+          bufferedMediaKey = mediaKey;
+          const uploaded = await uploadBufferedMedia({
+            req, objectKey: mediaKey, category: "status", mediaType,
+            contentType: mediaMime, file: req.file,
+          });
+          bufferedMediaCompleted = true;
           mediaUrl = uploaded.url;
           mediaSizeBytes = req.file.size;
         }
 
         const status = await createStatus({ id: statusId, owner: req.userAddress, content, mediaKey, mediaUrl, mediaType, mediaMime, audience });
-        if (mediaKey && req.file) {
-          try {
-            await recordMediaUsage({ id: uuidv4(), userAddress: req.userAddress, objectKey: mediaKey, category: "status", mediaType, sizeBytes: mediaSizeBytes });
-          } catch (usageErr) {
-            console.error("[membership] status media usage recording failed:", usageErr);
-          }
-        }
         res.status(201).json({ status });
       } catch (err) {
+        if (bufferedMediaCompleted && bufferedMediaKey) {
+          await cleanupAttachedMediaFailure({ objectKey: bufferedMediaKey, userAddress: req.userAddress, category: "status" });
+        }
         if (claimedIntentId && claimedStatusId) {
           await releaseMediaUploadIntentClaim({ id: claimedIntentId, userAddress: req.userAddress, attachmentId: claimedStatusId }).catch((releaseError) => {
             console.error("[media-upload] failed to release status intent claim:", releaseError.message);
           });
         }
         console.error("create_status error:", err);
+        if (["MEDIA_STORAGE_LIMIT", "MEDIA_DAILY_LIMIT", "MEDIA_MONTHLY_LIMIT"].includes(err?.code)) {
+          return res.status(429).json({ error: err.message, code: err.code });
+        }
         res.status(500).json({ error: "Failed to create status" });
       }
     },
@@ -1617,6 +1675,8 @@ export function buildApp() {
     async (req, res) => {
       let claimedIntentId = null;
       let claimedPostId = null;
+      let bufferedMediaKey = null;
+      let bufferedMediaCompleted = false;
       try {
         const title = normalizeTextInput(req.body?.title);
         const content = normalizeTextInput(req.body?.content);
@@ -1681,7 +1741,12 @@ export function buildApp() {
           }
           const ext = mediaMime.split("/")[1]?.replace("+xml", "") || "bin";
           mediaKey = `posts/${uuidv4()}.${ext}`;
-          const r2 = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
+          bufferedMediaKey = mediaKey;
+          const r2 = await uploadBufferedMedia({
+            req, objectKey: mediaKey, category: "post", mediaType,
+            contentType: mediaMime, file: req.file,
+          });
+          bufferedMediaCompleted = true;
           mediaUrl = r2.url;
         }
 
@@ -1698,22 +1763,11 @@ export function buildApp() {
           isDeleted: false,
           createdAt: new Date().toISOString(),
         });
-        if (mediaKey && req.file) {
-          try {
-            await recordMediaUsage({
-              id: uuidv4(),
-              userAddress: effectiveOwner,
-              objectKey: mediaKey,
-              category: "post",
-              mediaType,
-              sizeBytes: req.file.size,
-            });
-          } catch (usageErr) {
-            console.error("[membership] post media usage recording failed:", usageErr);
-          }
-        }
         res.json(saved);
       } catch (err) {
+        if (bufferedMediaCompleted && bufferedMediaKey) {
+          await cleanupAttachedMediaFailure({ objectKey: bufferedMediaKey, userAddress: req.userAddress, category: "post" });
+        }
         if (claimedIntentId && claimedPostId) {
           await releaseMediaUploadIntentClaim({
             id: claimedIntentId,
@@ -1724,6 +1778,9 @@ export function buildApp() {
           });
         }
         console.error("create_post error:", err);
+        if (["MEDIA_STORAGE_LIMIT", "MEDIA_DAILY_LIMIT", "MEDIA_MONTHLY_LIMIT"].includes(err?.code)) {
+          return res.status(429).json({ error: err.message, code: err.code });
+        }
         res.status(500).json({ error: err.message || "Failed to create post" });
       }
     },
