@@ -2638,8 +2638,8 @@ export async function releaseMediaUploadIntentClaim({ id, userAddress, attachmen
  */
 export async function recordMediaUploadDiagnostic({ intentId, stage, errorName, errorCode, errorMessage, httpStatus }) {
   const safeMessage = String(errorMessage || "Unknown error")
-    .replace(/https?:\\/\\/[^\\s)]+/gi, "[url redacted]")
-    .replace(/(authorization|bearer|secret|access[_ -]?key|token)\\s*[:=]\\s*[^\\s,;]+/gi, "$1=[redacted]")
+    .replace(/https?:\/\/[^\s)]+/gi, "[url redacted]")
+    .replace(/(authorization|bearer|secret|access[_ -]?key|token)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
     .slice(0, 500);
   await pool.query(
     `INSERT INTO media_upload_diagnostics
