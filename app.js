@@ -79,6 +79,7 @@ import {
   getMembershipSubscription,
   recordMediaUsage,
   getMediaUsageSummary,
+  getMediaIntegrityAuditCandidates,
   createMediaUploadIntent,
   getMediaUploadIntent,
   claimCompletedMediaUploadIntent,
