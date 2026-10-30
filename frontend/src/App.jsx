@@ -16,6 +16,7 @@ import TermsOfServicePage from "./pages/TermsOfServicePage.jsx";
 import DeleteAccountPage from "./pages/DeleteAccountPage.jsx";
 import ChildSafetyPage from "./pages/ChildSafetyPage.jsx";
 import AdminModerationPage from "./pages/AdminModerationPage.jsx";
+import AdminMediaDiagnosticsPage from "./pages/AdminMediaDiagnosticsPage.jsx";
 
 
 import { useEffect } from "react";
@@ -89,6 +90,7 @@ export default function App() {
         <Route path="/delete-account" element={<DeleteAccountPage />} />
         <Route path="/child-safety" element={<ChildSafetyPage />} />
         <Route path="/admin/moderation" element={<AdminModerationPage />} />
+        <Route path="/admin/media-diagnostics" element={<AdminMediaDiagnosticsPage />} />
       </Routes>
     </BrowserRouter>
   );
