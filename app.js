@@ -1719,7 +1719,7 @@ export function buildApp() {
           mediaType = claimed.mediaType;
           mediaMime = claimed.contentType;
         } else if (req.file) {
-          mediaMime = req.file.mimetype;
+          mediaMime = (req.file.mimetype || "").toLowerCase();
           mediaType = detectMediaType(mediaMime);
           if (!mediaType)
             return res.status(400).json({ error: "Only image/* or video/* media is allowed" });
