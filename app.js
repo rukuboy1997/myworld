@@ -86,6 +86,8 @@ import {
   getAbandonedMediaUploadIntents,
   deleteCleanedMediaUploadIntents,
   completeMediaUploadIntent,
+  recordMediaUploadDiagnostic,
+  getRecentMediaUploadDiagnostics,
   markMediaUsageDeleted,
   saveReport,
   blockUser,
@@ -519,6 +521,7 @@ export function buildApp() {
   });
 
   app.post("/api/media/upload-intents/:intentId/complete", requireAuth, resolveMembershipPlan, async (req, res) => {
+    let diagnosticStage = "load_intent";
     if (process.env.ENABLE_DIRECT_R2_UPLOADS !== "true") {
       return res.status(503).json({ error: "Direct uploads are not enabled yet" });
     }
@@ -542,6 +545,7 @@ export function buildApp() {
         return res.status(410).json({ error: "Upload intent expired" });
       }
 
+      diagnosticStage = "r2_metadata_lookup";
       const metadata = await getR2ObjectMetadata(intent.object_key);
       if (!metadata) {
         return res.status(409).json({ error: "R2 object not found; upload it before completing the intent" });
@@ -569,6 +573,7 @@ export function buildApp() {
       }
 
       // Inspect real file bytes through a bounded Range request, never a full download.
+      diagnosticStage = "r2_signature_range";
       const prefix = await getR2ObjectPrefix(intent.object_key, 64);
       if (!prefix || !matchesR2UploadSignature(expectedType, prefix)) {
         await pool.query(
@@ -587,8 +592,10 @@ export function buildApp() {
       if (intent.media_type === "video") {
         // Inspect at most 8 MiB total (head + tail); never buffer the full video.
         const sampleBytes = 4 * 1024 * 1024;
+        diagnosticStage = "r2_video_head_range";
         const head = await getR2ObjectRange(intent.object_key, 0, sampleBytes - 1);
         const tailStart = Math.max(0, metadata.sizeBytes - sampleBytes);
+        diagnosticStage = "r2_video_tail_range";
         const tail = tailStart === 0 ? null : await getR2ObjectRange(
           intent.object_key,
           tailStart,
@@ -626,6 +633,7 @@ export function buildApp() {
         }
       }
 
+      diagnosticStage = "database_complete_intent";
       const completed = await completeMediaUploadIntent({
         id: intentId,
         userAddress: req.userAddress,
@@ -660,8 +668,43 @@ export function buildApp() {
         if (intent?.object_key) await deleteFromR2(intent.object_key).catch(() => {});
         return res.status(422).json({ error: err.message });
       }
-      console.error("[media-upload] completion verification failed:", err);
+      console.error("[media-upload] completion verification failed:", {
+        intentId,
+        stage: diagnosticStage,
+        name: err?.name || "Error",
+        code: err?.code || null,
+        message: String(err?.message || "Unknown error").slice(0, 500),
+        status: Number.isInteger(err?.status) ? err.status : (Number.isInteger(err?.statusCode) ? err.statusCode : null),
+      });
+      try {
+        await recordMediaUploadDiagnostic({
+          intentId,
+          stage: diagnosticStage,
+          errorName: err?.name || "Error",
+          errorCode: err?.code || null,
+          errorMessage: err?.message || "Unknown error",
+          httpStatus: Number.isInteger(err?.status) ? err.status : (Number.isInteger(err?.statusCode) ? err.statusCode : null),
+        });
+      } catch (diagnosticError) {
+        // Keep the original API response even if the diagnostic table is unavailable.
+        console.error("[media-upload] failed to persist diagnostic:", diagnosticError?.message || "Unknown database error");
+      }
       return res.status(502).json({ error: "Could not verify uploaded media with R2" });
+    }
+  });
+
+  // Restricted to configured administrators; diagnostics expire after seven days.
+  app.get("/api/admin/media-upload-diagnostics", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const parsedLimit = Number.parseInt(String(req.query.limit || "50"), 10);
+      const diagnostics = await getRecentMediaUploadDiagnostics({
+        limit: Number.isFinite(parsedLimit) ? parsedLimit : 50,
+      });
+      res.set("Cache-Control", "private, no-store");
+      return res.json({ diagnostics });
+    } catch (err) {
+      console.error("[media-upload] failed to read diagnostics:", err?.message || "Unknown error");
+      return res.status(500).json({ error: "Could not load media upload diagnostics" });
     }
   });
 

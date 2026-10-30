@@ -415,6 +415,21 @@ CREATE INDEX IF NOT EXISTS idx_media_upload_intents_user_pending
 CREATE INDEX IF NOT EXISTS idx_media_upload_intents_user_created
   ON media_upload_intents (user_address, created_at DESC);
 
+/* Short-lived, sanitized diagnostics for investigating direct-R2 completion failures. */
+CREATE TABLE IF NOT EXISTS media_upload_diagnostics (
+  id BIGSERIAL PRIMARY KEY,
+  intent_id TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  error_name TEXT,
+  error_code TEXT,
+  error_message TEXT NOT NULL,
+  http_status INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_media_upload_diagnostics_created
+  ON media_upload_diagnostics (created_at DESC);
+
+
 
 
 
@@ -2615,6 +2630,44 @@ export async function releaseMediaUploadIntentClaim({ id, userAddress, attachmen
     [id, userAddress, attachmentId],
   );
   return rowCount || 0;
+}
+
+/**
+ * Store a minimal, sanitized diagnostic for short-lived upload verification errors.
+ * Old records are pruned on write; no user address, object key, or credentials are stored.
+ */
+export async function recordMediaUploadDiagnostic({ intentId, stage, errorName, errorCode, errorMessage, httpStatus }) {
+  const safeMessage = String(errorMessage || "Unknown error")
+    .replace(/https?:\/\/[^\s)]+/gi, "[url redacted]")
+    .replace(/(authorization|bearer|secret|access[_ -]?key|token)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+    .slice(0, 500);
+  await pool.query(
+    `INSERT INTO media_upload_diagnostics
+       (intent_id, stage, error_name, error_code, error_message, http_status)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      String(intentId || "").slice(0, 80),
+      String(stage || "unknown").slice(0, 80),
+      errorName ? String(errorName).slice(0, 120) : null,
+      errorCode ? String(errorCode).slice(0, 120) : null,
+      safeMessage,
+      Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,
+    ],
+  );
+  await pool.query("DELETE FROM media_upload_diagnostics WHERE created_at < NOW() - INTERVAL '7 days'");
+}
+
+export async function getRecentMediaUploadDiagnostics({ limit = 50 } = {}) {
+  const safeLimit = Number.isInteger(limit) ? Math.min(100, Math.max(1, limit)) : 50;
+  const { rows } = await pool.query(
+    `SELECT id, intent_id, stage, error_name, error_code, error_message, http_status, created_at
+     FROM media_upload_diagnostics
+     WHERE created_at >= NOW() - INTERVAL '7 days'
+     ORDER BY created_at DESC
+     LIMIT $1`,
+    [safeLimit],
+  );
+  return rows;
 }
 
 export async function markMediaUsageDeleted(objectKeys) {
