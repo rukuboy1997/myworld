@@ -1,4 +1,5 @@
 import express from "express";
+// R2 inventory admin route integration.
 import { Readable } from "node:stream";
 import cors from "cors";
 import multer from "multer";
