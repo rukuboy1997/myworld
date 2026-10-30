@@ -29,6 +29,7 @@ const STATUS_META = {
   missing_in_r2: { label: "Missing in R2", tone: "border-red-500/30 bg-red-500/10 text-red-600" },
   size_mismatch: { label: "Size mismatch", tone: "border-amber-500/30 bg-amber-500/10 text-amber-600" },
   unreferenced_usage: { label: "No live reference", tone: "border-orange-500/30 bg-orange-500/10 text-orange-600" },
+  untracked_reference: { label: "Legacy · no usage record", tone: "border-violet-500/30 bg-violet-500/10 text-violet-600" },
   check_failed: { label: "Check failed", tone: "border-slate-500/30 bg-slate-500/10 text-muted-foreground" },
 };
 
@@ -80,7 +81,7 @@ export default function AdminMediaStoragePage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h1 className="font-display text-3xl font-bold tracking-tight">Media storage integrity</h1>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Compare active media usage records with Cloudflare R2 metadata and live database references.</p>
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Compare the usage ledger with live database media references, including older uploads that predate usage tracking.</p>
             </div>
             <button type="button" onClick={() => void refresh(offset)} disabled={loading || !isAuthenticated} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold hover:bg-secondary disabled:opacity-50">
               {loading ? "Checking…" : "Run audit"}
@@ -105,6 +106,7 @@ export default function AdminMediaStoragePage() {
               <SummaryCard label="Missing in R2" value={summary.missingInR2} tone="border-red-500/30" />
               <SummaryCard label="Size mismatches" value={summary.sizeMismatches} tone="border-amber-500/30" />
               <SummaryCard label="No live reference" value={summary.unreferencedUsage} tone="border-orange-500/30" />
+              <SummaryCard label="Legacy / untracked" value={summary.untrackedReferences} tone="border-violet-500/30" />
               <SummaryCard label="Check failures" value={summary.checkFailures} />
               <SummaryCard label="Pending deletions" value={summary.pendingDeletionJobs} />
               <SummaryCard label="Expired uploads" value={summary.expiredPendingUploads} />
@@ -137,6 +139,7 @@ export default function AdminMediaStoragePage() {
                         <div><dt className="text-xs text-muted-foreground">Live reference</dt><dd className="mt-1 font-semibold">{item.referenced ? "Yes" : "No"}</dd></div>
                         <div><dt className="text-xs text-muted-foreground">Content type</dt><dd className="mt-1 break-all text-xs">{item.contentType || "—"}</dd></div>
                       </dl>
+                      {item.source && <p className="mt-3 text-xs text-muted-foreground">Database source: <span className="font-mono">{item.source}</span> · No active usage-ledger record was found.</p>}
                       {item.error && <p className="mt-3 break-words rounded-lg bg-secondary/60 p-3 text-xs text-muted-foreground">{item.error}</p>}
                     </article>
                   );

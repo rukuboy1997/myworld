@@ -2750,36 +2750,95 @@ export async function failMediaDeletion(objectKey, errorMessage) {
  * Read-only candidates for the admin media-storage integrity audit.
  * The query deliberately does not mutate usage records or media references.
  */
+/**
+ * Read-only audit candidates from both the usage ledger and live database
+ * references. The second set catches older media uploaded before usage
+ * accounting was introduced. URL extraction is restricted to our managed
+ * R2 key namespaces; external image hosts are intentionally ignored.
+ */
 export async function getMediaIntegrityAuditCandidates({ limit = 50, offset = 0 } = {}) {
   const safeLimit = Number.isInteger(limit) ? Math.min(100, Math.max(1, limit)) : 50;
   const safeOffset = Number.isInteger(offset) ? Math.max(0, Math.min(offset, 1000000)) : 0;
+  const candidateCte = `
+    WITH referenced_media AS (
+      SELECT
+        COALESCE(NULLIF(p.media_blob_id, ''), substring(p.media_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')) AS object_key,
+        p.owner AS user_address, 'post'::text AS media_category, p.media_type,
+        NULL::text AS recorded_size_bytes, 'posts'::text AS source_table
+      FROM posts p
+      WHERE p.is_deleted = false AND (NULLIF(p.media_blob_id, '') IS NOT NULL OR p.media_url IS NOT NULL)
+
+      UNION ALL
+      SELECT
+        COALESCE(NULLIF(s.media_key, ''), substring(s.media_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')),
+        s.owner, 'status'::text, s.media_type, NULL::text, 'statuses'::text
+      FROM statuses s
+      WHERE s.expires_at > NOW() AND (NULLIF(s.media_key, '') IS NOT NULL OR s.media_url IS NOT NULL)
+
+      UNION ALL
+      SELECT
+        COALESCE(NULLIF(m.attachment_key, ''), substring(m.attachment_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')),
+        m.sender, 'message'::text,
+        CASE WHEN m.attachment_mime LIKE 'image/%' THEN 'image'
+             WHEN m.attachment_mime LIKE 'video/%' THEN 'video'
+             WHEN m.attachment_mime LIKE 'audio/%' THEN 'audio' ELSE 'other' END,
+        m.attachment_size::text, 'messages'::text
+      FROM messages m
+      WHERE m.deleted_at IS NULL AND (NULLIF(m.attachment_key, '') IS NOT NULL OR m.attachment_url IS NOT NULL)
+
+      UNION ALL
+      SELECT
+        COALESCE(NULLIF(pr.avatar_blob_id, ''), substring(pr.avatar_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')),
+        pr.address, 'avatar'::text, 'image'::text, NULL::text, 'profiles.avatar'::text
+      FROM profiles pr
+      WHERE NULLIF(pr.avatar_blob_id, '') IS NOT NULL OR pr.avatar_url IS NOT NULL
+
+      UNION ALL
+      SELECT
+        COALESCE(NULLIF(pr.banner_blob_id, ''), substring(pr.banner_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')),
+        pr.address, 'banner'::text, 'image'::text, NULL::text, 'profiles.banner'::text
+      FROM profiles pr
+      WHERE NULLIF(pr.banner_blob_id, '') IS NOT NULL OR pr.banner_url IS NOT NULL
+    ),
+    valid_references AS (
+      SELECT DISTINCT ON (object_key)
+        object_key, user_address, media_category, media_type, recorded_size_bytes, source_table
+      FROM referenced_media
+      WHERE object_key ~ '^(posts|statuses|messages|avatars|banners)/'
+      ORDER BY object_key, source_table
+    ),
+    candidates AS (
+      SELECT
+        u.object_key, u.media_category, u.media_type, u.size_bytes::text AS recorded_size_bytes,
+        (
+          EXISTS (SELECT 1 FROM posts p WHERE p.media_blob_id = u.object_key AND p.is_deleted = false)
+          OR EXISTS (SELECT 1 FROM statuses s WHERE s.media_key = u.object_key AND s.expires_at > NOW())
+          OR EXISTS (SELECT 1 FROM messages m WHERE m.attachment_key = u.object_key AND m.deleted_at IS NULL)
+          OR EXISTS (SELECT 1 FROM profiles pr WHERE pr.avatar_blob_id = u.object_key OR pr.banner_blob_id = u.object_key)
+        ) AS is_referenced,
+        true AS has_usage_record, NULL::text AS source_table
+      FROM media_usage_events u
+      WHERE u.deleted_at IS NULL
+
+      UNION ALL
+      SELECT r.object_key, r.media_category, r.media_type, r.recorded_size_bytes,
+        true AS is_referenced, false AS has_usage_record, r.source_table
+      FROM valid_references r
+      WHERE NOT EXISTS (
+        SELECT 1 FROM media_usage_events u
+        WHERE u.object_key = r.object_key AND u.deleted_at IS NULL
+      )
+    )
+  `;
   const [{ rows }, countResult, queueResult, intentResult] = await Promise.all([
-    pool.query(
-      `SELECT
-         u.object_key,
-         u.media_category,
-         u.media_type,
-         u.size_bytes::text AS recorded_size_bytes,
-         u.created_at,
-         (
-           EXISTS (SELECT 1 FROM posts p WHERE p.media_blob_id = u.object_key AND p.is_deleted = false)
-           OR EXISTS (SELECT 1 FROM statuses s WHERE s.media_key = u.object_key AND s.expires_at > NOW())
-           OR EXISTS (SELECT 1 FROM messages m WHERE m.attachment_key = u.object_key AND m.deleted_at IS NULL)
-           OR EXISTS (SELECT 1 FROM profiles pr WHERE pr.avatar_blob_id = u.object_key OR pr.banner_blob_id = u.object_key)
-         ) AS is_referenced
-       FROM media_usage_events u
-       WHERE u.deleted_at IS NULL
-       ORDER BY u.created_at ASC, u.object_key ASC
-       LIMIT $1 OFFSET $2`,
-      [safeLimit, safeOffset],
-    ),
-    pool.query("SELECT COUNT(*)::int AS total FROM media_usage_events WHERE deleted_at IS NULL"),
+    pool.query(`${candidateCte}
+      SELECT * FROM candidates
+      ORDER BY has_usage_record DESC, object_key ASC
+      LIMIT $1 OFFSET $2`, [safeLimit, safeOffset]),
+    pool.query(`${candidateCte} SELECT COUNT(*)::int AS total FROM candidates`),
     pool.query("SELECT COUNT(*)::int AS pending FROM media_deletion_queue"),
-    pool.query(
-      `SELECT COUNT(*)::int AS pending
-       FROM media_upload_intents
-       WHERE status = 'pending' AND expires_at <= NOW()`,
-    ),
+    pool.query(`SELECT COUNT(*)::int AS pending FROM media_upload_intents
+      WHERE status = 'pending' AND expires_at <= NOW()`),
   ]);
   return {
     items: rows,

@@ -715,20 +715,27 @@ export function buildApp() {
             return {
               objectKey: item.object_key,
               category: item.media_category,
-              recordedSizeBytes: Number(item.recorded_size_bytes),
+              recordedSizeBytes: item.recorded_size_bytes == null ? null : Number(item.recorded_size_bytes),
               referenced: Boolean(item.is_referenced),
+              hasUsageRecord: Boolean(item.has_usage_record),
+              source: item.source_table || undefined,
               status: "missing_in_r2",
             };
           }
-          const recordedSizeBytes = Number(item.recorded_size_bytes);
+          const recordedSizeBytes = item.recorded_size_bytes == null ? null : Number(item.recorded_size_bytes);
+          if (!item.has_usage_record) {
+            return {
+              objectKey: item.object_key, category: item.media_category, recordedSizeBytes,
+              actualSizeBytes: metadata.sizeBytes, contentType: metadata.contentType,
+              referenced: true, hasUsageRecord: false, source: item.source_table,
+              status: "untracked_reference",
+            };
+          }
           const sizeMatches = metadata.sizeBytes === recordedSizeBytes;
           return {
-            objectKey: item.object_key,
-            category: item.media_category,
-            recordedSizeBytes,
-            actualSizeBytes: metadata.sizeBytes,
-            contentType: metadata.contentType,
-            referenced: Boolean(item.is_referenced),
+            objectKey: item.object_key, category: item.media_category, recordedSizeBytes,
+            actualSizeBytes: metadata.sizeBytes, contentType: metadata.contentType,
+            referenced: Boolean(item.is_referenced), hasUsageRecord: true,
             status: !sizeMatches ? "size_mismatch" : !item.is_referenced ? "unreferenced_usage" : "healthy",
           };
         } catch (error) {
@@ -763,6 +770,7 @@ export function buildApp() {
           sizeMismatches: counts.size_mismatch || 0,
           unreferencedUsage: counts.unreferenced_usage || 0,
           checkFailures: counts.check_failed || 0,
+          untrackedReferences: counts.untracked_reference || 0,
           pendingDeletionJobs: audit.pendingDeletions,
           expiredPendingUploads: audit.expiredPendingUploads,
         },
