@@ -398,3 +398,44 @@ export function createPresignedR2Upload({
     requiredHeaders: { "Content-Type": contentType.trim() },
   };
 }
+
+
+/**
+ * List one bounded page of objects directly from the R2 bucket.
+ * The cursor is the opaque Cloudflare pagination cursor; callers must pass it
+ * back unchanged. This function is read-only and never downloads object bodies.
+ */
+export async function listR2Objects({ cursor = null, limit = 100 } = {}) {
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN || !CF_R2_BUCKET) {
+    throw new Error("R2 inventory is not configured");
+  }
+  const safeLimit = Number.isInteger(limit) ? Math.min(1000, Math.max(1, limit)) : 100;
+  const url = new URL(
+    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/${encodeURIComponent(CF_R2_BUCKET)}/objects`,
+  );
+  url.searchParams.set("per_page", String(safeLimit));
+  if (typeof cursor === "string" && cursor.length > 0) {
+    if (cursor.length > 4096) throw new Error("Invalid R2 inventory cursor");
+    url.searchParams.set("cursor", cursor);
+  }
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${CF_API_TOKEN}` },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.success !== true) {
+    const detail = payload.errors?.map((item) => item.message).filter(Boolean).join("; ");
+    throw new Error(`R2 bucket listing failed (${response.status})${detail ? `: ${detail}` : ""}`);
+  }
+  const objects = Array.isArray(payload.result) ? payload.result : [];
+  return {
+    objects: objects.map((item) => ({
+      key: item.key,
+      sizeBytes: Number(item.size),
+      contentType: item.http_metadata?.contentType || null,
+      etag: item.etag || null,
+      lastModified: item.last_modified || null,
+    })).filter((item) => typeof item.key === "string" && Number.isSafeInteger(item.sizeBytes) && item.sizeBytes >= 0),
+    nextCursor: payload.result_info?.is_truncated ? payload.result_info?.cursor || null : null,
+    truncated: Boolean(payload.result_info?.is_truncated),
+  };
+}
