@@ -103,7 +103,7 @@ export default function AdminMediaStoragePage() {
     const selectedItems = (inventory?.results || []).filter((item) => selectedOrphans.includes(item.objectKey));
     const totalBytes = selectedItems.reduce((sum, item) => sum + (Number(item.sizeBytes) || 0), 0);
     const confirmed = window.confirm(
-      `Queue ${selectedOrphans.length} orphaned object(s) for deletion?\\n\\nCombined R2 size: ${formatBytes(totalBytes)}\\n\\nNothing is deleted now. The cleanup worker will recheck all live references before deleting each object.`
+      `Queue ${selectedOrphans.length} orphaned object(s) for deletion?\n\nCombined R2 size: ${formatBytes(totalBytes)}\n\nNothing is deleted now. The cleanup worker will recheck all live references before deleting each object.`
     );
     if (!confirmed) return;
 
@@ -209,7 +209,7 @@ export default function AdminMediaStoragePage() {
                               className="h-4 w-4 accent-red-600"
                             />
                           )}
-                          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${meta.tone}`}>{item.queuedForDeletion ? "Pending deletion" : meta.label}</span>
+                          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${item.cleanupAttempts > 0 ? "border-amber-500/30 bg-amber-500/10 text-amber-700" : meta.tone}`}>{item.queuedForDeletion ? (item.cleanupAttempts > 0 ? "Retry pending" : "Pending deletion") : meta.label}</span>
                         </div>
                         <span className="text-xs capitalize text-muted-foreground">{item.category || "unknown"}</span>
                       </div>
@@ -221,6 +221,7 @@ export default function AdminMediaStoragePage() {
                         <span>Cleanup queued: {item.queuedForDeletion ? "Yes" : "No"}</span>
                       </div>
                       {item.reasons?.length > 0 && <p className="mt-2 text-xs text-amber-600">Findings: {item.reasons.join(", ").replaceAll("_", " ")}</p>}
+                      {item.cleanupAttempts > 0 && <p className="mt-2 text-xs text-amber-700">Cleanup attempts: {item.cleanupAttempts} · {item.cleanupLastError || "Previous attempt failed; retry is pending."}</p>}
                       {item.lastModified && <p className="mt-1 text-xs text-muted-foreground">Last modified: {formatDate(item.lastModified)}</p>}
                     </article>
                   );
