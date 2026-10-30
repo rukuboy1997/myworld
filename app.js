@@ -785,6 +785,62 @@ export function buildApp() {
     }
   });
 
+
+  app.get("/api/admin/media-storage-inventory", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const parsedLimit = Number.parseInt(String(req.query.limit || "100"), 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.min(250, Math.max(1, parsedLimit)) : 100;
+      const cursor = typeof req.query.cursor === "string" ? req.query.cursor : null;
+      const page = await listR2Objects({ cursor, limit });
+      const keys = page.objects.map((item) => item.key);
+      const dbResult = keys.length ? await pool.query(
+        `SELECT o.object_key,
+          EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = false AND (p.media_blob_id = o.object_key OR p.media_url LIKE '%' || o.object_key)) OR
+          EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at > NOW() AND (s.media_key = o.object_key OR s.media_url LIKE '%' || o.object_key)) OR
+          EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NULL AND (m.attachment_key = o.object_key OR m.attachment_url LIKE '%' || o.object_key)) OR
+          EXISTS (SELECT 1 FROM profiles pr WHERE pr.avatar_blob_id = o.object_key OR pr.banner_blob_id = o.object_key OR pr.avatar_url LIKE '%' || o.object_key OR pr.banner_url LIKE '%' || o.object_key) AS referenced,
+          u.user_address, u.media_category, u.size_bytes, u.object_key IS NOT NULL AS has_usage,
+          u.deleted_at IS NULL AND u.object_key IS NOT NULL AS active_usage,
+          EXISTS (SELECT 1 FROM media_deletion_queue q WHERE q.object_key = o.object_key) AS queued,
+          EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = true AND (p.media_blob_id = o.object_key OR p.media_url LIKE '%' || o.object_key)) AS deleted_post,
+          EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NOT NULL AND (m.attachment_key = o.object_key OR m.attachment_url LIKE '%' || o.object_key)) AS deleted_message,
+          EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at <= NOW() AND (s.media_key = o.object_key OR s.media_url LIKE '%' || o.object_key)) AS expired_status
+         FROM unnest($1::text[]) AS o(object_key)
+         LEFT JOIN media_usage_events u ON u.object_key = o.object_key`,
+        [keys],
+      ) : { rows: [] };
+      const indexed = new Map(dbResult.rows.map((row) => [row.object_key, row]));
+      const results = page.objects.map((object) => {
+        const row = indexed.get(object.key) || {};
+        const managed = /^(posts|statuses|messages|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(object.key) && !object.key.includes("..");
+        const reasons = [];
+        if (row.deleted_post) reasons.push("deleted_post");
+        if (row.deleted_message) reasons.push("deleted_message");
+        if (row.expired_status) reasons.push("expired_status");
+        if (row.queued) reasons.push("queued_for_deletion");
+        if (!row.referenced && !reasons.length) reasons.push("no_live_database_reference");
+        return {
+          ...object, category: row.media_category || object.key.split("/")[0],
+          userAddress: row.user_address || null,
+          recordedSizeBytes: row.size_bytes == null ? null : Number(row.size_bytes),
+          referenced: Boolean(row.referenced), hasUsageRecord: Boolean(row.has_usage),
+          queuedForDeletion: Boolean(row.queued), reasons,
+          status: !managed ? "unsupported_namespace" : !row.referenced ? "orphaned" : !row.active_usage ? "legacy_untracked" : "healthy",
+        };
+      });
+      const summary = results.reduce((counts, item) => {
+        counts[item.status] = (counts[item.status] || 0) + 1;
+        counts.totalSizeBytes += item.sizeBytes;
+        return counts;
+      }, { scanned: results.length, totalSizeBytes: 0 });
+      res.set("Cache-Control", "private, no-store");
+      return res.json({ generatedAt: new Date().toISOString(), summary, results, nextCursor: page.nextCursor, hasMore: Boolean(page.nextCursor), safety: "Read-only inventory. No R2 objects or database records were changed." });
+    } catch (err) {
+      console.error("[media-storage-inventory] failed:", err?.message || "Unknown error");
+      return res.status(500).json({ error: "Could not scan the R2 bucket inventory" });
+    }
+  });
+
   app.get("/api/admin/media-upload-diagnostics", requireAuth, requireAdmin, async (req, res) => {
     try {
       const parsedLimit = Number.parseInt(String(req.query.limit || "50"), 10);
