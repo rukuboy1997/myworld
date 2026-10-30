@@ -2468,12 +2468,40 @@ export async function createMediaUploadIntent({
     );
     const { rows: quotaRows } = await client.query(
       `SELECT
-         COALESCE((SELECT SUM(size_bytes) FROM media_usage_events WHERE user_address = $1 AND deleted_at IS NULL), 0)::text AS used_bytes,
-         COALESCE((SELECT SUM(expected_bytes) FROM media_upload_intents WHERE user_address = $1 AND status = 'pending' AND expires_at > NOW()), 0)::text AS reserved_bytes,
-         ((SELECT COUNT(*) FROM media_usage_events u WHERE u.user_address = $1 AND u.created_at >= date_trunc('day', NOW()) AND NOT EXISTS (SELECT 1 FROM media_upload_intents i WHERE i.object_key = u.object_key)) +
-          (SELECT COUNT(*) FROM media_upload_intents WHERE user_address = $1 AND created_at >= date_trunc('day', NOW())))::int AS day_count,
-         ((SELECT COUNT(*) FROM media_usage_events u WHERE u.user_address = $1 AND u.created_at >= date_trunc('month', NOW()) AND NOT EXISTS (SELECT 1 FROM media_upload_intents i WHERE i.object_key = u.object_key)) +
-          (SELECT COUNT(*) FROM media_upload_intents WHERE user_address = $1 AND created_at >= date_trunc('month', NOW())))::int AS month_count`,
+         COALESCE((
+           SELECT SUM(size_bytes)
+           FROM media_usage_events
+           WHERE user_address = $1 AND deleted_at IS NULL
+         ), 0)::text AS used_bytes,
+         COALESCE((
+           SELECT SUM(expected_bytes)
+           FROM media_upload_intents
+           WHERE user_address = $1 AND status = 'pending' AND expires_at > NOW()
+         ), 0)::text AS reserved_bytes,
+         (
+           SELECT COUNT(*) FROM media_usage_events
+           WHERE user_address = $1
+             AND created_at >= date_trunc('day', NOW())
+         ) +
+         (
+           SELECT COUNT(*) FROM media_upload_intents
+           WHERE user_address = $1
+             AND status = 'pending'
+             AND expires_at > NOW()
+             AND created_at >= date_trunc('day', NOW())
+         ) AS day_count,
+         (
+           SELECT COUNT(*) FROM media_usage_events
+           WHERE user_address = $1
+             AND created_at >= date_trunc('month', NOW())
+         ) +
+         (
+           SELECT COUNT(*) FROM media_upload_intents
+           WHERE user_address = $1
+             AND status = 'pending'
+             AND expires_at > NOW()
+             AND created_at >= date_trunc('month', NOW())
+         ) AS month_count`,
       [userAddress],
     );
     const quota = quotaRows[0];
