@@ -802,6 +802,8 @@ export function buildApp() {
           u.user_address, u.media_category, u.size_bytes, u.object_key IS NOT NULL AS has_usage,
           u.deleted_at IS NULL AND u.object_key IS NOT NULL AS active_usage,
           EXISTS (SELECT 1 FROM media_deletion_queue q WHERE q.object_key = o.object_key) AS queued,
+          (SELECT q.attempts FROM media_deletion_queue q WHERE q.object_key = o.object_key LIMIT 1) AS queue_attempts,
+          (SELECT q.last_error FROM media_deletion_queue q WHERE q.object_key = o.object_key LIMIT 1) AS queue_last_error,
           EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = true AND (p.media_blob_id = o.object_key OR p.media_url LIKE '%' || o.object_key)) AS deleted_post,
           EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NOT NULL AND (m.attachment_key = o.object_key OR m.attachment_url LIKE '%' || o.object_key)) AS deleted_message,
           EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at <= NOW() AND (s.media_key = o.object_key OR s.media_url LIKE '%' || o.object_key)) AS expired_status
@@ -824,7 +826,10 @@ export function buildApp() {
           userAddress: row.user_address || null,
           recordedSizeBytes: row.size_bytes == null ? null : Number(row.size_bytes),
           referenced: Boolean(row.referenced), hasUsageRecord: Boolean(row.has_usage),
-          queuedForDeletion: Boolean(row.queued), reasons,
+          queuedForDeletion: Boolean(row.queued),
+          cleanupAttempts: Number(row.queue_attempts || 0),
+          cleanupLastError: row.queue_last_error || null,
+          reasons,
           status: !managed ? "unsupported_namespace" : !row.referenced ? "orphaned" : !row.active_usage ? "legacy_untracked" : "healthy",
         };
       });
