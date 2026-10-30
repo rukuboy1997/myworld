@@ -326,3 +326,12 @@ export async function getStatusMedia(statusId) {
   }
   return res.blob();
 }
+
+
+export const getAdminMediaStorageAudit = ({ limit = 50, offset = 0 } = {}) => {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return request("GET", `/admin/media-storage-audit?${params.toString()}`);
+};
