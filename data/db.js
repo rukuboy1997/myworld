@@ -2847,3 +2847,64 @@ export async function getMediaIntegrityAuditCandidates({ limit = 50, offset = 0 
     expiredPendingUploads: Number(intentResult.rows[0]?.pending || 0),
   };
 }
+
+
+/** Read-only classification of R2 bucket keys against live and historical references. */
+export async function classifyR2InventoryObjects(objectKeys = []) {
+  const keys = [...new Set((Array.isArray(objectKeys) ? objectKeys : [])
+    .filter((key) => typeof key === "string" && key.length > 0 && key.length <= 1024))];
+  if (!keys.length) return [];
+  const { rows } = await pool.query(
+    `WITH objects AS (SELECT unnest($1::text[]) AS object_key)
+     SELECT o.object_key,
+       COALESCE(u.media_category,
+         CASE WHEN o.object_key LIKE 'posts/%' THEN 'post'
+              WHEN o.object_key LIKE 'statuses/%' THEN 'status'
+              WHEN o.object_key LIKE 'messages/%' THEN 'message'
+              WHEN o.object_key LIKE 'avatars/%' THEN 'avatar'
+              WHEN o.object_key LIKE 'banners/%' THEN 'banner' ELSE 'unknown' END) AS media_category,
+       u.user_address, u.size_bytes AS recorded_size_bytes,
+       (u.object_key IS NOT NULL) AS has_usage_record,
+       (u.object_key IS NOT NULL AND u.deleted_at IS NULL) AS has_active_usage_record,
+       (EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = false AND
+          (p.media_blob_id = o.object_key OR p.media_url LIKE '%' || o.object_key))
+        OR EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at > NOW() AND
+          (s.media_key = o.object_key OR s.media_url LIKE '%' || o.object_key))
+        OR EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NULL AND
+          (m.attachment_key = o.object_key OR m.attachment_url LIKE '%' || o.object_key))
+        OR EXISTS (SELECT 1 FROM profiles pr WHERE
+          pr.avatar_blob_id = o.object_key OR pr.banner_blob_id = o.object_key
+          OR pr.avatar_url LIKE '%' || o.object_key OR pr.banner_url LIKE '%' || o.object_key)) AS has_live_reference,
+       EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = true AND
+          (p.media_blob_id = o.object_key OR p.media_url LIKE '%' || o.object_key)) AS referenced_by_deleted_post,
+       EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NOT NULL AND
+          (m.attachment_key = o.object_key OR m.attachment_url LIKE '%' || o.object_key)) AS referenced_by_deleted_message,
+       EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at <= NOW() AND
+          (s.media_key = o.object_key OR s.media_url LIKE '%' || o.object_key)) AS referenced_by_expired_status,
+       EXISTS (SELECT 1 FROM media_deletion_queue q WHERE q.object_key = o.object_key) AS queued_for_deletion,
+       EXISTS (SELECT 1 FROM media_upload_intents i WHERE i.object_key = o.object_key) AS has_upload_intent
+     FROM objects o LEFT JOIN media_usage_events u ON u.object_key = o.object_key
+     ORDER BY o.object_key`,
+    [keys],
+  );
+  return rows.map((row) => {
+    const managed = /^(posts|statuses|messages|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(row.object_key)
+      && !row.object_key.includes("..");
+    const reasons = [];
+    if (row.referenced_by_deleted_post) reasons.push("deleted_post");
+    if (row.referenced_by_deleted_message) reasons.push("deleted_message");
+    if (row.referenced_by_expired_status) reasons.push("expired_status");
+    if (row.queued_for_deletion) reasons.push("queued_for_deletion");
+    if (!row.has_live_reference && !reasons.length) reasons.push("no_live_database_reference");
+    return {
+      objectKey: row.object_key, category: row.media_category, userAddress: row.user_address || null,
+      recordedSizeBytes: row.recorded_size_bytes == null ? null : Number(row.recorded_size_bytes),
+      hasUsageRecord: Boolean(row.has_usage_record),
+      hasActiveUsageRecord: Boolean(row.has_active_usage_record),
+      referenced: Boolean(row.has_live_reference), queuedForDeletion: Boolean(row.queued_for_deletion),
+      hasUploadIntent: Boolean(row.has_upload_intent),
+      status: !managed ? "unsupported_namespace" : !row.has_live_reference ? "orphaned" : !row.has_active_usage_record ? "legacy_untracked" : "healthy",
+      reasons,
+    };
+  });
+}
