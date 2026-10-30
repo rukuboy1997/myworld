@@ -113,11 +113,8 @@ export async function getR2ObjectPrefix(key, byteCount = 64) {
     throw new Error("Invalid R2 prefix byte count");
   }
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error("R2 not configured");
-  const res = await fetch(r2ObjectUrl(key), {
-    headers: {
-      Authorization: `Bearer ${CF_API_TOKEN}`,
-      Range: `bytes=0-${byteCount - 1}`,
-    },
+  const res = await fetch(createPresignedR2ReadUrl(key), {
+    headers: { Range: `bytes=0-${byteCount - 1}` },
   });
   if (res.status === 404) return null;
   if (res.status !== 206) {
@@ -140,8 +137,8 @@ export async function getR2ObjectRange(key, start, end) {
     throw new Error("Invalid or oversized R2 byte range");
   }
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN) throw new Error("R2 not configured");
-  const res = await fetch(r2ObjectUrl(key), {
-    headers: { Authorization: `Bearer ${CF_API_TOKEN}`, Range: `bytes=${start}-${end}` },
+  const res = await fetch(createPresignedR2ReadUrl(key), {
+    headers: { Range: `bytes=${start}-${end}` },
   });
   if (res.status === 404) return null;
   if (res.status !== 206) {
@@ -261,6 +258,62 @@ function sha256Hex(value) {
 
 function hmac(key, value, encoding) {
   return createHmac("sha256", key).update(value).digest(encoding);
+}
+
+/**
+ * Create a short-lived server-only S3 presigned GET URL.
+ * Range is deliberately sent as an ordinary request header so R2 can return
+ * HTTP 206 without exposing storage credentials or downloading the full object.
+ */
+function createPresignedR2ReadUrl(key, expiresIn = 60, now = new Date()) {
+  if (!key || typeof key !== "string" || key.startsWith("/") || key.includes("..")) {
+    throw new Error("A safe R2 object key is required");
+  }
+  if (!Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > 300) {
+    throw new Error("R2 read URL expiry must be between 1 and 300 seconds");
+  }
+  if (!CF_ACCOUNT_ID || !CF_R2_BUCKET || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY) {
+    throw new Error("R2 range reads require CF_ACCOUNT_ID, CF_R2_BUCKET, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY");
+  }
+
+  const host = CF_ACCOUNT_ID + ".r2.cloudflarestorage.com";
+  const date = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const shortDate = date.slice(0, 8);
+  const scope = shortDate + "/" + AWS_REGION + "/" + AWS_SERVICE + "/aws4_request";
+  const canonicalUri = "/" + awsEncode(CF_R2_BUCKET) + "/" + encodeObjectKey(key);
+  const query = {
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Credential": R2_ACCESS_KEY_ID + "/" + scope,
+    "X-Amz-Date": date,
+    "X-Amz-Expires": String(expiresIn),
+    "X-Amz-SignedHeaders": "host",
+  };
+  const canonicalQuery = Object.keys(query)
+    .sort()
+    .map((name) => awsEncode(name) + "=" + awsEncode(query[name]))
+    .join("&");
+  const canonicalRequest = [
+    "GET",
+    canonicalUri,
+    canonicalQuery,
+    "host:" + host + "\n",
+    "host",
+    "UNSIGNED-PAYLOAD",
+  ].join("\n");
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    date,
+    scope,
+    sha256Hex(canonicalRequest),
+  ].join("\n");
+  const kDate = hmac("AWS4" + R2_SECRET_ACCESS_KEY, shortDate);
+  const kRegion = hmac(kDate, AWS_REGION);
+  const kService = hmac(kRegion, AWS_SERVICE);
+  const kSigning = hmac(kService, "aws4_request");
+  const signature = hmac(kSigning, stringToSign, "hex");
+
+  return "https://" + host + canonicalUri + "?" + canonicalQuery +
+    "&X-Amz-Signature=" + signature;
 }
 
 /**
