@@ -126,7 +126,7 @@ import {
 } from "./services/auth.service.js";
 import { getClientIp } from "./utils/clientIp.js";
 import { getPublicMembershipPlan, isMembershipEntitled, getMediaSizeLimit } from "./services/membership.service.js";
-import { parseVideoDurationSeconds } from "./services/video-duration.service.js";
+import { parseVideoDurationSeconds, getVideoDurationLimitSeconds } from "./services/video-duration.service.js";
 import { sendNotificationEmail } from "./services/notification-email.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
 import {
@@ -658,7 +658,7 @@ export function buildApp() {
           metadata.sizeBytes - 1,
         );
         const durationSeconds = parseVideoDurationSeconds(expectedType, [head, tail].filter(Boolean));
-        const maxDurationSeconds = intent.media_category === "status" ? 180 : getPublicMembershipPlan(req.membershipPlan?.id || "free").reelDurationSeconds;
+        const maxDurationSeconds = getVideoDurationLimitSeconds(intent.media_category, req.membershipPlan || getPublicMembershipPlan("free"));
         if (!Number.isFinite(durationSeconds)) {
           await pool.query(
             "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
@@ -1742,7 +1742,7 @@ export function buildApp() {
           }
           if (mediaType === "video") {
             const durationSeconds = parseVideoDurationSeconds(mediaMime, [req.file.buffer]);
-            const maxDurationSeconds = req.membershipPlan.reelDurationSeconds;
+            const maxDurationSeconds = getVideoDurationLimitSeconds("post", req.membershipPlan);
             if (!Number.isFinite(durationSeconds)) {
               return res.status(422).json({
                 error: "Could not verify video duration. Please choose a supported MP4, MOV, or WebM video.",
