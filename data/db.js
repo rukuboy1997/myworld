@@ -428,32 +428,15 @@ CREATE TABLE IF NOT EXISTS media_upload_intents (
   attached_at TIMESTAMPTZ,
   attached_to TEXT
 );
-/* Expand reservation types for buffered chat attachments while preserving
-   compatibility with databases created before audio/document reservations. */
-DO $
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conrelid = 'media_upload_intents'::regclass
-      AND conname = 'media_upload_intents_media_type_check'
-      AND pg_get_constraintdef(oid) NOT LIKE '%audio%'
-  ) THEN
-    ALTER TABLE media_upload_intents
-      DROP CONSTRAINT media_upload_intents_media_type_check;
-  END IF;
+/* Expand reservation types for buffered chat attachments.
+   PostgreSQL supports dropping and recreating this small CHECK constraint
+   safely during startup; the operation does not alter existing rows. */
+ALTER TABLE media_upload_intents
+  DROP CONSTRAINT IF EXISTS media_upload_intents_media_type_check;
+ALTER TABLE media_upload_intents
+  ADD CONSTRAINT media_upload_intents_media_type_check
+  CHECK (media_type IN ('image', 'video', 'audio', 'other'));
 
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conrelid = 'media_upload_intents'::regclass
-      AND conname = 'media_upload_intents_media_type_check'
-  ) THEN
-    ALTER TABLE media_upload_intents
-      ADD CONSTRAINT media_upload_intents_media_type_check
-      CHECK (media_type IN ('image', 'video', 'audio', 'other'));
-  END IF;
-END $;
 ALTER TABLE media_upload_intents ADD COLUMN IF NOT EXISTS attached_at TIMESTAMPTZ;
 ALTER TABLE media_upload_intents ADD COLUMN IF NOT EXISTS attached_to TEXT;
 CREATE INDEX IF NOT EXISTS idx_media_upload_intents_user_pending
