@@ -126,7 +126,7 @@ import {
 } from "./services/auth.service.js";
 import { getClientIp } from "./utils/clientIp.js";
 import { getPublicMembershipPlan, isMembershipEntitled, getMediaSizeLimit } from "./services/membership.service.js";
-import { parseVideoDurationSeconds } from "./services/video-duration.service.js";
+import { parseVideoDurationSeconds, getVideoDurationLimitSeconds } from "./services/video-duration.service.js";
 import { sendNotificationEmail } from "./services/notification-email.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
 import {
@@ -658,7 +658,7 @@ export function buildApp() {
           metadata.sizeBytes - 1,
         );
         const durationSeconds = parseVideoDurationSeconds(expectedType, [head, tail].filter(Boolean));
-        const maxDurationSeconds = intent.media_category === "status" ? 180 : getPublicMembershipPlan(req.membershipPlan?.id || "free").reelDurationSeconds;
+        const maxDurationSeconds = getVideoDurationLimitSeconds(intent.media_category, req.membershipPlan || getPublicMembershipPlan("free"));
         if (!Number.isFinite(durationSeconds)) {
           await pool.query(
             "UPDATE media_upload_intents SET status = 'canceled' WHERE id = $1 AND user_address = $2 AND status = 'pending'",
@@ -1721,8 +1721,12 @@ export function buildApp() {
           if (!mediaType)
             return res.status(400).json({ error: "Only image/* or video/* media is allowed" });
           const sniffed = sniffMime(req.file.buffer);
-          if (sniffed && !["image/", "video/"].some((p) => sniffed.startsWith(p))) {
-            return res.status(400).json({ error: "Only image/* or video/* media is allowed" });
+          const detectedType = detectMediaType(sniffed);
+          if (!sniffed || detectedType !== mediaType || sniffed !== mediaMime) {
+            return res.status(400).json({
+              error: "The selected file type doesn't match its contents. Please choose a valid image or video.",
+              code: "MEDIA_CONTENT_TYPE_MISMATCH",
+            });
           }
           const maxBytes = mediaType === "video"
             ? req.membershipPlan.maxVideoBytes
@@ -1735,6 +1739,25 @@ export function buildApp() {
               planId: req.membershipPlan.id,
               maxBytes,
             });
+          }
+          if (mediaType === "video") {
+            const durationSeconds = parseVideoDurationSeconds(mediaMime, [req.file.buffer]);
+            const maxDurationSeconds = getVideoDurationLimitSeconds("post", req.membershipPlan);
+            if (!Number.isFinite(durationSeconds)) {
+              return res.status(422).json({
+                error: "Could not verify video duration. Please choose a supported MP4, MOV, or WebM video.",
+                code: "VIDEO_DURATION_UNVERIFIABLE",
+              });
+            }
+            if (durationSeconds > maxDurationSeconds) {
+              return res.status(422).json({
+                error: "Video exceeds your membership Reel duration limit",
+                code: "VIDEO_DURATION_LIMIT",
+                durationSeconds: Math.ceil(durationSeconds),
+                maxDurationSeconds,
+                planId: req.membershipPlan.id,
+              });
+            }
           }
           const ext = mediaMime.split("/")[1]?.replace("+xml", "") || "bin";
           mediaKey = `posts/${uuidv4()}.${ext}`;

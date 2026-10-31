@@ -96,3 +96,15 @@ export function parseVideoDurationSeconds(contentType, samples) {
   }
   return null;
 }
+
+
+/**
+ * Return the server-authoritative duration ceiling for a video upload.
+ * Status videos have a fixed three-minute cap; post videos are Reels and
+ * follow the uploader's current membership plan.
+ */
+export function getVideoDurationLimitSeconds(mediaCategory, membershipPlan) {
+  if (mediaCategory === "status") return 180;
+  const limit = membershipPlan?.reelDurationSeconds;
+  return Number.isFinite(limit) && limit > 0 ? limit : null;
+}
