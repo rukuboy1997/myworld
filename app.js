@@ -1721,8 +1721,12 @@ export function buildApp() {
           if (!mediaType)
             return res.status(400).json({ error: "Only image/* or video/* media is allowed" });
           const sniffed = sniffMime(req.file.buffer);
-          if (sniffed && !["image/", "video/"].some((p) => sniffed.startsWith(p))) {
-            return res.status(400).json({ error: "Only image/* or video/* media is allowed" });
+          const detectedType = detectMediaType(sniffed);
+          if (!sniffed || detectedType !== mediaType || sniffed !== mediaMime) {
+            return res.status(400).json({
+              error: "The selected file type doesn't match its contents. Please choose a valid image or video.",
+              code: "MEDIA_CONTENT_TYPE_MISMATCH",
+            });
           }
           const maxBytes = mediaType === "video"
             ? req.membershipPlan.maxVideoBytes
@@ -1735,6 +1739,25 @@ export function buildApp() {
               planId: req.membershipPlan.id,
               maxBytes,
             });
+          }
+          if (mediaType === "video") {
+            const durationSeconds = parseVideoDurationSeconds(mediaMime, [req.file.buffer]);
+            const maxDurationSeconds = req.membershipPlan.reelDurationSeconds;
+            if (!Number.isFinite(durationSeconds)) {
+              return res.status(422).json({
+                error: "Could not verify video duration. Please choose a supported MP4, MOV, or WebM video.",
+                code: "VIDEO_DURATION_UNVERIFIABLE",
+              });
+            }
+            if (durationSeconds > maxDurationSeconds) {
+              return res.status(422).json({
+                error: "Video exceeds your membership Reel duration limit",
+                code: "VIDEO_DURATION_LIMIT",
+                durationSeconds: Math.ceil(durationSeconds),
+                maxDurationSeconds,
+                planId: req.membershipPlan.id,
+              });
+            }
           }
           const ext = mediaMime.split("/")[1]?.replace("+xml", "") || "bin";
           mediaKey = `posts/${uuidv4()}.${ext}`;
