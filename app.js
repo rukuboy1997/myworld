@@ -79,10 +79,10 @@ import {
   getBatchPresence,
   getUserByAddress,
   getMembershipSubscription,
-  recordMediaUsage,
   getMediaUsageSummary,
   getMediaIntegrityAuditCandidates,
   createMediaUploadIntent,
+  cancelMediaUploadIntent,
   getMediaUploadIntent,
   claimCompletedMediaUploadIntent,
   releaseMediaUploadIntentClaim,
@@ -353,6 +353,55 @@ export function buildApp() {
     } catch (err) {
       console.error("[membership] failed to resolve upload limits:", err);
       res.status(500).json({ error: "Could not verify membership upload limits" });
+    }
+  }
+
+  // Buffered uploads reserve membership quota before touching R2. Completion
+  // records usage atomically; callers clean up completed media if their DB
+  // attachment subsequently fails.
+  async function uploadBufferedMedia({ req, objectKey, category, mediaType, contentType, file }) {
+    const intentId = uuidv4();
+    await createMediaUploadIntent({
+      id: intentId,
+      userAddress: req.userAddress,
+      objectKey,
+      category,
+      mediaType,
+      contentType,
+      sizeBytes: file.size,
+      storageLimitBytes: req.membershipPlan.storageBytes,
+      uploadsPerDay: req.membershipPlan.uploadsPerDay,
+      uploadsPerMonth: req.membershipPlan.uploadsPerMonth,
+      expiresInSeconds: 300,
+    });
+    try {
+      const stored = await uploadToR2(objectKey, file.buffer, contentType);
+      await completeMediaUploadIntent({
+        id: intentId,
+        userAddress: req.userAddress,
+        actualSizeBytes: file.size,
+        actualContentType: contentType,
+      });
+      return { ...stored, intentId, sizeBytes: file.size };
+    } catch (err) {
+      await cancelMediaUploadIntent({ id: intentId, userAddress: req.userAddress }).catch((cancelError) => {
+        console.error("[media-upload] failed to cancel buffered reservation:", cancelError.message);
+      });
+      await deleteFromR2(objectKey).catch(() => {});
+      throw err;
+    }
+  }
+
+  async function cleanupAttachedMediaFailure({ objectKey, userAddress, category }) {
+    if (!objectKey) return;
+    try {
+      await deleteFromR2(objectKey);
+      await markMediaUsageDeleted([objectKey]);
+    } catch (err) {
+      console.error("[media-upload] failed to delete unattached R2 object:", err.message);
+      await enqueueMediaDeletion({ objectKey, userAddress, category }).catch((queueError) => {
+        console.error("[media-upload] failed to queue unattached R2 object:", queueError.message);
+      });
     }
   }
 
@@ -1483,6 +1532,9 @@ export function buildApp() {
     async (req, res) => {
       let claimedIntentId = null;
       let claimedStatusId = null;
+      let bufferedMediaKey = null;
+      let bufferedMediaCompleted = false;
+      const statusId = uuidv4();
       try {
         const content = normalizeTextInput(req.body?.content || "");
         const audience = req.body?.audience === "everyone" ? "everyone" : "followers";
@@ -1497,7 +1549,6 @@ export function buildApp() {
         let mediaType = null;
         let mediaMime = null;
         let mediaSizeBytes = null;
-        const statusId = uuidv4();
 
         if (mediaIntentId) {
           const claimed = await claimCompletedMediaUploadIntent({
@@ -1537,27 +1588,31 @@ export function buildApp() {
           }
           const ext = mediaMime.split("/")[1]?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || (mediaType === "video" ? "mp4" : "jpg");
           mediaKey = `statuses/${req.userAddress}/${uuidv4()}.${ext}`;
-          const uploaded = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
+          bufferedMediaKey = mediaKey;
+          const uploaded = await uploadBufferedMedia({
+            req, objectKey: mediaKey, category: "status", mediaType,
+            contentType: mediaMime, file: req.file,
+          });
+          bufferedMediaCompleted = true;
           mediaUrl = uploaded.url;
           mediaSizeBytes = req.file.size;
         }
 
         const status = await createStatus({ id: statusId, owner: req.userAddress, content, mediaKey, mediaUrl, mediaType, mediaMime, audience });
-        if (mediaKey && req.file) {
-          try {
-            await recordMediaUsage({ id: uuidv4(), userAddress: req.userAddress, objectKey: mediaKey, category: "status", mediaType, sizeBytes: mediaSizeBytes });
-          } catch (usageErr) {
-            console.error("[membership] status media usage recording failed:", usageErr);
-          }
-        }
         res.status(201).json({ status });
       } catch (err) {
+        if (bufferedMediaCompleted && bufferedMediaKey) {
+          await cleanupAttachedMediaFailure({ objectKey: bufferedMediaKey, userAddress: req.userAddress, category: "status" });
+        }
         if (claimedIntentId && claimedStatusId) {
           await releaseMediaUploadIntentClaim({ id: claimedIntentId, userAddress: req.userAddress, attachmentId: claimedStatusId }).catch((releaseError) => {
             console.error("[media-upload] failed to release status intent claim:", releaseError.message);
           });
         }
         console.error("create_status error:", err);
+        if (["MEDIA_STORAGE_LIMIT", "MEDIA_DAILY_LIMIT", "MEDIA_MONTHLY_LIMIT"].includes(err?.code)) {
+          return res.status(429).json({ error: err.message, code: err.code });
+        }
         res.status(500).json({ error: "Failed to create status" });
       }
     },
@@ -1617,6 +1672,8 @@ export function buildApp() {
     async (req, res) => {
       let claimedIntentId = null;
       let claimedPostId = null;
+      let bufferedMediaKey = null;
+      let bufferedMediaCompleted = false;
       try {
         const title = normalizeTextInput(req.body?.title);
         const content = normalizeTextInput(req.body?.content);
@@ -1659,7 +1716,7 @@ export function buildApp() {
           mediaType = claimed.mediaType;
           mediaMime = claimed.contentType;
         } else if (req.file) {
-          mediaMime = req.file.mimetype;
+          mediaMime = (req.file.mimetype || "").toLowerCase();
           mediaType = detectMediaType(mediaMime);
           if (!mediaType)
             return res.status(400).json({ error: "Only image/* or video/* media is allowed" });
@@ -1681,7 +1738,12 @@ export function buildApp() {
           }
           const ext = mediaMime.split("/")[1]?.replace("+xml", "") || "bin";
           mediaKey = `posts/${uuidv4()}.${ext}`;
-          const r2 = await uploadToR2(mediaKey, req.file.buffer, mediaMime);
+          bufferedMediaKey = mediaKey;
+          const r2 = await uploadBufferedMedia({
+            req, objectKey: mediaKey, category: "post", mediaType,
+            contentType: mediaMime, file: req.file,
+          });
+          bufferedMediaCompleted = true;
           mediaUrl = r2.url;
         }
 
@@ -1698,22 +1760,11 @@ export function buildApp() {
           isDeleted: false,
           createdAt: new Date().toISOString(),
         });
-        if (mediaKey && req.file) {
-          try {
-            await recordMediaUsage({
-              id: uuidv4(),
-              userAddress: effectiveOwner,
-              objectKey: mediaKey,
-              category: "post",
-              mediaType,
-              sizeBytes: req.file.size,
-            });
-          } catch (usageErr) {
-            console.error("[membership] post media usage recording failed:", usageErr);
-          }
-        }
         res.json(saved);
       } catch (err) {
+        if (bufferedMediaCompleted && bufferedMediaKey) {
+          await cleanupAttachedMediaFailure({ objectKey: bufferedMediaKey, userAddress: req.userAddress, category: "post" });
+        }
         if (claimedIntentId && claimedPostId) {
           await releaseMediaUploadIntentClaim({
             id: claimedIntentId,
@@ -1724,6 +1775,9 @@ export function buildApp() {
           });
         }
         console.error("create_post error:", err);
+        if (["MEDIA_STORAGE_LIMIT", "MEDIA_DAILY_LIMIT", "MEDIA_MONTHLY_LIMIT"].includes(err?.code)) {
+          return res.status(429).json({ error: err.message, code: err.code });
+        }
         res.status(500).json({ error: err.message || "Failed to create post" });
       }
     },
@@ -2197,11 +2251,13 @@ export function buildApp() {
   app.post(
     "/api/profile",
     requireAuth,
+    resolveMembershipPlan,
     upload.fields([
       { name: "avatar", maxCount: 1 },
       { name: "banner", maxCount: 1 },
     ]),
     async (req, res) => {
+      const uploadedProfileMedia = [];
       try {
         const username = normalizeTextInput(req.body?.username);
         const bio = normalizeTextInput(req.body?.bio);
@@ -2269,11 +2325,17 @@ export function buildApp() {
         };
         if (req.files?.avatar?.[0]) {
           const f = req.files.avatar[0];
-          if (!f.mimetype.startsWith("image/"))
-            return res.status(400).json({ error: "Avatar must be an image" });
-          const ext = f.mimetype.split("/")[1] || "jpg";
-          const key = `avatars/${effectiveAddress}-${Date.now()}.${ext}`;
-          const r2 = await uploadToR2(key, f.buffer, f.mimetype);
+          const contentType = String(f.mimetype || "").toLowerCase();
+          const detected = sniffMime(f.buffer);
+          if (!contentType.startsWith("image/") || !detected || detected !== contentType)
+            return res.status(400).json({ error: "Avatar must be a valid image file" });
+          if (f.size > req.membershipPlan.maxImageBytes) {
+            return res.status(413).json({ error: `Your ${req.membershipPlan.name} plan allows profile images up to ${Math.floor(req.membershipPlan.maxImageBytes / (1024 * 1024))} MiB`, code: "MEMBERSHIP_MEDIA_SIZE_LIMIT", maxBytes: req.membershipPlan.maxImageBytes });
+          }
+          const ext = contentType.split("/")[1] || "jpg";
+          const key = `avatars/${effectiveAddress}-${uuidv4()}.${ext}`;
+          const r2 = await uploadBufferedMedia({ req, objectKey: key, category: "avatar", mediaType: "image", contentType, file: f });
+          uploadedProfileMedia.push({ key, category: "avatar" });
           update.avatarBlobId = r2.key;
           update.avatarUrl = r2.url;
         } else if (req.body.avatarUrl) {
@@ -2281,11 +2343,17 @@ export function buildApp() {
         }
         if (req.files?.banner?.[0]) {
           const f = req.files.banner[0];
-          if (!f.mimetype.startsWith("image/"))
-            return res.status(400).json({ error: "Banner must be an image" });
-          const ext = f.mimetype.split("/")[1] || "jpg";
-          const key = `banners/${effectiveAddress}-${Date.now()}.${ext}`;
-          const r2 = await uploadToR2(key, f.buffer, f.mimetype);
+          const contentType = String(f.mimetype || "").toLowerCase();
+          const detected = sniffMime(f.buffer);
+          if (!contentType.startsWith("image/") || !detected || detected !== contentType)
+            return res.status(400).json({ error: "Banner must be a valid image file" });
+          if (f.size > req.membershipPlan.maxImageBytes) {
+            return res.status(413).json({ error: `Your ${req.membershipPlan.name} plan allows profile images up to ${Math.floor(req.membershipPlan.maxImageBytes / (1024 * 1024))} MiB`, code: "MEMBERSHIP_MEDIA_SIZE_LIMIT", maxBytes: req.membershipPlan.maxImageBytes });
+          }
+          const ext = contentType.split("/")[1] || "jpg";
+          const key = `banners/${effectiveAddress}-${uuidv4()}.${ext}`;
+          const r2 = await uploadBufferedMedia({ req, objectKey: key, category: "banner", mediaType: "image", contentType, file: f });
+          uploadedProfileMedia.push({ key, category: "banner" });
           update.bannerBlobId = r2.key;
           update.bannerUrl = r2.url;
         } else if (req.body.bannerUrl) {
@@ -2341,27 +2409,15 @@ export function buildApp() {
           }
         }
 
-        for (const item of [
-          { file: req.files?.avatar?.[0], key: update.avatarBlobId, category: "avatar" },
-          { file: req.files?.banner?.[0], key: update.bannerBlobId, category: "banner" },
-        ]) {
-          if (!item.file || !item.key) continue;
-          try {
-            await recordMediaUsage({
-              id: uuidv4(),
-              userAddress: effectiveAddress,
-              objectKey: item.key,
-              category: item.category,
-              mediaType: "image",
-              sizeBytes: item.file.size,
-            });
-          } catch (usageErr) {
-            console.error(`[membership] ${item.category} media usage recording failed:`, usageErr);
-          }
-        }
         res.json(profile);
       } catch (err) {
+        for (const item of uploadedProfileMedia) {
+          await cleanupAttachedMediaFailure({ objectKey: item.key, userAddress: req.userAddress, category: item.category });
+        }
         console.error("profile error:", err);
+        if (["MEDIA_STORAGE_LIMIT", "MEDIA_DAILY_LIMIT", "MEDIA_MONTHLY_LIMIT"].includes(err?.code)) {
+          return res.status(429).json({ error: err.message, code: err.code });
+        }
         res.status(500).json({ error: err.message });
       }
     },
@@ -2793,8 +2849,10 @@ export function buildApp() {
     "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "audio/wav", "audio/aac", "audio/3gpp",
   ]);
-  app.post("/api/message/attachment", requireAuth, messageAttachmentUpload.single("file"), async (req, res) => {
+  app.post("/api/message/attachment", requireAuth, resolveMembershipPlan, messageAttachmentUpload.single("file"), async (req, res) => {
     let uploadedKey = null;
+    let uploadedMediaCompleted = false;
+    let messageSaved = false;
     try {
       const receiver = normalizeTextInput(req.body?.receiver);
       const content = normalizeTextInput(req.body?.content);
@@ -2824,36 +2882,34 @@ export function buildApp() {
       const nameExt = originalName.includes(".") ? originalName.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 10) : "";
       const mimeExt = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/").pop().split("+")[0].replace(/[^a-z0-9]/g, "").slice(0, 10);
       uploadedKey = `messages/${sender}/${uuidv4()}.${nameExt || mimeExt || "bin"}`;
-      const stored = await uploadToR2(uploadedKey, file.buffer, mimeType);
+      const mediaType = mimeType.startsWith("image/")
+        ? "image"
+        : mimeType.startsWith("audio/")
+          ? "audio"
+          : "other";
+      const stored = await uploadBufferedMedia({
+        req, objectKey: uploadedKey, category: "message", mediaType,
+        contentType: mimeType, file,
+      });
+      uploadedMediaCompleted = true;
       const message = await saveMessage({
         id: uuidv4(), sender, receiver, content,
         attachmentUrl: stored.url, attachmentKey: stored.key, attachmentName: originalName,
         attachmentMime: mimeType, attachmentSize: file.size, replyToMessageId: replyToMessageId || null, createdAt: new Date().toISOString(),
       });
-      try {
-        const mediaType = mimeType.startsWith("image/")
-          ? "image"
-          : mimeType.startsWith("audio/")
-            ? "audio"
-            : "other";
-        await recordMediaUsage({
-          id: uuidv4(),
-          userAddress: sender,
-          objectKey: stored.key,
-          category: "message",
-          mediaType,
-          sizeBytes: file.size,
-        });
-      } catch (usageErr) {
-        console.error("[membership] message attachment usage recording failed:", usageErr);
-      }
+      messageSaved = true;
       publishMessageToFirebase(message);
       await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
       res.json(message);
     } catch (err) {
-      if (uploadedKey) deleteFromR2(uploadedKey).catch(() => {});
+      if (uploadedMediaCompleted && uploadedKey && !messageSaved) {
+        await cleanupAttachedMediaFailure({ objectKey: uploadedKey, userAddress: req.userAddress, category: "message" });
+      }
       if (err?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "Files must be 25 MB or smaller" });
       console.error("message attachment upload failed:", err);
+      if (["MEDIA_STORAGE_LIMIT", "MEDIA_DAILY_LIMIT", "MEDIA_MONTHLY_LIMIT"].includes(err?.code)) {
+        return res.status(429).json({ error: err.message, code: err.code });
+      }
       res.status(500).json({ error: "Could not send attachment" });
     }
   });

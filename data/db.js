@@ -418,7 +418,7 @@ CREATE TABLE IF NOT EXISTS media_upload_intents (
   user_address TEXT NOT NULL REFERENCES users(address) ON DELETE CASCADE,
   object_key TEXT NOT NULL UNIQUE,
   media_category TEXT NOT NULL CHECK (media_category IN ('post', 'status', 'message', 'avatar', 'banner')),
-  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video', 'audio', 'other')),
   content_type TEXT NOT NULL,
   expected_bytes BIGINT NOT NULL CHECK (expected_bytes > 0),
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'expired', 'canceled')),
@@ -428,6 +428,32 @@ CREATE TABLE IF NOT EXISTS media_upload_intents (
   attached_at TIMESTAMPTZ,
   attached_to TEXT
 );
+/* Expand reservation types for buffered chat attachments while preserving
+   compatibility with databases created before audio/document reservations. */
+DO $
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'media_upload_intents'::regclass
+      AND conname = 'media_upload_intents_media_type_check'
+      AND pg_get_constraintdef(oid) NOT LIKE '%audio%'
+  ) THEN
+    ALTER TABLE media_upload_intents
+      DROP CONSTRAINT media_upload_intents_media_type_check;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'media_upload_intents'::regclass
+      AND conname = 'media_upload_intents_media_type_check'
+  ) THEN
+    ALTER TABLE media_upload_intents
+      ADD CONSTRAINT media_upload_intents_media_type_check
+      CHECK (media_type IN ('image', 'video', 'audio', 'other'));
+  END IF;
+END $;
 ALTER TABLE media_upload_intents ADD COLUMN IF NOT EXISTS attached_at TIMESTAMPTZ;
 ALTER TABLE media_upload_intents ADD COLUMN IF NOT EXISTS attached_to TEXT;
 CREATE INDEX IF NOT EXISTS idx_media_upload_intents_user_pending
@@ -2448,7 +2474,7 @@ export async function createMediaUploadIntent({
   const allowedCategories = ["post", "status", "message", "avatar", "banner"];
   if (!id || !userAddress || !objectKey ||
       !allowedCategories.includes(category) ||
-      !["image", "video"].includes(mediaType) ||
+      !["image", "video", "audio", "other"].includes(mediaType) ||
       typeof contentType !== "string" || !contentType ||
       !Number.isSafeInteger(sizeBytes) || sizeBytes < 1 ||
       !Number.isSafeInteger(storageLimitBytes) || storageLimitBytes < 1 ||
@@ -2596,6 +2622,18 @@ export async function getMediaUploadIntent(id, userAddress) {
     [id, userAddress],
   );
   return rows[0] || null;
+}
+
+/** Release a reservation when a buffered upload fails before it is completed. */
+export async function cancelMediaUploadIntent({ id, userAddress }) {
+  if (!id || !userAddress) return 0;
+  const { rowCount } = await pool.query(
+    `UPDATE media_upload_intents
+     SET status = 'canceled'
+     WHERE id = $1 AND user_address = $2 AND status = 'pending'`,
+    [id, userAddress],
+  );
+  return rowCount || 0;
 }
 
 export async function completeMediaUploadIntent({ id, userAddress, actualSizeBytes, actualContentType }) {
