@@ -2127,6 +2127,16 @@ export async function getNotifications(recipient) {
   return rows.map(rowToNotification);
 }
 
+export async function markNotificationRead(recipient, notificationId) {
+  const { rowCount } = await pool.query(
+    `UPDATE notifications
+     SET read_at = NOW()
+     WHERE recipient = $1 AND id = $2 AND read_at IS NULL`,
+    [recipient, notificationId],
+  );
+  return rowCount === 1;
+}
+
 export async function markNotificationsRead(recipient) {
   await pool.query(
     `UPDATE notifications SET read_at=NOW() WHERE recipient=$1 AND read_at IS NULL`,
