@@ -11,6 +11,7 @@ import {
   getConversationsTyping,
   getConversation,
   sendMessage,
+  setConversationTyping,
 } from "../lib/api.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
 
@@ -92,6 +93,7 @@ describe("MessagesPage message sending", () => {
     getConversationsTyping.mockResolvedValue({ statuses: {} });
     getConversation.mockResolvedValue({ messages: [], hasMore: false });
     sendMessage.mockResolvedValue({ id: "sent-message" });
+    setConversationTyping.mockResolvedValue(undefined);
     syncFirebaseAuth.mockResolvedValue(false);
   });
 

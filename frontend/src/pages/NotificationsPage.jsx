@@ -8,6 +8,7 @@ import {
   truncateAddress,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
+import EmailPreferencesPanel from "../components/EmailPreferencesPanel.jsx";
 
 function NotificationIcon({ type }) {
   if (type === "like")
@@ -183,6 +184,8 @@ export default function NotificationsPage() {
         <h1 className="text-xl md:text-2xl font-bold tracking-tight mb-6">
           Notifications
         </h1>
+
+        <EmailPreferencesPanel />
 
         {isLoading ? (
           <div className="flex flex-col gap-3">
