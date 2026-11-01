@@ -83,9 +83,9 @@ const messages = [
   },
 ];
 
-function renderMessagesPage() {
+function renderMessagesPage(initialEntry = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <MessagesPage />
     </MemoryRouter>,
   );
@@ -128,11 +128,20 @@ describe("MessagesPage inbox", () => {
     });
   });
 
-  it("updates an inbox preview immediately when Firebase receives a new message", async () => {
+  it("updates an inbox preview without restarting its presence listener", async () => {
     syncFirebaseAuth.mockResolvedValue(true);
     renderMessagesPage();
 
     const aliceChat = await screen.findByRole("button", { name: /alice/i });
+    const presenceRegistration = await waitFor(() => {
+      const index = onValue.mock.calls.findIndex(([target]) =>
+        target?.path === "presence/0xALICE",
+      );
+      expect(index).toBeGreaterThanOrEqual(0);
+      return {
+        unsubscribe: onValue.mock.results[index]?.value,
+      };
+    });
     const previewListener = await waitFor(() => {
       const listener = onValue.mock.calls.find(([target]) =>
         target?.baseRef?.path === "conversations/0xALICE_0xME/messages",
@@ -141,7 +150,6 @@ describe("MessagesPage inbox", () => {
       return listener;
     });
 
-    expect(previewListener).toBeTruthy();
     act(() => {
       previewListener[1]({
         val: () => ({
@@ -156,6 +164,26 @@ describe("MessagesPage inbox", () => {
     });
 
     expect(aliceChat).toHaveTextContent("A brand-new incoming message");
+    expect(presenceRegistration.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it("shows database history while the initial Firebase message snapshot is delayed", async () => {
+    syncFirebaseAuth.mockResolvedValue(true);
+    getConversation.mockResolvedValue({
+      messages: [{
+        id: "message-from-neon",
+        sender: "0xALICE",
+        receiver: "0xME",
+        content: "History loaded from the database",
+        createdAt: "2026-10-31T12:00:00.000Z",
+      }],
+      hasMore: false,
+    });
+
+    renderMessagesPage("/messages?with=0xALICE");
+
+    expect(await screen.findByText("History loaded from the database")).toBeInTheDocument();
+    expect(getConversation).toHaveBeenCalledWith("0xME", "0xALICE", { limit: 100 });
   });
 
   it("filters conversation previews by chat or message text", async () => {
