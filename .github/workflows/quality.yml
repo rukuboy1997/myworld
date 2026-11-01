@@ -34,8 +34,10 @@ jobs:
           node --check app.js
           node --check data/db.js
           node --check services/email-notification-policy.service.js
+          node --check services/expo-push.service.js
           node --check services/unread-message-reminder.service.js
           node --check services/notification-email.service.js
+          node --check services/expo-push.service.js
 
       - name: Run backend unit tests
         run: npm test
