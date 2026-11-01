@@ -1,5 +1,6 @@
-import { act, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act } from "react-dom/test-utils";
 import { MemoryRouter } from "react-router-dom";
 import MessagesPage from "./MessagesPage.jsx";
 import { useAuth, getAuthToken } from "../lib/auth.jsx";
