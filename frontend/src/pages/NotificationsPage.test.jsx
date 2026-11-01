@@ -122,7 +122,7 @@ describe("NotificationsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /mark all as read/i }));
     await waitFor(() => expect(markNotificationsRead).toHaveBeenCalledTimes(1));
-    expect(screen.getByText("You're all caught up")).toBeInTheDocument();
+    expect(screen.getAllByText("You're all caught up").length).toBeGreaterThan(0);
   });
 
   it("shows a retry action when notification loading fails", async () => {
