@@ -10,6 +10,7 @@ import {
   getPinnedConversations,
   getAllProfiles,
   getConversationsTyping,
+  getPresenceBatch,
   getConversation,
 } from "../lib/api.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
@@ -39,6 +40,7 @@ vi.mock("../lib/api.js", () => ({
   markConversationRead: vi.fn(),
   setConversationTyping: vi.fn(),
   getConversationsTyping: vi.fn(),
+  getPresenceBatch: vi.fn(),
   prepareRealtimeConversations: vi.fn(),
   truncateAddress: (address = "") =>
     address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address,
@@ -105,6 +107,7 @@ describe("MessagesPage inbox", () => {
     getPinnedConversations.mockResolvedValue({ pinned: ["0xBOB"] });
     getUnreadMessageCounts.mockResolvedValue({ conversations: {} });
     getConversationsTyping.mockResolvedValue({ statuses: {} });
+    getPresenceBatch.mockResolvedValue({});
     getConversation.mockResolvedValue({ messages: [], hasMore: false });
     syncFirebaseAuth.mockResolvedValue(false);
   });
@@ -165,6 +168,21 @@ describe("MessagesPage inbox", () => {
 
     expect(aliceChat).toHaveTextContent("A brand-new incoming message");
     expect(presenceRegistration.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it("shows online status from the server when Firebase presence is unavailable", async () => {
+    syncFirebaseAuth.mockResolvedValue(false);
+    getPresenceBatch.mockResolvedValue({
+      "0xALICE": new Date().toISOString(),
+    });
+
+    renderMessagesPage("/messages?with=0xALICE");
+
+    expect(await screen.findByText("Online")).toBeInTheDocument();
+    expect(document.querySelector(".bg-green-500")).toBeInTheDocument();
+    expect(getPresenceBatch).toHaveBeenCalledWith(
+      expect.arrayContaining(["0xALICE"]),
+    );
   });
 
   it("shows database history while the initial Firebase message snapshot is delayed", async () => {
