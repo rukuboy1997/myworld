@@ -120,10 +120,9 @@ describe("MessagesPage inbox", () => {
     expect(aliceChat).toHaveTextContent("Latest message from Alice");
 
     await waitFor(() => {
-      const chatButtons = screen.getAllByRole("button").filter((button) =>
-        /^(bob|alice)/i.test(button.textContent.trim()),
-      );
-      expect(chatButtons[0]).toBe(bobChat);
+      const bobAppearsBeforeAlice =
+        (bobChat.compareDocumentPosition(aliceChat) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+      expect(bobAppearsBeforeAlice).toBe(true);
     });
   });
 
