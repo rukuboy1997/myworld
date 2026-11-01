@@ -488,7 +488,10 @@ export default function MessagesPage() {
               changed = true;
             }
           });
-          return changed ? next : previous;
+          // Re-render on each successful sample even when the timestamp is
+          // unchanged, so an online user naturally transitions to offline after
+          // the heartbeat becomes stale.
+          return changed ? next : { ...previous };
         });
       } catch {
         // Keep the last known Firebase/API presence during transient failures.
