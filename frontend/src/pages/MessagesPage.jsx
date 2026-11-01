@@ -18,6 +18,7 @@ import {
   markConversationRead,
   setConversationTyping,
   getConversationsTyping,
+  getPresenceBatch,
   prepareRealtimeConversations,
   truncateAddress,
 } from "../lib/api.js";
@@ -462,6 +463,47 @@ export default function MessagesPage() {
       ).slice(0, 100),
     [conversationAddressKey, selectedUser?.address],
   );
+
+  // PostgreSQL presence is the reliable fallback when Firebase realtime auth
+  // or a presence listener is unavailable. Firebase listeners above still
+  // deliver immediate updates; this batch poll keeps the UI from going blank.
+  useEffect(() => {
+    if (!wallet || !isAuthenticated || !typingTargetAddresses.length) return;
+
+    let active = true;
+    let requestInFlight = false;
+    const refreshPresence = async () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const result = await getPresenceBatch(typingTargetAddresses);
+        if (!active) return;
+        setPresence((previous) => {
+          let changed = false;
+          const next = { ...previous };
+          typingTargetAddresses.forEach((address) => {
+            const lastSeenAt = result?.[address] || null;
+            if (next[address] !== lastSeenAt) {
+              next[address] = lastSeenAt;
+              changed = true;
+            }
+          });
+          return changed ? next : previous;
+        });
+      } catch {
+        // Keep the last known Firebase/API presence during transient failures.
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    refreshPresence();
+    const intervalId = setInterval(refreshPresence, 15000);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [typingTargetAddresses, wallet, isAuthenticated]);
 
   // Every conversation row subscribes to its partner's typing state.
   // Wait for Firebase authentication and server-side membership preparation
@@ -1642,8 +1684,8 @@ export default function MessagesPage() {
                         );
                       }
                       return (
-                        <p className="text-[10px] text-muted-foreground font-mono truncate">
-                          {truncateAddress(selectedUser.address)}
+                        <p className="text-[11px] text-muted-foreground">
+                          Offline
                         </p>
                       );
                     })()}
