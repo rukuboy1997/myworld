@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runUnreadMessageReminderBatch } from "../services/unread-message-reminder.service.js";
+// The worker's production dependency graph initializes the Neon client at import time.
+// Tests inject every database operation, so this local URL is never contacted.
+process.env.NEON_DATABASE_URL ||= "postgresql://test:test@localhost:5432/myworld_test";
+const { runUnreadMessageReminderBatch } = await import("../services/unread-message-reminder.service.js");
 
 const candidate = {
   userAddress: "0xrecipient",
