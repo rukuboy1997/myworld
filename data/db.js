@@ -1272,12 +1272,12 @@ export async function updateEmailNotificationPreferences(userAddress, preference
 export async function getUnreadMessageReminderCandidates({
   inactiveDays = 3,
   minUnreadAgeHours = 2,
-  cooldownHours = 24,
+  cooldownHours = 72,
   limit = 100,
 } = {}) {
   const safeInactiveDays = Math.min(30, Math.max(1, Number.parseInt(inactiveDays, 10) || 3));
   const safeUnreadAgeHours = Math.min(168, Math.max(1, Number.parseInt(minUnreadAgeHours, 10) || 2));
-  const safeCooldownHours = Math.min(720, Math.max(1, Number.parseInt(cooldownHours, 10) || 24));
+  const safeCooldownHours = Math.min(720, Math.max(1, Number.parseInt(cooldownHours, 10) || 72));
   const safeLimit = Math.min(500, Math.max(1, Number.parseInt(limit, 10) || 100));
 
   const { rows } = await pool.query(
@@ -1300,7 +1300,7 @@ export async function getUnreadMessageReminderCandidates({
       AND m.read_at IS NULL
       AND m.deleted_at IS NULL
       AND m.created_at <= NOW() - ($2::int * INTERVAL '1 hour')
-     WHERE u.email IS NOT NULL
+     WHERE NULLIF(BTRIM(u.email), '') IS NOT NULL
        AND u.email_verified_at IS NOT NULL
        AND COALESCE(u.account_status, 'active') = 'active'
        AND COALESCE(p.last_seen_at, u.created_at) <= NOW() - ($1::int * INTERVAL '1 day')
@@ -1337,6 +1337,57 @@ export async function getUnreadMessageReminderCandidates({
       ? row.oldest_unread_at.toISOString()
       : row.oldest_unread_at,
   }));
+}
+
+
+export async function isUnreadMessageReminderEligible(userAddress, {
+  inactiveDays = 3,
+  minUnreadAgeHours = 2,
+  cooldownHours = 72,
+} = {}) {
+  const safeInactiveDays = Math.min(30, Math.max(1, Number.parseInt(inactiveDays, 10) || 3));
+  const safeUnreadAgeHours = Math.min(168, Math.max(1, Number.parseInt(minUnreadAgeHours, 10) || 2));
+  const safeCooldownHours = Math.min(720, Math.max(1, Number.parseInt(cooldownHours, 10) || 72));
+  const { rows } = await pool.query(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM users u
+       JOIN email_notification_preferences ep
+         ON ep.user_address = u.address
+        AND ep.email_enabled = TRUE
+        AND ep.unread_message_reminders = TRUE
+       LEFT JOIN presence p ON p.address = u.address
+       WHERE u.address = $1
+         AND NULLIF(BTRIM(u.email), '') IS NOT NULL
+         AND u.email_verified_at IS NOT NULL
+         AND COALESCE(u.account_status, 'active') = 'active'
+         AND COALESCE(p.last_seen_at, u.created_at) <= NOW() - ($2::int * INTERVAL '1 day')
+         AND EXISTS (
+           SELECT 1
+           FROM messages m
+           WHERE m.receiver = u.address
+             AND m.read_at IS NULL
+             AND m.deleted_at IS NULL
+             AND m.created_at <= NOW() - ($3::int * INTERVAL '1 hour')
+             AND NOT EXISTS (
+               SELECT 1
+               FROM blocked_users b
+               WHERE (b.blocker = u.address AND b.blocked = m.sender)
+                  OR (b.blocker = m.sender AND b.blocked = u.address)
+             )
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM email_notification_deliveries d
+           WHERE d.user_address = u.address
+             AND d.email_type = 'unread_message_reminder'
+             AND d.status = 'sent'
+             AND d.sent_at > NOW() - ($4::int * INTERVAL '1 hour')
+         )
+     ) AS eligible`,
+    [userAddress, safeInactiveDays, safeUnreadAgeHours, safeCooldownHours],
+  );
+  return rows[0]?.eligible === true;
 }
 
 export async function reserveEmailNotificationDelivery({ userAddress, emailType, deliveryKey }) {

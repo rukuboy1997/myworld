@@ -1,6 +1,6 @@
 import { sendEmail } from "./email.service.js";
 
-const APP_URL = process.env.APP_URL || "https://myworld.dakta.name.ng";
+const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "https://myworld-app.vercel.app").replace(/\/+$/, "");
 const APP_NAME = "myWorld";
 const LOGO_URL = `${APP_URL}/logo.png`;
 
@@ -28,6 +28,7 @@ function baseTemplate({
   bodyHtml,
   ctaLabel,
   ctaUrl,
+  footerMessage,
 }) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -97,10 +98,10 @@ function baseTemplate({
         <!-- ── FOOTER ──────────────────────────────────────────────── -->
         <tr>
           <td style="padding:28px 0 0;text-align:center;">
-            <p style="margin:0 0 8px;font-size:12px;color:${C.muted};">
+            ${footerMessage || `<p style="margin:0 0 8px;font-size:12px;color:${C.muted};">
               You're receiving this because someone interacted with you on
               <a href="${APP_URL}" style="color:${C.primary};text-decoration:none;">myWorld</a>.
-            </p>
+            </p>`}
             <p style="margin:0;font-size:11px;color:#4A5568;">
               © ${new Date().getFullYear()} myWorld · Connect, share and stay close to your world.
             </p>
@@ -323,5 +324,70 @@ export async function sendNotificationEmail({
     subject,
     html,
     text: `${heroTitle}\n\n${preview}\n\nOpen myWorld: ${ctaUrl}`,
+  });
+}
+
+
+// Private reminder template: never includes message content or sender details.
+function escapeEmailHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[char]);
+}
+
+export async function sendUnreadMessageReminderEmail({
+  recipientEmail,
+  recipientName,
+}) {
+  if (!recipientEmail) throw new Error("A reminder recipient email is required");
+
+  const safeName = escapeEmailHtml(String(recipientName || "there").slice(0, 80));
+  const messagesUrl = `${APP_URL}/messages`;
+  const preferencesUrl = `${APP_URL}/notifications`;
+  const preview = "There are unread conversations waiting in your myWorld inbox.";
+
+  const html = baseTemplate({
+    preview,
+    heroEmoji: "✉️",
+    heroTitle: "Your inbox is waiting",
+    bodyHtml: `
+      <p style="margin:0 0 16px;font-size:16px;color:${C.muted};">
+        Hi <strong style="color:${C.white};">${safeName}</strong>,
+      </p>
+      <p style="margin:0 0 16px;font-size:15px;color:${C.muted};line-height:1.7;">
+        There are unread conversations waiting for you on myWorld. When you are ready,
+        open your inbox and catch up at your own pace.
+      </p>
+      <p style="margin:0;font-size:12px;color:${C.muted};line-height:1.6;">
+        For your privacy, this reminder does not include message contents or sender details.
+      </p>`,
+    ctaLabel: "Open my inbox",
+    ctaUrl: messagesUrl,
+    footerMessage: `<p style="margin:0 0 8px;font-size:12px;color:${C.muted};">
+      You're receiving this because unread-message reminders are enabled in your
+      <a href="${preferencesUrl}" style="color:${C.primary};text-decoration:none;">myWorld email preferences</a>.
+      You can change this at any time.
+    </p>`,
+  });
+
+  return sendEmail({
+    to: recipientEmail,
+    subject: "You have unread messages on myWorld",
+    html,
+    text: [
+      "Your inbox is waiting",
+      "",
+      `Hi ${String(recipientName || "there").slice(0, 80)},`,
+      "",
+      preview,
+      "This reminder does not include message contents or sender details.",
+      "",
+      `Open your inbox: ${messagesUrl}`,
+      `Manage email preferences: ${preferencesUrl}`,
+    ].join("\n"),
   });
 }

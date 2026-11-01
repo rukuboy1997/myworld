@@ -196,7 +196,7 @@ export default function EmailPreferencesPanel() {
               <PreferenceSwitch
                 id="unread-message-reminders"
                 label="Unread message reminders"
-                description="A gentle reminder when messages are waiting and you have been away."
+                description="A private reminder when unread messages are waiting after you have been away. Maximum one every 72 hours."
                 checked={draftPreferences.unreadMessageReminders}
                 disabled={!draftPreferences.emailEnabled || isSaving}
                 onChange={(value) => updateDraft("unreadMessageReminders", value)}
@@ -234,8 +234,13 @@ export default function EmailPreferencesPanel() {
             </button>
           </div>
 
-          <p className="mt-3 text-xs text-muted-foreground" aria-live="polite">
-            {notice || "These options are being prepared. Optional reminder and digest campaigns are not active yet."}
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            Unread-message reminders are sent only to verified email accounts when you have been inactive
+            for at least 3 days and unread messages have been waiting for at least 2 hours. A reminder is
+            limited to once every 72 hours. Following-activity digests and catch-up emails are not active yet.
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
+            {notice}
           </p>
           {error && (
             <p className="mt-2 text-xs text-red-300" role="alert">

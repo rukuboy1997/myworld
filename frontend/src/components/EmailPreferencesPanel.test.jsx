@@ -33,6 +33,7 @@ describe("EmailPreferencesPanel", () => {
     expect(screen.getByRole("switch", { name: /following activity digest/i })).not.toBeChecked();
     expect(screen.getByRole("switch", { name: /occasional catch-up emails/i })).not.toBeChecked();
     expect(screen.getByRole("button", { name: /save preferences/i })).toBeDisabled();
+    expect(screen.getByText(/inactive for at least 3 days/i)).toBeInTheDocument();
   });
 
   it("saves only the user's selected preferences", async () => {
