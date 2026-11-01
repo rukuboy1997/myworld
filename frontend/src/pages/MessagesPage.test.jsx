@@ -132,11 +132,13 @@ describe("MessagesPage inbox", () => {
     renderMessagesPage();
 
     const aliceChat = await screen.findByRole("button", { name: /alice/i });
-    const previewListener = await waitFor(() =>
-      onValue.mock.calls.find(([target]) =>
+    const previewListener = await waitFor(() => {
+      const listener = onValue.mock.calls.find(([target]) =>
         target?.baseRef?.path === "conversations/0xALICE_0xME/messages",
-      ),
-    );
+      );
+      expect(listener).toBeTruthy();
+      return listener;
+    });
 
     expect(previewListener).toBeTruthy();
     act(() => {
