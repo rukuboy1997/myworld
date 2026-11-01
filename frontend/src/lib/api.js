@@ -215,6 +215,10 @@ export const markNotificationsRead = () =>
   request("PUT", "/notifications/read", {});
 export const getUnreadNotificationCount = () =>
   request("GET", "/notifications/unread-count");
+export const getEmailNotificationPreferences = () =>
+  request("GET", "/email-preferences");
+export const updateEmailNotificationPreferences = (preferences) =>
+  request("PUT", "/email-preferences", preferences);
 
 // ─── Presence ─────────────────────────────────────────────────────────────────
 export const sendHeartbeat = () => request("POST", "/presence/heartbeat", {});

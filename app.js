@@ -75,6 +75,8 @@ import {
   getNotifications,
   markNotificationsRead,
   getUnreadNotificationCount,
+  getEmailNotificationPreferences,
+  updateEmailNotificationPreferences,
   upsertPresence,
   getBatchPresence,
   getUserByAddress,
@@ -128,6 +130,7 @@ import { getClientIp } from "./utils/clientIp.js";
 import { getPublicMembershipPlan, isMembershipEntitled, getMediaSizeLimit } from "./services/membership.service.js";
 import { parseVideoDurationSeconds, getVideoDurationLimitSeconds } from "./services/video-duration.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
+import { validateEmailNotificationPreferencePatch } from "./services/email-notification-policy.service.js";
 import {
   createFirebaseCustomToken,
   ensureFirebaseConversationMembers,
@@ -2459,6 +2462,140 @@ export function buildApp() {
         actorAddress: follower,
         excerpt: "started following you",
       });
+      res.json({ ok: true, following: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/follow/:address", requireAuth, async (req, res) => {
+    try {
+      const follower = req.userAddress;
+      const following = normalizeTextInput(req.params.address);
+      if (!following)
+        return res.status(400).json({ error: "following address required" });
+      await deleteFollow(follower, following);
+      res.json({ ok: true, following: false });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/follow/status/:address", requireAuth, async (req, res) => {
+    try {
+      const target = normalizeTextInput(req.params.address);
+      if (!target)
+        return res.status(400).json({ error: "following address required" });
+      const following = await isFollowing(req.userAddress, target);
+      res.json({ following });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/profile/:address/followers", async (req, res) => {
+    try {
+      const followers = await getFollowers(req.params.address);
+      const profiles = await getAllProfiles();
+      res.json(
+        followers.map((f) => ({
+          ...f,
+          profile: profiles[f.address] || defaultProfile(f.address),
+        })),
+      );
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/profile/:address/following", async (req, res) => {
+    try {
+      const following = await getFollowing(req.params.address);
+      const profiles = await getAllProfiles();
+      res.json(
+        following.map((f) => ({
+          ...f,
+          profile: profiles[f.address] || defaultProfile(f.address),
+        })),
+      );
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── Messages ───────────────────────────────────────────────────────────
+  app.post("/api/message", requireAuth, async (req, res) => {
+    try {
+      const receiver = normalizeTextInput(req.body?.receiver);
+      const content = normalizeTextInput(req.body?.content);
+      const replyToMessageId = normalizeTextInput(req.body?.replyToMessageId);
+      if (!receiver || !content) return res.status(400).json({ error: "receiver and content required" });
+      if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
+      const sender = req.userAddress;
+      if (receiver === sender) return res.status(400).json({ error: "You cannot message yourself" });
+      const receiverExists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [receiver]);
+      if (!receiverExists.rowCount) return res.status(404).json({ error: "User not found" });
+      if (await isBlockedEitherWay(sender, receiver)) return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+      if (replyToMessageId) {
+        const target = await pool.query(
+          "SELECT id FROM messages WHERE id = $1 AND deleted_at IS NULL AND ((sender = $2 AND receiver = $3) OR (sender = $3 AND receiver = $2)) LIMIT 1",
+          [replyToMessageId, sender, receiver],
+        );
+        if (!target.rowCount) return res.status(400).json({ error: "The message you are replying to is unavailable" });
+      }
+      const message = await saveMessage({
+        id: uuidv4(),
+        sender,
+        receiver,
+        content,
+        replyToMessageId: replyToMessageId || null,
+        createdAt: new Date().toISOString(),
+      });
+      publishMessageToFirebase(message);
+      await notifyMessageReceiver(receiver, sender, content);
+      res.json(message);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/message/:id", requireAuth, async (req, res) => {
+    try {
+      const content = normalizeTextInput(req.body?.content);
+      if (!content) return res.status(400).json({ error: "Message content cannot be empty" });
+      if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
+      const message = await updateMessageContent(req.params.id, req.userAddress, content);
+      if (!message) return res.status(409).json({ error: "This message can no longer be edited. Messages can be edited for 15 minutes after sending." });
+      await publishMessageToFirebase(message);
+      res.json(message);
+    } catch (err) {
+      console.error("edit_message error:", err);
+      res.status(500).json({ error: "Could not edit message" });
+    }
+  });
+
+  app.delete("/api/message/:id", requireAuth, async (req, res) => {
+    try {
+      const existing = await pool.query("SELECT sender, attachment_key FROM messages WHERE id = $1 LIMIT 1", [req.params.id]);
+      if (!existing.rowCount || existing.rows[0].sender !== req.userAddress) {
+        return res.status(404).json({ error: "Message not found" });
+      }
+      const attachmentKey = existing.rows[0].attachment_key;
+      const message = await deleteMessageForEveryone(req.params.id, req.userAddress);
+      if (!message) return res.status(409).json({ error: "This message has already been deleted" });
+      let attachmentCleanupPending = false;
+      if (attachmentKey) {
+        try {
+          await deleteFromR2(attachmentKey);
+          await markMediaUsageDeleted([attachmentKey]);
+        } catch (cleanupError) {
+          attachmentCleanupPending = true;
+          try {
+            await enqueueMediaDeletion({
+              objectKey: attachmentKey,
+              userAddress: req.userAddress,
+              category: "message",
+            });
           } catch (queueError) {
             console.error("[message-media] cleanup retry scheduling failed:", cleanupError.message, queueError.message);
           }
@@ -2688,6 +2825,98 @@ export function buildApp() {
     } catch (err) {
       console.error("set_conversation_pinned error:", err);
       res.status(500).json({ error: "Failed to update pinned conversation" });
+    }
+  });
+
+  // ─── Email notification preferences ───────────────────────────────────────
+  app.get("/api/email-preferences", requireAuth, async (req, res) => {
+    try {
+      const preferences = await getEmailNotificationPreferences(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json(preferences);
+    } catch (err) {
+      console.error("[email-preferences] read failed:", err.message);
+      res.status(500).json({ error: "Could not load email preferences" });
+    }
+  });
+
+  app.put("/api/email-preferences", requireAuth, async (req, res) => {
+    try {
+      const validation = validateEmailNotificationPreferencePatch(req.body);
+      if (!validation.ok) return res.status(400).json({ error: validation.error });
+      const preferences = await updateEmailNotificationPreferences(req.userAddress, validation.patch);
+      res.set("Cache-Control", "private, no-store");
+      res.json(preferences);
+    } catch (err) {
+      console.error("[email-preferences] update failed:", err.message);
+      res.status(500).json({ error: "Could not update email preferences" });
+    }
+  });
+
+  // ─── Presence ─────────────────────────────────────────────────────────────
+  app.post("/api/presence/heartbeat", requireAuth, async (req, res) => {
+    const lastSeenAt = new Date().toISOString();
+    try {
+      await upsertPresence(req.userAddress);
+      try {
+        await writeFirebasePresence(req.userAddress, lastSeenAt);
+      } catch (firebaseError) {
+        console.warn("[presence] Firebase heartbeat failed:", firebaseError.message);
+      }
+      res.json({ ok: true, lastSeenAt });
+    } catch (err) {
+      console.error("[presence] heartbeat failed:", err.message);
+      res.status(500).json({ error: "Could not update presence" });
+    }
+  });
+
+  app.get("/api/presence/batch", requireAuth, async (req, res) => {
+    try {
+      const addresses = [...new Set(
+        String(req.query.addresses || "")
+          .split(",")
+          .map((address) => address.trim())
+          .filter(Boolean),
+      )].slice(0, 100);
+      res.json(await getBatchPresence(addresses));
+    } catch (err) {
+      console.error("[presence] batch lookup failed:", err.message);
+      res.status(500).json({ error: "Could not load presence" });
+    }
+  });
+
+  // ─── Notifications ───────────────────────────────────────────────────────
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const notifications = await getNotifications(req.userAddress);
+      const profiles = await getAllProfiles();
+      res.json(notifications.map((notification) => ({
+        ...notification,
+        actorProfile: profiles[notification.actorAddress] || defaultProfile(notification.actorAddress),
+      })));
+    } catch (err) {
+      console.error("[notifications] load failed:", err.message);
+      res.status(500).json({ error: "Could not load notifications" });
+    }
+  });
+
+  app.put("/api/notifications/read", requireAuth, async (req, res) => {
+    try {
+      await markNotificationsRead(req.userAddress);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[notifications] mark read failed:", err.message);
+      res.status(500).json({ error: "Could not mark notifications as read" });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
+    try {
+      const count = await getUnreadNotificationCount(req.userAddress);
+      res.json({ count });
+    } catch (err) {
+      console.error("[notifications] unread count failed:", err.message);
+      res.status(500).json({ error: "Could not load unread notification count" });
     }
   });
 

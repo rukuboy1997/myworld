@@ -262,6 +262,34 @@ CREATE TABLE IF NOT EXISTS presence (
   last_seen_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS email_notification_preferences (
+  user_address TEXT PRIMARY KEY REFERENCES users(address) ON DELETE CASCADE,
+  email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  unread_message_reminders BOOLEAN NOT NULL DEFAULT FALSE,
+  activity_digest BOOLEAN NOT NULL DEFAULT FALSE,
+  reengagement_emails BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS email_notification_deliveries (
+  id TEXT PRIMARY KEY,
+  user_address TEXT NOT NULL REFERENCES users(address) ON DELETE CASCADE,
+  email_type TEXT NOT NULL CHECK (email_type IN ('unread_message_reminder', 'activity_digest', 'reengagement')),
+  delivery_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'reserved'
+    CHECK (status IN ('reserved', 'sent', 'failed')),
+  attempt_count INTEGER NOT NULL DEFAULT 1 CHECK (attempt_count > 0),
+  provider_message_id TEXT,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_at TIMESTAMPTZ,
+  UNIQUE (user_address, email_type, delivery_key)
+);
+CREATE INDEX IF NOT EXISTS idx_email_deliveries_cooldown
+  ON email_notification_deliveries (user_address, email_type, sent_at DESC)
+  WHERE status = 'sent';
+
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status TEXT NOT NULL DEFAULT 'active';
@@ -1178,6 +1206,193 @@ export async function getUnreadMessageCounts(address) {
   const count = Object.values(conversations).reduce((sum, unread) => sum + unread, 0);
   return { count, conversations };
 }
+
+const EMAIL_NOTIFICATION_TYPES = new Set([
+  "unread_message_reminder",
+  "activity_digest",
+  "reengagement",
+]);
+
+function rowToEmailNotificationPreferences(row) {
+  return {
+    emailEnabled: row.email_enabled !== false,
+    unreadMessageReminders: row.unread_message_reminders === true,
+    activityDigest: row.activity_digest === true,
+    reengagementEmails: row.reengagement_emails === true,
+    updatedAt: row.updated_at instanceof Date
+      ? row.updated_at.toISOString()
+      : row.updated_at,
+  };
+}
+
+export async function getEmailNotificationPreferences(userAddress) {
+  await pool.query(
+    `INSERT INTO email_notification_preferences (user_address)
+     VALUES ($1)
+     ON CONFLICT (user_address) DO NOTHING`,
+    [userAddress],
+  );
+  const { rows } = await pool.query(
+    `SELECT email_enabled, unread_message_reminders, activity_digest,
+       reengagement_emails, updated_at
+     FROM email_notification_preferences
+     WHERE user_address = $1`,
+    [userAddress],
+  );
+  if (!rows[0]) throw new Error("Email notification preferences could not be loaded");
+  return rowToEmailNotificationPreferences(rows[0]);
+}
+
+export async function updateEmailNotificationPreferences(userAddress, preferences) {
+  const { rows } = await pool.query(
+    `INSERT INTO email_notification_preferences (
+       user_address, email_enabled, unread_message_reminders,
+       activity_digest, reengagement_emails
+     ) VALUES ($1, COALESCE($2, TRUE), COALESCE($3, FALSE),
+       COALESCE($4, FALSE), COALESCE($5, FALSE))
+     ON CONFLICT (user_address) DO UPDATE SET
+       email_enabled = COALESCE($2, email_notification_preferences.email_enabled),
+       unread_message_reminders = COALESCE($3, email_notification_preferences.unread_message_reminders),
+       activity_digest = COALESCE($4, email_notification_preferences.activity_digest),
+       reengagement_emails = COALESCE($5, email_notification_preferences.reengagement_emails),
+       updated_at = NOW()
+     RETURNING email_enabled, unread_message_reminders, activity_digest,
+       reengagement_emails, updated_at`,
+    [
+      userAddress,
+      typeof preferences.emailEnabled === "boolean" ? preferences.emailEnabled : null,
+      typeof preferences.unreadMessageReminders === "boolean" ? preferences.unreadMessageReminders : null,
+      typeof preferences.activityDigest === "boolean" ? preferences.activityDigest : null,
+      typeof preferences.reengagementEmails === "boolean" ? preferences.reengagementEmails : null,
+    ],
+  );
+  return rowToEmailNotificationPreferences(rows[0]);
+}
+
+export async function getUnreadMessageReminderCandidates({
+  inactiveDays = 3,
+  minUnreadAgeHours = 2,
+  cooldownHours = 24,
+  limit = 100,
+} = {}) {
+  const safeInactiveDays = Math.min(30, Math.max(1, Number.parseInt(inactiveDays, 10) || 3));
+  const safeUnreadAgeHours = Math.min(168, Math.max(1, Number.parseInt(minUnreadAgeHours, 10) || 2));
+  const safeCooldownHours = Math.min(720, Math.max(1, Number.parseInt(cooldownHours, 10) || 24));
+  const safeLimit = Math.min(500, Math.max(1, Number.parseInt(limit, 10) || 100));
+
+  const { rows } = await pool.query(
+    `SELECT
+       u.address AS user_address,
+       u.username,
+       u.email,
+       COALESCE(p.last_seen_at, u.created_at) AS last_seen_at,
+       COUNT(m.id)::int AS unread_count,
+       COUNT(DISTINCT m.sender)::int AS unread_conversation_count,
+       MIN(m.created_at) AS oldest_unread_at
+     FROM users u
+     JOIN email_notification_preferences ep
+       ON ep.user_address = u.address
+      AND ep.email_enabled = TRUE
+      AND ep.unread_message_reminders = TRUE
+     LEFT JOIN presence p ON p.address = u.address
+     JOIN messages m
+       ON m.receiver = u.address
+      AND m.read_at IS NULL
+      AND m.deleted_at IS NULL
+      AND m.created_at <= NOW() - ($2::int * INTERVAL '1 hour')
+     WHERE u.email IS NOT NULL
+       AND u.email_verified_at IS NOT NULL
+       AND COALESCE(u.account_status, 'active') = 'active'
+       AND COALESCE(p.last_seen_at, u.created_at) <= NOW() - ($1::int * INTERVAL '1 day')
+       AND NOT EXISTS (
+         SELECT 1
+         FROM blocked_users b
+         WHERE (b.blocker = u.address AND b.blocked = m.sender)
+            OR (b.blocker = m.sender AND b.blocked = u.address)
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM email_notification_deliveries d
+         WHERE d.user_address = u.address
+           AND d.email_type = 'unread_message_reminder'
+           AND d.status = 'sent'
+           AND d.sent_at > NOW() - ($3::int * INTERVAL '1 hour')
+       )
+     GROUP BY u.address, u.username, u.email, p.last_seen_at, u.created_at
+     ORDER BY COALESCE(p.last_seen_at, u.created_at) ASC
+     LIMIT $4`,
+    [safeInactiveDays, safeUnreadAgeHours, safeCooldownHours, safeLimit],
+  );
+
+  return rows.map((row) => ({
+    userAddress: row.user_address,
+    username: row.username,
+    email: row.email,
+    lastSeenAt: row.last_seen_at instanceof Date
+      ? row.last_seen_at.toISOString()
+      : row.last_seen_at,
+    unreadCount: Number(row.unread_count) || 0,
+    unreadConversationCount: Number(row.unread_conversation_count) || 0,
+    oldestUnreadAt: row.oldest_unread_at instanceof Date
+      ? row.oldest_unread_at.toISOString()
+      : row.oldest_unread_at,
+  }));
+}
+
+export async function reserveEmailNotificationDelivery({ userAddress, emailType, deliveryKey }) {
+  if (!EMAIL_NOTIFICATION_TYPES.has(emailType)) {
+    throw new Error("Unsupported email notification type");
+  }
+  const safeKey = String(deliveryKey || "").trim();
+  if (!safeKey || safeKey.length > 120) {
+    throw new Error("A valid email delivery key is required");
+  }
+
+  const id = uuidv4();
+  const { rows } = await pool.query(
+    `INSERT INTO email_notification_deliveries (
+       id, user_address, email_type, delivery_key, status, attempt_count
+     ) VALUES ($1, $2, $3, $4, 'reserved', 1)
+     ON CONFLICT (user_address, email_type, delivery_key) DO UPDATE SET
+       status = 'reserved',
+       attempt_count = email_notification_deliveries.attempt_count + 1,
+       updated_at = NOW(),
+       last_error = NULL
+     WHERE email_notification_deliveries.attempt_count < 3
+       AND (
+         email_notification_deliveries.status = 'failed'
+         OR (
+           email_notification_deliveries.status = 'reserved'
+           AND email_notification_deliveries.updated_at < NOW() - INTERVAL '30 minutes'
+         )
+       )
+     RETURNING id`,
+    [id, userAddress, emailType, safeKey],
+  );
+  return rows[0] ? { reserved: true, id: rows[0].id } : { reserved: false, id: null };
+}
+
+export async function markEmailNotificationDeliverySent(id, providerMessageId = null) {
+  const { rowCount } = await pool.query(
+    `UPDATE email_notification_deliveries
+     SET status = 'sent', provider_message_id = $2, sent_at = NOW(),
+         updated_at = NOW(), last_error = NULL
+     WHERE id = $1 AND status = 'reserved'`,
+    [id, providerMessageId ? String(providerMessageId).slice(0, 250) : null],
+  );
+  return rowCount === 1;
+}
+
+export async function markEmailNotificationDeliveryFailed(id, errorCode = "delivery_failed") {
+  const { rowCount } = await pool.query(
+    `UPDATE email_notification_deliveries
+     SET status = 'failed', last_error = $2, updated_at = NOW()
+     WHERE id = $1 AND status = 'reserved'`,
+    [id, String(errorCode || "delivery_failed").slice(0, 250)],
+  );
+  return rowCount === 1;
+}
+
 
 export async function setMessageTyping(sender, receiver, typing) {
   await pool.query(
