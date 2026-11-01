@@ -131,6 +131,7 @@ import { getPublicMembershipPlan, isMembershipEntitled, getMediaSizeLimit } from
 import { parseVideoDurationSeconds, getVideoDurationLimitSeconds } from "./services/video-duration.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
 import { validateEmailNotificationPreferencePatch } from "./services/email-notification-policy.service.js";
+import { runUnreadMessageReminderBatch } from "./services/unread-message-reminder.service.js";
 import {
   createFirebaseCustomToken,
   ensureFirebaseConversationMembers,
@@ -1373,6 +1374,29 @@ export function buildApp() {
     } catch (err) {
       console.error("status_cleanup error:", err);
       res.status(500).json({ error: "Status cleanup failed" });
+    }
+  });
+
+  // Vercel Cron: send one private, preference-gated unread-message reminder per eligible user.
+  app.get("/api/cron/unread-message-reminders", async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      return res.status(503).json({ error: "Unread-message reminders are not configured" });
+    }
+    if (req.headers.authorization !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    try {
+      const summary = await runUnreadMessageReminderBatch();
+      if (!summary.configured) {
+        return res.status(503).json({ error: "Email delivery provider is not configured" });
+      }
+      res.set("Cache-Control", "no-store");
+      res.json({ ok: true, ...summary });
+    } catch (err) {
+      console.error("[unread-message-reminders] batch failed:", err?.message || err);
+      res.status(500).json({ error: "Unread-message reminder batch failed" });
     }
   });
 
