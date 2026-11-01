@@ -1226,15 +1226,20 @@ function rowToEmailNotificationPreferences(row) {
 }
 
 export async function getEmailNotificationPreferences(userAddress) {
-  const { rows } = await pool.query(
+  await pool.query(
     `INSERT INTO email_notification_preferences (user_address)
      VALUES ($1)
-     ON CONFLICT (user_address) DO UPDATE
-       SET updated_at = email_notification_preferences.updated_at
-     RETURNING email_enabled, unread_message_reminders, activity_digest,
-       reengagement_emails, updated_at`,
+     ON CONFLICT (user_address) DO NOTHING`,
     [userAddress],
   );
+  const { rows } = await pool.query(
+    `SELECT email_enabled, unread_message_reminders, activity_digest,
+       reengagement_emails, updated_at
+     FROM email_notification_preferences
+     WHERE user_address = $1`,
+    [userAddress],
+  );
+  if (!rows[0]) throw new Error("Email notification preferences could not be loaded");
   return rowToEmailNotificationPreferences(rows[0]);
 }
 
