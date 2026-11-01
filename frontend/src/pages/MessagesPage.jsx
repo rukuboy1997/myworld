@@ -24,6 +24,7 @@ import {
 import { getAuthToken, useAuth } from "../lib/auth.jsx";
 import { firebaseDb, convId as fbConvId } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
+import { upsertConversationPreview } from "../lib/conversation-preview.js";
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
@@ -445,15 +446,20 @@ export default function MessagesPage() {
   }, [selectedUser?.address, isAuthenticated, wallet]);
 
   // Derive the other users that need live typing subscriptions.
+  // Keep listener dependencies stable when only a conversation's latest message changes.
+  const conversationAddressKey = conversations
+    .map((conversation) => conversation.address)
+    .filter(Boolean)
+    .join("\u0000");
   const typingTargetAddresses = useMemo(
     () =>
       Array.from(
         new Set([
-          ...conversations.map((conversation) => conversation.address),
+          ...conversationAddressKey.split("\u0000").filter(Boolean),
           selectedUser?.address,
         ].filter(Boolean)),
       ).slice(0, 100),
-    [conversations, selectedUser?.address],
+    [conversationAddressKey, selectedUser?.address],
   );
 
   // Every conversation row subscribes to its partner's typing state.
@@ -476,13 +482,14 @@ export default function MessagesPage() {
         await prepareRealtimeConversations(typingTargetAddresses);
         if (!active) return;
 
-        unsubscribers = typingTargetAddresses.map((otherAddress) => {
+        unsubscribers = [];
+        typingTargetAddresses.forEach((otherAddress) => {
           const typingRef = ref(
             firebaseDb,
             `conversations/${fbConvId(wallet, otherAddress)}/typing/${otherAddress}`,
           );
 
-          return onValue(
+          unsubscribers.push(onValue(
             typingRef,
             (snapshot) => {
               if (!active) return;
@@ -521,7 +528,47 @@ export default function MessagesPage() {
             (error) => {
               console.warn("[firebase] typing listener error:", error);
             },
+          ));
+
+          // Subscribe to only the latest message for each inbox row. The full
+          // conversation history remains loaded on demand when a chat is opened.
+          const latestMessagesRef = query(
+            ref(firebaseDb, `conversations/${fbConvId(wallet, otherAddress)}/messages`),
+            orderByChild("createdAt"),
+            limitToLast(1),
           );
+          unsubscribers.push(onValue(
+            latestMessagesRef,
+            (snapshot) => {
+              if (!active) return;
+              const data = snapshot.val();
+              if (!data) return;
+
+              const latest = Object.entries(data)
+                .map(([id, message]) => ({ ...message, id }))
+                .sort((a, b) =>
+                  (a.createdAt || "").localeCompare(b.createdAt || "") ||
+                  String(a.id).localeCompare(String(b.id)),
+                )
+                .at(-1);
+              if (!latest) return;
+
+              const conversationAddress = latest.sender === wallet
+                ? latest.receiver
+                : latest.sender;
+              if (
+                conversationAddress !== otherAddress ||
+                (latest.sender !== wallet && latest.receiver !== wallet)
+              ) return;
+
+              setConversations((current) =>
+                upsertConversationPreview(current, otherAddress, latest),
+              );
+            },
+            (error) => {
+              console.warn("[firebase] inbox message preview listener error:", error);
+            },
+          ));
         });
       } catch (error) {
         if (active) {
