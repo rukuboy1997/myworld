@@ -345,7 +345,7 @@ export default function NotificationsPage() {
                         {isUnread ? (
                           <span className="w-2.5 h-2.5 rounded-full bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] flex-shrink-0" aria-label="Unread" />
                         ) : (
-                          <span className="w-1.5 h-1.5 rounded-full bg-border-strong opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-border opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                         )}
                       </Link>
                     );
