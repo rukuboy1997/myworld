@@ -54,7 +54,7 @@ function baseTemplate({
               <tr>
                 <td style="background:linear-gradient(135deg,#0F1729 0%,#162645 100%);border-radius:20px;padding:20px 32px;border:1px solid ${C.cardBorder};">
                   <span style="font-size:26px;font-weight:900;letter-spacing:-0.5px;color:${C.white};">my<span style="color:${C.primary};">World</span></span>
-                  <span style="font-size:11px;color:${C.muted};display:block;margin-top:2px;text-align:center;letter-spacing:2px;text-transform:uppercase;">Sui Social Network</span>
+                  <span style="font-size:11px;color:${C.muted};display:block;margin-top:2px;text-align:center;letter-spacing:2px;text-transform:uppercase;">Connect, share & stay close</span>
                 </td>
               </tr>
             </table>
@@ -102,7 +102,7 @@ function baseTemplate({
               <a href="${APP_URL}" style="color:${C.primary};text-decoration:none;">myWorld</a>.
             </p>
             <p style="margin:0;font-size:11px;color:#4A5568;">
-              © ${new Date().getFullYear()} myWorld · Built on <span style="color:${C.primary};">Sui</span> &amp; Walrus
+              © ${new Date().getFullYear()} myWorld · Connect, share and stay close to your world.
             </p>
           </td>
         </tr>
@@ -269,7 +269,7 @@ export async function sendNotificationEmail({
           { label: "When", value: "Just now", highlight: false },
         ])}
         <p style="margin:8px 0 0;font-size:13px;color:${C.muted};">
-          Conversations on myWorld are end-to-end on Sui. Reply now!
+          Your conversation is waiting. Jump back in when you are ready.
         </p>`;
       ctaLabel = "Open Messages";
       ctaUrl = msgUrl;
@@ -295,7 +295,7 @@ export async function sendNotificationEmail({
             value: `${actor} ${actorAddr ? `(${actorAddr})` : ""}`,
             highlight: true,
           },
-          { label: "Network", value: "Sui Blockchain", highlight: false },
+          { label: "Community", value: "myWorld", highlight: false },
         ])}
         <p style="margin:8px 0 0;font-size:13px;color:${C.muted};">
           Your influence is growing. Follow them back and build your community!
