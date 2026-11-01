@@ -127,7 +127,6 @@ import {
 import { getClientIp } from "./utils/clientIp.js";
 import { getPublicMembershipPlan, isMembershipEntitled, getMediaSizeLimit } from "./services/membership.service.js";
 import { parseVideoDurationSeconds, getVideoDurationLimitSeconds } from "./services/video-duration.service.js";
-import { sendNotificationEmail } from "./services/notification-email.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
 import {
   createFirebaseCustomToken,
@@ -147,144 +146,6 @@ function fbConvId(a, b) {
 }
 
 // Fire-and-forget email notification — never blocks the HTTP response
-async function fireEmailNotif({ type, recipientAddress, actorAddress, extra }) {
-  try {
-    const [recipientUser, actorProfile] = await Promise.all([
-      getUserByAddress(recipientAddress),
-      getProfile(actorAddress),
-    ]);
-    if (!recipientUser?.email) return;
-    await sendNotificationEmail({
-      type,
-      recipientEmail: recipientUser.email,
-      recipientName: recipientUser.username,
-      actorProfile,
-      extra,
-    });
-  } catch (err) {
-    console.warn("[email-notif] failed:", err.message);
-  }
-}
-
-// Expo push delivery is best-effort: notification records remain the source of truth,
-// and a push provider outage must never fail the user's social action.
-async function deliverExpoPush({ recipient, type, actorAddress, postId, excerpt }) {
-  try {
-    // Reports stay in the in-app notification centre; do not push them to users.
-    if (type === "report") return;
-
-    const { rows } = await pool.query(
-      "SELECT token FROM push_tokens WHERE user_address = $1",
-      [recipient],
-    );
-    const tokens = [...new Set(rows.map((row) => row.token).filter(Boolean))];
-    if (!tokens.length) return;
-
-    let actorProfile = null;
-    try {
-      actorProfile = await getProfile(actorAddress);
-    } catch (err) {
-      console.warn("[push] actor profile lookup failed:", err.message);
-    }
-    const actorName =
-      actorProfile?.displayName?.trim() ||
-      actorProfile?.username ||
-      (actorAddress ? actorAddress.slice(0, 6) + "…" + actorAddress.slice(-4) : "Someone");
-    const rawAvatarUrl = actorProfile?.avatarUrl;
-    const senderAvatarUrl =
-      typeof rawAvatarUrl === "string" && /^https:\/\//i.test(rawAvatarUrl)
-        ? rawAvatarUrl
-        : null;
-
-    const copy = {
-      like: { title: "New like on myWorld", body: actorName + " liked your post." },
-      comment: { title: "New comment on myWorld", body: actorName + " commented: " + (excerpt || "Open myWorld to view it.") },
-      follow: { title: "New follower on myWorld", body: actorName + " started following you." },
-      // The app name remains the Android notification header; show the sender
-      // as the title and their message as the body for a more personal inbox.
-      message: { title: actorName, body: excerpt || "Sent you a message." },
-    }[type] || { title: "myWorld notification", body: excerpt || "You have a new notification." };
-
-    const path = type === "message"
-      ? `/messages?with=${encodeURIComponent(actorAddress || "")}`
-      : type === "follow"
-        ? `/profile/${encodeURIComponent(actorAddress || "")}`
-        : postId
-          ? `/post/${encodeURIComponent(postId)}`
-          : "/notifications";
-
-    // Expo accepts up to 100 messages per request.
-    for (let offset = 0; offset < tokens.length; offset += 100) {
-      const batch = tokens.slice(offset, offset + 100);
-      const messages = batch.map((token) => ({
-        to: token,
-        title: copy.title,
-        body: copy.body.slice(0, 220),
-        sound: "default",
-        priority: "high",
-        channelId: "default",
-        ...(type === "message" ? {
-          categoryId: "myworldmessage",
-          // Keep each Android message alert as a separate notification.
-          // A stable Android tag replaces the previous displayed notification,
-          // and collapseId can discard pending messages while the device is offline.
-          // iOS can still group messages using threadId.
-          threadId: "mw-" + String(recipient).slice(0, 14) + "-" + String(actorAddress || "").slice(-14),
-          // Expo renders this separately from the message text/attachment on Android.
-          ...(senderAvatarUrl ? { richContent: { image: senderAvatarUrl } } : {}),
-        } : {}),
-        data: {
-          url: path,
-          path,
-          type,
-          actorAddress: actorAddress || null,
-          conversationAddress: type === "message" ? actorAddress || null : null,
-          senderAvatarUrl: type === "message" ? senderAvatarUrl : null,
-        },
-      }));
-
-      try {
-        const response = await fetch("https://exp.host/--/api/v2/push/send", {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(messages),
-        });
-        const result = await response.json().catch(() => null);
-        if (!response.ok) {
-          console.warn("[push] Expo request failed:", response.status, result?.errors || "");
-          continue;
-        }
-
-        const tickets = Array.isArray(result?.data) ? result.data : [result?.data];
-        const invalidTokens = tickets.flatMap((ticket, index) =>
-          ticket?.status === "error" &&
-          ticket?.details?.error === "DeviceNotRegistered" &&
-          batch[index]
-            ? [batch[index]]
-            : [],
-        );
-        if (invalidTokens.length) {
-          await pool.query(
-            "DELETE FROM push_tokens WHERE user_address = $1 AND token = ANY($2::text[])",
-            [recipient, invalidTokens],
-          );
-        }
-        const providerErrors = tickets.filter((ticket) => ticket?.status === "error");
-        if (providerErrors.length) {
-          console.warn("[push] Expo rejected one or more messages:", providerErrors.map((ticket) => ticket.message || ticket.details?.error || "unknown error"));
-        }
-      } catch (err) {
-        console.warn("[push] delivery request failed:", err.message);
-      }
-    }
-  } catch (err) {
-    console.warn("[push] delivery preparation failed:", err.message);
-  }
-}
-
 async function createNotificationAndPush(notification) {
   await createNotification(notification);
   // Deliberately do not await provider delivery; social actions should stay responsive.
@@ -1932,12 +1793,6 @@ export function buildApp() {
             postId,
             excerpt: `liked your post "${post.title.slice(0, 50)}"`,
           });
-          fireEmailNotif({
-            type: "like",
-            recipientAddress: post.owner,
-            actorAddress: effectiveOwner,
-            extra: { postId, postTitle: post.title?.slice(0, 60) },
-          });
         }
         const likes = await getLikes(postId);
         res.json({ liked: true, likes: likes.length });
@@ -1992,16 +1847,6 @@ export function buildApp() {
           actorAddress: effectiveOwner,
           postId,
           excerpt: content.slice(0, 80),
-        });
-        fireEmailNotif({
-          type: "comment",
-          recipientAddress: post.owner,
-          actorAddress: effectiveOwner,
-          extra: {
-            postId,
-            postTitle: post.title?.slice(0, 60),
-            commentText: content.slice(0, 200),
-          },
         });
       }
       const profile =
@@ -2614,193 +2459,6 @@ export function buildApp() {
         actorAddress: follower,
         excerpt: "started following you",
       });
-      fireEmailNotif({
-        type: "follow",
-        recipientAddress: following,
-        actorAddress: follower,
-        extra: {},
-      });
-      res.json({ ok: true, following: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.delete("/api/follow/:address", requireAuth, async (req, res) => {
-    try {
-      const follower = req.userAddress;
-      const following = normalizeTextInput(req.params.address);
-      if (!following)
-        return res.status(400).json({ error: "following address required" });
-      await deleteFollow(follower, following);
-      res.json({ ok: true, following: false });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get("/api/follow/status/:address", requireAuth, async (req, res) => {
-    try {
-      const target = normalizeTextInput(req.params.address);
-      if (!target)
-        return res.status(400).json({ error: "following address required" });
-      const following = await isFollowing(req.userAddress, target);
-      res.json({ following });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get("/api/profile/:address/followers", async (req, res) => {
-    try {
-      const followers = await getFollowers(req.params.address);
-      const profiles = await getAllProfiles();
-      res.json(
-        followers.map((f) => ({
-          ...f,
-          profile: profiles[f.address] || defaultProfile(f.address),
-        })),
-      );
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get("/api/profile/:address/following", async (req, res) => {
-    try {
-      const following = await getFollowing(req.params.address);
-      const profiles = await getAllProfiles();
-      res.json(
-        following.map((f) => ({
-          ...f,
-          profile: profiles[f.address] || defaultProfile(f.address),
-        })),
-      );
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ─── Notifications ──────────────────────────────────────────────────────
-  app.get("/api/notifications", requireAuth, async (req, res) => {
-    try {
-      const notifications = await getNotifications(req.userAddress);
-      const profiles = await getAllProfiles();
-      res.json(
-        notifications.map((n) => ({
-          ...n,
-          actorProfile:
-            profiles[n.actorAddress] || defaultProfile(n.actorAddress),
-        })),
-      );
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.put("/api/notifications/read", requireAuth, async (req, res) => {
-    try {
-      await markNotificationsRead(req.userAddress);
-      res.json({ ok: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
-    try {
-      const count = await getUnreadNotificationCount(req.userAddress);
-      res.json({ count });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ─── Presence ───────────────────────────────────────────────────────────
-  app.post("/api/presence/heartbeat", requireAuth, async (req, res) => {
-    try {
-      await upsertPresence(req.userAddress);
-      await writeFirebasePresence(req.userAddress);
-      res.json({ ok: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get("/api/presence/batch", async (req, res) => {
-    try {
-      const addresses = (req.query.addresses || "").split(",").filter(Boolean);
-      const presence = await getBatchPresence(addresses);
-      res.json(presence);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ─── Messages ───────────────────────────────────────────────────────────
-  app.post("/api/message", requireAuth, async (req, res) => {
-    try {
-      const receiver = normalizeTextInput(req.body?.receiver);
-      const content = normalizeTextInput(req.body?.content);
-      const replyToMessageId = normalizeTextInput(req.body?.replyToMessageId);
-      if (!receiver || !content) return res.status(400).json({ error: "receiver and content required" });
-      if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
-      const sender = req.userAddress;
-      if (receiver === sender) return res.status(400).json({ error: "You cannot message yourself" });
-      const receiverExists = await pool.query("SELECT 1 FROM users WHERE address = $1 LIMIT 1", [receiver]);
-      if (!receiverExists.rowCount) return res.status(404).json({ error: "User not found" });
-      if (await isBlockedEitherWay(sender, receiver)) return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
-      if (replyToMessageId) {
-        const target = await pool.query(
-          "SELECT id FROM messages WHERE id = $1 AND deleted_at IS NULL AND ((sender = $2 AND receiver = $3) OR (sender = $3 AND receiver = $2)) LIMIT 1",
-          [replyToMessageId, sender, receiver],
-        );
-        if (!target.rowCount) return res.status(400).json({ error: "The message you are replying to is unavailable" });
-      }
-      const message = await saveMessage({ id: uuidv4(), sender, receiver, content, replyToMessageId: replyToMessageId || null, createdAt: new Date().toISOString() });
-      publishMessageToFirebase(message);
-      await notifyMessageReceiver(receiver, sender, content);
-      res.json(message);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-  });
-
-  app.put("/api/message/:id", requireAuth, async (req, res) => {
-    try {
-      const content = normalizeTextInput(req.body?.content);
-      if (!content) return res.status(400).json({ error: "Message content cannot be empty" });
-      if (content.length > MESSAGE_CONTENT_MAX_LENGTH) return res.status(400).json({ error: tooLongError("content", MESSAGE_CONTENT_MAX_LENGTH) });
-      const message = await updateMessageContent(req.params.id, req.userAddress, content);
-      if (!message) return res.status(409).json({ error: "This message can no longer be edited. Messages can be edited for 15 minutes after sending." });
-      await publishMessageToFirebase(message);
-      res.json(message);
-    } catch (err) {
-      console.error("edit_message error:", err);
-      res.status(500).json({ error: "Could not edit message" });
-    }
-  });
-
-  app.delete("/api/message/:id", requireAuth, async (req, res) => {
-    try {
-      const existing = await pool.query("SELECT sender, attachment_key FROM messages WHERE id = $1 LIMIT 1", [req.params.id]);
-      if (!existing.rowCount || existing.rows[0].sender !== req.userAddress) {
-        return res.status(404).json({ error: "Message not found" });
-      }
-      const attachmentKey = existing.rows[0].attachment_key;
-      const message = await deleteMessageForEveryone(req.params.id, req.userAddress);
-      if (!message) return res.status(409).json({ error: "This message has already been deleted" });
-      let attachmentCleanupPending = false;
-      if (attachmentKey) {
-        try {
-          await deleteFromR2(attachmentKey);
-          await markMediaUsageDeleted([attachmentKey]);
-        } catch (cleanupError) {
-          attachmentCleanupPending = true;
-          try {
-            await enqueueMediaDeletion({
-              objectKey: attachmentKey,
-              userAddress: req.userAddress,
-              category: "message",
-            });
           } catch (queueError) {
             console.error("[message-media] cleanup retry scheduling failed:", cleanupError.message, queueError.message);
           }
@@ -2962,7 +2620,6 @@ export function buildApp() {
     if (receiver === sender) return;
     const preview = String(content || "Sent an attachment");
     await createNotificationAndPush({ recipient: receiver, type: "message", actorAddress: sender, excerpt: preview.slice(0, 80) });
-    fireEmailNotif({ type: "message", recipientAddress: receiver, actorAddress: sender, extra: { messagePreview: preview.slice(0, 200) } });
   }
 
   // Prepare realtime membership for inbox/chat listeners. The helper only
