@@ -211,6 +211,8 @@ export const reportUser = (address, reason, description = "") =>
 export const getNotifications = () => request("GET", "/notifications");
 export const registerPushToken = (token, platform = "unknown") =>
   request("POST", "/push-token", { token, platform });
+export const markNotificationRead = (id) =>
+  request("PUT", `/notifications/${encodeURIComponent(id)}/read`, {});
 export const markNotificationsRead = () =>
   request("PUT", "/notifications/read", {});
 export const getUnreadNotificationCount = () =>
