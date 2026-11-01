@@ -132,6 +132,7 @@ import { parseVideoDurationSeconds, getVideoDurationLimitSeconds } from "./servi
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
 import { validateEmailNotificationPreferencePatch } from "./services/email-notification-policy.service.js";
 import { runUnreadMessageReminderBatch } from "./services/unread-message-reminder.service.js";
+import { deliverExpoPush } from "./services/expo-push.service.js";
 import {
   createFirebaseCustomToken,
   ensureFirebaseConversationMembers,
@@ -153,7 +154,11 @@ function fbConvId(a, b) {
 async function createNotificationAndPush(notification) {
   await createNotification(notification);
   // Deliberately do not await provider delivery; social actions should stay responsive.
-  void deliverExpoPush(notification);
+  // Expo delivery is best-effort; an outage must never fail the social action.
+  void deliverExpoPush(notification, {
+    query: (sql, params) => pool.query(sql, params),
+    getProfile,
+  });
 }
 
 let dbReady = null;
