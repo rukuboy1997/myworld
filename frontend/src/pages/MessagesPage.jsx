@@ -18,6 +18,7 @@ import {
   markConversationRead,
   setConversationTyping,
   getConversationsTyping,
+  getPresenceBatch,
   prepareRealtimeConversations,
   truncateAddress,
 } from "../lib/api.js";
@@ -366,15 +367,20 @@ export default function MessagesPage() {
     loadConversations,
   ]);
 
+  // Use conversation identities—not message-array objects—as realtime subscription dependencies.
+  // Message preview updates must not tear down presence listeners.
+  const conversationAddressKey = conversations
+    .map((conversation) => conversation.address)
+    .filter(Boolean)
+    .join("\u0000");
+
   // ─── Firebase real-time presence for conversation partners ───────────────
   useEffect(() => {
     if (!isAuthenticated || !wallet || !conversations.length) return;
 
     let active = true;
     let unsubscribers = [];
-    const addresses = [...new Set(
-      conversations.map((conversation) => conversation.address).filter(Boolean),
-    )];
+    const addresses = conversationAddressKey.split("\u0000").filter(Boolean);
 
     (async () => {
       try {
@@ -406,7 +412,7 @@ export default function MessagesPage() {
       active = false;
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [conversations, isAuthenticated, wallet]);
+  }, [conversationAddressKey, isAuthenticated, wallet]);
 
   // Handles presence for a new chat partner not yet present in the inbox list.
   useEffect(() => {
@@ -446,11 +452,7 @@ export default function MessagesPage() {
   }, [selectedUser?.address, isAuthenticated, wallet]);
 
   // Derive the other users that need live typing subscriptions.
-  // Keep listener dependencies stable when only a conversation's latest message changes.
-  const conversationAddressKey = conversations
-    .map((conversation) => conversation.address)
-    .filter(Boolean)
-    .join("\u0000");
+  // Keep the typing and inbox-preview subscriptions stable when message contents change.
   const typingTargetAddresses = useMemo(
     () =>
       Array.from(
@@ -461,6 +463,50 @@ export default function MessagesPage() {
       ).slice(0, 100),
     [conversationAddressKey, selectedUser?.address],
   );
+
+  // PostgreSQL presence is the reliable fallback when Firebase realtime auth
+  // or a presence listener is unavailable. Firebase listeners above still
+  // deliver immediate updates; this batch poll keeps the UI from going blank.
+  useEffect(() => {
+    if (!wallet || !isAuthenticated || !typingTargetAddresses.length) return;
+
+    let active = true;
+    let requestInFlight = false;
+    const refreshPresence = async () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const result = await getPresenceBatch(typingTargetAddresses);
+        if (!active) return;
+        setPresence((previous) => {
+          let changed = false;
+          const next = { ...previous };
+          typingTargetAddresses.forEach((address) => {
+            const lastSeenAt = result?.[address] || null;
+            if (next[address] !== lastSeenAt) {
+              next[address] = lastSeenAt;
+              changed = true;
+            }
+          });
+          // Re-render on each successful sample even when the timestamp is
+          // unchanged, so an online user naturally transitions to offline after
+          // the heartbeat becomes stale.
+          return changed ? next : { ...previous };
+        });
+      } catch {
+        // Keep the last known Firebase/API presence during transient failures.
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    refreshPresence();
+    const intervalId = setInterval(refreshPresence, 15000);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [typingTargetAddresses, wallet, isAuthenticated]);
 
   // Every conversation row subscribes to its partner's typing state.
   // Wait for Firebase authentication and server-side membership preparation
@@ -656,7 +702,9 @@ export default function MessagesPage() {
     let dbDone = false;
     let fbDone = false;
     function mergeAndSet() {
-      if (!active || !dbDone || !fbDone) return;
+      // Either source can unblock the chat. Neon is the complete history fallback;
+      // Firebase can enrich it as soon as its initial snapshot arrives.
+      if (!active || (!dbDone && !fbDone)) return;
       const map = new Map();
       olderMsgs.forEach((message) => map.set(message.id, message));
       dbMsgs.forEach((message) => map.set(message.id, { ...map.get(message.id), ...message }));
@@ -1639,8 +1687,8 @@ export default function MessagesPage() {
                         );
                       }
                       return (
-                        <p className="text-[10px] text-muted-foreground font-mono truncate">
-                          {truncateAddress(selectedUser.address)}
+                        <p className="text-[11px] text-muted-foreground">
+                          Offline
                         </p>
                       );
                     })()}
