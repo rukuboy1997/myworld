@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import MessagesPage from "./MessagesPage.jsx";
@@ -12,6 +12,7 @@ import {
   getConversation,
 } from "../lib/api.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
+import { onValue } from "firebase/database";
 
 vi.mock("../components/Layout.jsx", () => ({
   default: ({ children }) => <div data-testid="layout">{children}</div>,
@@ -52,9 +53,9 @@ vi.mock("../lib/firebase-auth.js", () => ({
 }));
 
 vi.mock("firebase/database", () => ({
-  ref: vi.fn(() => ({})),
+  ref: vi.fn((_database, path) => ({ path })),
   onValue: vi.fn(() => vi.fn()),
-  query: vi.fn(() => ({})),
+  query: vi.fn((baseRef, ...constraints) => ({ baseRef, constraints })),
   orderByChild: vi.fn(),
   limitToLast: vi.fn(),
 }));
@@ -124,6 +125,34 @@ describe("MessagesPage inbox", () => {
         (bobChat.compareDocumentPosition(aliceChat) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
       expect(bobAppearsBeforeAlice).toBe(true);
     });
+  });
+
+  it("updates an inbox preview immediately when Firebase receives a new message", async () => {
+    syncFirebaseAuth.mockResolvedValue(true);
+    renderMessagesPage();
+
+    const aliceChat = await screen.findByRole("button", { name: /alice/i });
+    const previewListener = await waitFor(() =>
+      onValue.mock.calls.find(([target]) =>
+        target?.baseRef?.path === "conversations/0xALICE_0xME/messages",
+      ),
+    );
+
+    expect(previewListener).toBeTruthy();
+    act(() => {
+      previewListener[1]({
+        val: () => ({
+          "message-alice-new": {
+            sender: "0xALICE",
+            receiver: "0xME",
+            content: "A brand-new incoming message",
+            createdAt: "2026-10-31T12:00:00.000Z",
+          },
+        }),
+      });
+    });
+
+    expect(aliceChat).toHaveTextContent("A brand-new incoming message");
   });
 
   it("filters conversation previews by chat or message text", async () => {
