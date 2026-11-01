@@ -75,6 +75,8 @@ import {
   getNotifications,
   markNotificationsRead,
   getUnreadNotificationCount,
+  getEmailNotificationPreferences,
+  updateEmailNotificationPreferences,
   upsertPresence,
   getBatchPresence,
   getUserByAddress,
@@ -128,6 +130,7 @@ import { getClientIp } from "./utils/clientIp.js";
 import { getPublicMembershipPlan, isMembershipEntitled, getMediaSizeLimit } from "./services/membership.service.js";
 import { parseVideoDurationSeconds, getVideoDurationLimitSeconds } from "./services/video-duration.service.js";
 import { sendCriticalModerationAlert } from "./services/moderation-alert.service.js";
+import { validateEmailNotificationPreferencePatch } from "./services/email-notification-policy.service.js";
 import {
   createFirebaseCustomToken,
   ensureFirebaseConversationMembers,
@@ -2688,6 +2691,98 @@ export function buildApp() {
     } catch (err) {
       console.error("set_conversation_pinned error:", err);
       res.status(500).json({ error: "Failed to update pinned conversation" });
+    }
+  });
+
+  // ─── Email notification preferences ───────────────────────────────────────
+  app.get("/api/email-preferences", requireAuth, async (req, res) => {
+    try {
+      const preferences = await getEmailNotificationPreferences(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json(preferences);
+    } catch (err) {
+      console.error("[email-preferences] read failed:", err.message);
+      res.status(500).json({ error: "Could not load email preferences" });
+    }
+  });
+
+  app.put("/api/email-preferences", requireAuth, async (req, res) => {
+    try {
+      const validation = validateEmailNotificationPreferencePatch(req.body);
+      if (!validation.ok) return res.status(400).json({ error: validation.error });
+      const preferences = await updateEmailNotificationPreferences(req.userAddress, validation.patch);
+      res.set("Cache-Control", "private, no-store");
+      res.json(preferences);
+    } catch (err) {
+      console.error("[email-preferences] update failed:", err.message);
+      res.status(500).json({ error: "Could not update email preferences" });
+    }
+  });
+
+  // ─── Presence ─────────────────────────────────────────────────────────────
+  app.post("/api/presence/heartbeat", requireAuth, async (req, res) => {
+    const lastSeenAt = new Date().toISOString();
+    try {
+      await upsertPresence(req.userAddress);
+      try {
+        await writeFirebasePresence(req.userAddress, lastSeenAt);
+      } catch (firebaseError) {
+        console.warn("[presence] Firebase heartbeat failed:", firebaseError.message);
+      }
+      res.json({ ok: true, lastSeenAt });
+    } catch (err) {
+      console.error("[presence] heartbeat failed:", err.message);
+      res.status(500).json({ error: "Could not update presence" });
+    }
+  });
+
+  app.get("/api/presence/batch", requireAuth, async (req, res) => {
+    try {
+      const addresses = [...new Set(
+        String(req.query.addresses || "")
+          .split(",")
+          .map((address) => address.trim())
+          .filter(Boolean),
+      )].slice(0, 100);
+      res.json(await getBatchPresence(addresses));
+    } catch (err) {
+      console.error("[presence] batch lookup failed:", err.message);
+      res.status(500).json({ error: "Could not load presence" });
+    }
+  });
+
+  // ─── Notifications ───────────────────────────────────────────────────────
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const notifications = await getNotifications(req.userAddress);
+      const profiles = await getAllProfiles();
+      res.json(notifications.map((notification) => ({
+        ...notification,
+        actorProfile: profiles[notification.actorAddress] || defaultProfile(notification.actorAddress),
+      })));
+    } catch (err) {
+      console.error("[notifications] load failed:", err.message);
+      res.status(500).json({ error: "Could not load notifications" });
+    }
+  });
+
+  app.put("/api/notifications/read", requireAuth, async (req, res) => {
+    try {
+      await markNotificationsRead(req.userAddress);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[notifications] mark read failed:", err.message);
+      res.status(500).json({ error: "Could not mark notifications as read" });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
+    try {
+      const count = await getUnreadNotificationCount(req.userAddress);
+      res.json({ count });
+    } catch (err) {
+      console.error("[notifications] unread count failed:", err.message);
+      res.status(500).json({ error: "Could not load unread notification count" });
     }
   });
 
