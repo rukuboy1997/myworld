@@ -73,6 +73,7 @@ import {
   getFollowing,
   createNotification,
   getNotifications,
+  markNotificationRead,
   markNotificationsRead,
   getUnreadNotificationCount,
   getEmailNotificationPreferences,
@@ -2926,6 +2927,16 @@ export function buildApp() {
     } catch (err) {
       console.error("[notifications] load failed:", err.message);
       res.status(500).json({ error: "Could not load notifications" });
+    }
+  });
+
+  app.put("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      const updated = await markNotificationRead(req.userAddress, req.params.id);
+      res.json({ ok: true, updated });
+    } catch (err) {
+      console.error("[notifications] mark one read failed:", err.message);
+      res.status(500).json({ error: "Could not mark notification as read" });
     }
   });
 
