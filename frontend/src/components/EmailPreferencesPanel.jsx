@@ -47,7 +47,7 @@ function PreferenceSwitch({
           {description}
         </span>
       </span>
-      <span className="relative inline-flex flex-shrink-0 items-center">
+      <span className="relative inline-flex h-6 w-11 flex-shrink-0 items-center">
         <input
           id={id}
           type="checkbox"
@@ -59,10 +59,12 @@ function PreferenceSwitch({
         />
         <span
           aria-hidden="true"
-          className="inline-flex h-6 w-11 items-center rounded-full bg-white/15 p-1 transition-colors peer-checked:bg-primary peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary peer-disabled:cursor-not-allowed"
-        >
-          <span className="h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
-        </span>
+          className="absolute inset-0 rounded-full bg-white/15 transition-colors peer-checked:bg-primary peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary"
+        />
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute left-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5"
+        />
       </span>
     </label>
   );
@@ -75,9 +77,12 @@ export default function EmailPreferencesPanel() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setIsLoading(true);
+    setError("");
 
     getEmailNotificationPreferences()
       .then((data) => {
@@ -96,7 +101,7 @@ export default function EmailPreferencesPanel() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadAttempt]);
 
   const changed = hasChanges(savedPreferences, draftPreferences);
 
@@ -169,7 +174,7 @@ export default function EmailPreferencesPanel() {
           <p className="text-sm text-red-300">{error}</p>
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={() => setLoadAttempt((attempt) => attempt + 1)}
             className="mt-2 text-xs font-semibold text-primary hover:underline"
           >
             Reload preferences
