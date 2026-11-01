@@ -388,6 +388,6 @@ export async function sendUnreadMessageReminderEmail({
       "",
       `Open your inbox: ${messagesUrl}`,
       `Manage email preferences: ${preferencesUrl}`,
-    ].join("\\n"),
+    ].join("\n"),
   });
 }
