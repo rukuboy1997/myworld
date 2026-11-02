@@ -3,8 +3,12 @@
 export {
   Bell,
   Clapperboard,
+  Compass,
   MessageCircle,
   Moon,
   Newspaper,
+  Plus,
+  RefreshCw,
+  Sparkles,
   Sun,
 } from "lucide-react";
