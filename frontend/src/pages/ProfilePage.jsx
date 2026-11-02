@@ -138,6 +138,7 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState("updates");
   const [editForm, setEditForm] = useState(EMPTY_FORM);
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(null);
@@ -575,30 +576,7 @@ export default function ProfilePage() {
                   )}
                 </div>
 
-                <div className="mt-4 flex flex-col gap-2">
-                  {profile?.bio ? (
-                    <p className="text-sm md:text-base leading-relaxed max-w-2xl text-foreground/90">{profile.bio}</p>
-                  ) : isOwnProfile ? (
-                    <p className="text-muted-foreground italic text-sm">No bio yet. <button onClick={() => setIsEditing(true)} className="text-primary hover:underline">Add one</button></p>
-                  ) : <p className="text-muted-foreground italic text-sm">No bio yet.</p>}
 
-                  <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
-                    {profile?.location && <span>📍 {profile.location}</span>}
-                    {profile?.stateProvince && <span>{profile.stateProvince}</span>}
-                    {profile?.country && <span>🌍 {profile.country}</span>}
-                    {profile?.website && (
-                      <a href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
-                        ↗ {profile.website.replace(/^https?:\/\//, "")}
-                      </a>
-                    )}
-                    {profile?.twitter && (
-                      <a href={`https://x.com/${profile.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
-                        @{profile.twitter.replace("@", "")}
-                      </a>
-                    )}
-                  </div>
-                  
-                </div>
               </>
             )}
 
@@ -860,30 +838,137 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Posts */}
-        <h2 className="text-lg md:text-2xl font-bold mb-5 tracking-tight flex items-center gap-3">
-          Posts
-          <span className="text-sm bg-secondary px-3 py-1 rounded-full text-muted-foreground font-medium">
-            {profile?.posts?.length || 0}
-          </span>
-        </h2>
+        {/* Profile content navigation */}
+        {(() => {
+          const allPosts = Array.isArray(profile?.posts) ? profile.posts : [];
+          const updates = allPosts.filter((post) => post.mediaType !== "video");
+          const reels = allPosts.filter((post) => post.mediaType === "video");
+          const tabs = [
+            { id: "updates", label: "Updates", count: updates.length },
+            { id: "reels", label: "Reels", count: reels.length },
+            { id: "about", label: "About", count: null },
+          ];
 
-        <div className="flex flex-col gap-5">
-          {!profile?.posts || profile.posts.length === 0 ? (
-            <div className="glass-panel rounded-3xl p-12 text-center text-muted-foreground text-sm">
-              This creator hasn't posted anything yet.
-            </div>
-          ) : (
-            profile.posts.map((post) => (
-              <PostCard
-                key={post.id}
-                post={{ ...post, profile }}
-                onLikeUpdate={handleLikeUpdate}
-                onPostDelete={handlePostDelete}
-              />
-            ))
-          )}
-        </div>
+          return (
+            <section className="mt-2">
+              <div role="tablist" aria-label="Profile sections" className="flex items-center gap-1 border-b border-white/10 mb-5 overflow-x-auto">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    id={`profile-tab-${tab.id}`}
+                    aria-selected={activeTab === tab.id}
+                    aria-controls={`profile-panel-${tab.id}`}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`relative shrink-0 px-4 py-3 text-sm font-semibold transition-colors ${activeTab === tab.id ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {tab.label}
+                    {tab.count !== null && (
+                      <span className="ml-2 text-xs tabular-nums opacity-70">{tab.count}</span>
+                    )}
+                    {activeTab === tab.id && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-primary" />}
+                  </button>
+                ))}
+              </div>
+
+              <div
+                role="tabpanel"
+                id={`profile-panel-${activeTab}`}
+                aria-labelledby={`profile-tab-${activeTab}`}
+                className="min-h-40"
+              >
+                {activeTab === "updates" && (
+                  updates.length === 0 ? (
+                    <div className="glass-panel rounded-3xl p-10 md:p-12 text-center">
+                      <div className="text-3xl mb-3" aria-hidden="true">✦</div>
+                      <h2 className="font-semibold text-foreground mb-1">No updates yet</h2>
+                      <p className="text-sm text-muted-foreground">
+                        {isOwnProfile ? "Your text and photo updates will appear here." : "This creator hasn't shared any updates yet."}
+                      </p>
+                      {isOwnProfile && (
+                        <button type="button" onClick={() => navigate("/")} className="mt-4 text-sm font-semibold text-primary hover:underline">
+                          Share an update
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-5">
+                      {updates.map((post) => (
+                        <PostCard
+                          key={post.id}
+                          post={{ ...post, profile }}
+                          onLikeUpdate={handleLikeUpdate}
+                          onPostDelete={handlePostDelete}
+                        />
+                      ))}
+                    </div>
+                  )
+                )}
+
+                {activeTab === "reels" && (
+                  reels.length === 0 ? (
+                    <div className="glass-panel rounded-3xl p-10 md:p-12 text-center">
+                      <div className="text-3xl mb-3" aria-hidden="true">▶</div>
+                      <h2 className="font-semibold text-foreground mb-1">No reels yet</h2>
+                      <p className="text-sm text-muted-foreground">
+                        {isOwnProfile ? "Videos you publish as Reels will appear here." : "This creator hasn't published any Reels yet."}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-5">
+                      {reels.map((post) => (
+                        <PostCard
+                          key={post.id}
+                          post={{ ...post, profile }}
+                          onLikeUpdate={handleLikeUpdate}
+                          onPostDelete={handlePostDelete}
+                        />
+                      ))}
+                    </div>
+                  )
+                )}
+
+                {activeTab === "about" && (
+                  <div className="glass-panel rounded-3xl p-5 md:p-7">
+                    <h2 className="text-lg font-bold mb-4">About</h2>
+                    {profile?.bio ? (
+                      <p className="text-sm md:text-base leading-relaxed text-foreground/90 whitespace-pre-wrap">{profile.bio}</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">No bio added yet.</p>
+                    )}
+
+                    <div className="mt-5 flex flex-wrap gap-x-5 gap-y-3 text-sm text-muted-foreground">
+                      {profile?.profession && <span>💼 {profile.profession}</span>}
+                      {profile?.location && <span>📍 {profile.location}</span>}
+                      {profile?.stateProvince && <span>{profile.stateProvince}</span>}
+                      {profile?.country && <span>🌍 {profile.country}</span>}
+                      {profile?.website && (
+                        <a href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary break-all">
+                          ↗ {profile.website.replace(/^https?:\/\//, "")}
+                        </a>
+                      )}
+                      {profile?.twitter && (
+                        <a href={`https://x.com/${profile.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
+                          @{profile.twitter.replace("@", "")}
+                        </a>
+                      )}
+                    </div>
+
+                    {!profile?.bio && !profile?.profession && !profile?.location && !profile?.stateProvince && !profile?.country && !profile?.website && !profile?.twitter && (
+                      <p className="mt-5 text-xs text-muted-foreground">No additional profile information is available.</p>
+                    )}
+                    {isOwnProfile && (
+                      <button type="button" onClick={() => setIsEditing(true)} className="mt-6 rounded-full border border-white/10 bg-secondary px-4 py-2 text-sm font-semibold hover:bg-secondary/80">
+                        Edit profile details
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+          );
+        })()}
       </div>
     </Layout>
   );
