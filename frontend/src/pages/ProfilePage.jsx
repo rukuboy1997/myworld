@@ -421,6 +421,11 @@ export default function ProfilePage() {
   const profilePosts = Array.isArray(profile?.posts) ? profile.posts : [];
   const profileUpdates = profilePosts.filter((post) => post.mediaType !== "video");
   const profileReels = profilePosts.filter((post) => post.mediaType === "video");
+  const profileTabs = [
+    { id: "updates", label: "Updates", count: profileUpdates.length },
+    { id: "reels", label: "Reels", count: profileReels.length },
+    { id: "about", label: "About", count: null },
+  ];
 
   return (
     <Layout>
@@ -844,17 +849,9 @@ export default function ProfilePage() {
 
         {/* Profile content navigation */}
         <section className="mt-2">
-          {(() => {
-            const tabs = [
-              { id: "updates", label: "Updates", count: profileUpdates.length },
-              { id: "reels", label: "Reels", count: profileReels.length },
-              { id: "about", label: "About", count: null },
-            ];
-
-            return (
-              <>
+          <>
               <div role="tablist" aria-label="Profile sections" className="flex items-center gap-1 border-b border-white/10 mb-5 overflow-x-auto">
-                {tabs.map((tab) => (
+                {profileTabs.map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
@@ -967,9 +964,7 @@ export default function ProfilePage() {
                   </div>
                 )}
               </div>
-              </>
-            );
-          })()}
+          </>
         </section>
       </div>
     </Layout>
