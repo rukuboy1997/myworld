@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import PostCard from "../components/PostCard.jsx";
 import {
@@ -122,10 +122,13 @@ const EMPTY_FORM = {
   location: "",
   twitter: "",
   profession: "",
+  country: "",
+  stateProvince: "",
 };
 
 export default function ProfilePage() {
   const { address } = useParams();
+  const navigate = useNavigate();
   const { address: currentWallet, isAuthenticated } = useAuth();
   const isOwnProfile = !!currentWallet && address === currentWallet;
 
@@ -147,6 +150,7 @@ export default function ProfilePage() {
   const [isBlockLoading, setIsBlockLoading] = useState(false);
   const [safetyMessage, setSafetyMessage] = useState("");
   const [safetyError, setSafetyError] = useState("");
+  const [showMoreActions, setShowMoreActions] = useState(false);
 
   const avatarRef = useRef(null);
   const bannerRef = useRef(null);
@@ -165,6 +169,8 @@ export default function ProfilePage() {
           location: data.location || "",
           twitter: data.twitter || "",
           profession: data.profession || "",
+          country: data.country || "",
+          stateProvince: data.stateProvince || "",
         });
       }
     } catch (err) {
@@ -329,6 +335,8 @@ export default function ProfilePage() {
         location: editForm.location.trim(),
         twitter: editForm.twitter.trim(),
         profession: editForm.profession,
+        country: editForm.country.trim(),
+        stateProvince: editForm.stateProvince.trim(),
         ...(avatarFile ? { avatar: avatarFile } : {}),
         ...(bannerFile ? { banner: bannerFile } : {}),
       });
@@ -398,242 +406,168 @@ export default function ProfilePage() {
     <Layout>
       <div className="max-w-4xl mx-auto w-full px-4 py-6 md:py-10 animate-fade-in">
         <div className="glass-panel rounded-3xl mb-8 overflow-hidden">
-          <div className="px-4 md:px-8 pt-6 pb-6">
-            {/* Header row */}
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div className="flex items-center gap-3 md:gap-6 min-w-0">
-                {avatarSrc ? (
-                  <img
-                    src={avatarSrc}
-                    alt={profile?.username}
-                    className="w-16 h-16 md:w-28 md:h-28 rounded-full object-cover border-2 border-white/10 shadow-xl flex-shrink-0"
-                  />
-                ) : (
-                  <div className="w-16 h-16 md:w-28 md:h-28 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-2xl md:text-4xl shadow-xl border-2 border-white/10 flex-shrink-0">
-                    {initial}
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <h1 className="text-lg md:text-3xl font-bold tracking-tight truncate">
-                    {profile?.displayName || profile?.username || "Anonymous"}
-                  </h1>
-                  {profile?.username && profile?.displayName && (
-                    <p className="text-muted-foreground text-sm">
-                      @{profile.username}
-                    </p>
-                  )}
-                  {profile?.profession && (
-                    <span className="inline-block mt-1 text-xs font-medium bg-primary/15 text-primary px-2.5 py-1 rounded-full border border-primary/20">
-                      {profile.profession}
-                    </span>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2 mt-2">
-                    <span className="text-muted-foreground bg-secondary/50 px-3 py-1 rounded-full text-xs font-mono border border-white/5">
-                      {truncateAddress(address)}
-                    </span>
-                  </div>
-                </div>
-              </div>
+          {/* Cover first: the avatar deliberately overlaps it on every screen size. */}
+          {!isEditing && (
+            <div className="relative h-32 sm:h-44 md:h-56 bg-gradient-brand">
+              {bannerSrc && (
+                <img
+                  src={bannerSrc}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-background/35 to-transparent" />
+            </div>
+          )}
 
-              <div className="flex items-center gap-2 self-start flex-shrink-0 flex-wrap">
-                {!isOwnProfile && isAuthenticated && !blockStatus.blockedByMe && !blockStatus.hasBlockedMe && (
-                  <button
-                    onClick={handleFollowToggle}
-                    disabled={isFollowLoading}
-                    className={`px-5 py-2 rounded-full font-medium text-sm transition-colors border disabled:opacity-60 ${
-                      isFollowing
-                        ? "bg-secondary border-white/10 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400"
-                        : "bg-primary text-primary-foreground border-transparent hover:bg-primary/90"
-                    }`}
-                  >
-                    {isFollowLoading
-                      ? "…"
-                      : isFollowing
-                        ? "Following"
-                        : "Follow"}
-                  </button>
-                )}
-                {!isOwnProfile && isAuthenticated && (
-                  <>
-                    {!blockStatus.hasBlockedMe && (
+          <div className="px-4 md:px-8 pb-6">
+            {!isEditing && (
+              <>
+                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+                  <div className="flex items-end gap-4 min-w-0 -mt-10 md:-mt-14">
+                    {avatarSrc ? (
+                      <img
+                        src={avatarSrc}
+                        alt={profile?.username || "Profile"}
+                        className="w-24 h-24 md:w-32 md:h-32 rounded-full object-cover border-4 border-background shadow-xl flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-3xl md:text-5xl shadow-xl border-4 border-background flex-shrink-0">
+                        {initial}
+                      </div>
+                    )}
+
+                    <div className="min-w-0 pb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h1 className="text-xl md:text-3xl font-bold tracking-tight truncate">
+                          {profile?.displayName || profile?.username || "Anonymous"}
+                        </h1>
+                        {profile?.membership?.badge && profile.membership.planId !== "free" && (
+                          <span
+                            title={profile.membership.name}
+                            className="flex-shrink-0 inline-flex items-center gap-1 rounded-full bg-primary/15 border border-primary/25 px-2 py-1 text-[10px] font-bold text-primary"
+                          >
+                            ★ {profile.membership.name}
+                          </span>
+                        )}
+                      </div>
+                      {profile?.username && profile?.displayName && (
+                        <p className="text-muted-foreground text-sm">@{profile.username}</p>
+                      )}
+                      {profile?.profession && (
+                        <span className="inline-block mt-1.5 text-xs font-medium bg-primary/10 text-primary px-2.5 py-1 rounded-full border border-primary/20">
+                          {profile.profession}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+                    {!isOwnProfile && isAuthenticated && !blockStatus.blockedByMe && !blockStatus.hasBlockedMe && (
+                      <>
+                        <button
+                          onClick={handleFollowToggle}
+                          disabled={isFollowLoading}
+                          className={`px-5 py-2.5 rounded-full font-semibold text-sm transition-colors border disabled:opacity-60 ${
+                            isFollowing
+                              ? "bg-secondary border-white/10 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400"
+                              : "bg-primary text-primary-foreground border-transparent hover:bg-primary/90"
+                          }`}
+                        >
+                          {isFollowLoading ? "…" : isFollowing ? "Following" : "Follow"}
+                        </button>
+                        <button
+                          onClick={() => navigate(`/messages?with=${encodeURIComponent(address)}`)}
+                          className="px-5 py-2.5 rounded-full font-semibold text-sm bg-secondary text-secondary-foreground border border-white/10 hover:bg-secondary/80 transition-colors"
+                        >
+                          Message
+                        </button>
+                      </>
+                    )}
+                    {isOwnProfile && (
                       <button
-                        onClick={handleBlockToggle}
-                        disabled={isBlockLoading}
-                        className="px-4 py-2 rounded-full border border-white/10 bg-secondary text-sm font-medium hover:bg-red-500/10 hover:text-red-400 disabled:opacity-60"
+                        onClick={() => setIsEditing(true)}
+                        className="bg-secondary text-secondary-foreground px-5 py-2.5 rounded-full font-semibold hover:bg-secondary/80 transition-colors border border-white/10 text-sm"
                       >
-                        {isBlockLoading ? "…" : blockStatus.blockedByMe ? "Unblock" : "Block"}
+                        Edit Profile
                       </button>
                     )}
-                    <button
-                      onClick={handleReportUser}
-                      className="px-4 py-2 rounded-full border border-amber-500/20 bg-amber-500/5 text-amber-300 text-sm font-medium hover:bg-amber-500/10"
-                    >
-                      Report
-                    </button>
-                  </>
-                )}
-                {isOwnProfile && !isEditing && (
-                  <button
-                    onClick={() => setIsEditing(true)}
-                    className="bg-secondary text-secondary-foreground px-5 py-2 rounded-full font-medium hover:bg-secondary/80 transition-colors border border-white/10 text-sm"
-                  >
-                    Edit Profile
-                  </button>
-                )}
-                {!isEditing && (
-                  <ShareProfileButton
-                    address={address}
-                    username={profile?.username}
-                  />
-                )}
-              </div>
-            </div>
-
-            {(safetyMessage || safetyError || blockStatus.hasBlockedMe || blockStatus.blockedByMe) && (
-              <div className="mt-4 space-y-2" aria-live="polite">
-                {safetyMessage && <p className="text-sm text-green-400">{safetyMessage}</p>}
-                {safetyError && <p className="text-sm text-red-400">{safetyError}</p>}
-                {blockStatus.blockedByMe && <p className="text-sm text-amber-300">You blocked this account. New follows and messages are disabled.</p>}
-                {blockStatus.hasBlockedMe && <p className="text-sm text-muted-foreground">Some interactions with this account are unavailable.</p>}
-              </div>
-            )}
-
-            {/* Follower / following / likes stats */}
-            {!isEditing && (
-              <div className="flex flex-wrap gap-4 mt-4">
-                <div className="text-center">
-                  <span className="font-bold text-sm">
-                    {profile?.followerCount ?? 0}
-                  </span>
-                  <span className="text-xs text-muted-foreground ml-1">
-                    Followers
-                  </span>
+                    {!isOwnProfile && isAuthenticated && (
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setShowMoreActions((value) => !value)}
+                          aria-expanded={showMoreActions}
+                          aria-label="More profile actions"
+                          className="w-10 h-10 rounded-full border border-white/10 bg-secondary hover:bg-secondary/80 transition-colors text-lg"
+                        >
+                          ⋯
+                        </button>
+                        {showMoreActions && (
+                          <div className="absolute right-0 top-12 z-20 w-44 rounded-2xl border border-white/10 bg-background/95 backdrop-blur shadow-2xl p-1.5">
+                            {!blockStatus.hasBlockedMe && (
+                              <button
+                                onClick={() => { setShowMoreActions(false); handleBlockToggle(); }}
+                                disabled={isBlockLoading}
+                                className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-red-500/10 hover:text-red-400 disabled:opacity-60"
+                              >
+                                {isBlockLoading ? "Working…" : blockStatus.blockedByMe ? "Unblock user" : "Block user"}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => { setShowMoreActions(false); handleReportUser(); }}
+                              className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-amber-500/10 hover:text-amber-300"
+                            >
+                              Report user
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <ShareProfileButton address={address} username={profile?.username} />
+                  </div>
                 </div>
-                <div className="text-center">
-                  <span className="font-bold text-sm">
-                    {profile?.followingCount ?? 0}
-                  </span>
-                  <span className="text-xs text-muted-foreground ml-1">
-                    Following
-                  </span>
-                </div>
-                {profile?.totalLikes > 0 && (
-                  <div className="text-center flex items-center gap-1 text-teal-400 text-xs font-medium">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-                    </svg>
-                    {profile.totalLikes} likes
+
+                {(safetyMessage || safetyError || blockStatus.hasBlockedMe || blockStatus.blockedByMe) && (
+                  <div className="mt-4 space-y-2" aria-live="polite">
+                    {safetyMessage && <p className="text-sm text-green-400">{safetyMessage}</p>}
+                    {safetyError && <p className="text-sm text-red-400">{safetyError}</p>}
+                    {blockStatus.blockedByMe && <p className="text-sm text-amber-300">You blocked this account. New follows and messages are disabled.</p>}
+                    {blockStatus.hasBlockedMe && <p className="text-sm text-muted-foreground">Some interactions with this account are unavailable.</p>}
                   </div>
                 )}
-              </div>
-            )}
 
-            {/* Bio + meta */}
-            {!isEditing && (
-              <div className="mt-4 flex flex-col gap-2">
-                {profile?.bio ? (
-                  <p className="text-sm md:text-base leading-relaxed max-w-2xl text-foreground/90">
-                    {profile.bio}
-                  </p>
-                ) : isOwnProfile ? (
-                  <p className="text-muted-foreground italic text-sm">
-                    No bio yet.{" "}
-                    <button
-                      onClick={() => setIsEditing(true)}
-                      className="text-primary hover:underline"
-                    >
-                      Add one
-                    </button>
-                  </p>
-                ) : (
-                  <p className="text-muted-foreground italic text-sm">
-                    No bio yet.
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  {profile?.location && (
-                    <span className="flex items-center gap-1">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="11"
-                        height="11"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
-                        <circle cx="12" cy="10" r="3" />
-                      </svg>
-                      {profile.location}
-                    </span>
-                  )}
-                  {profile?.website && (
-                    <a
-                      href={
-                        profile.website.startsWith("http")
-                          ? profile.website
-                          : `https://${profile.website}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 hover:text-primary"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="11"
-                        height="11"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                      </svg>
-                      {profile.website.replace(/^https?:\/\//, "")}
-                    </a>
-                  )}
-                  {profile?.twitter && (
-                    <a
-                      href={`https://x.com/${profile.twitter.replace("@", "")}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 hover:text-primary"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="11"
-                        height="11"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                      >
-                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                      </svg>
-                      @{profile.twitter.replace("@", "")}
-                    </a>
-                  )}
+                <div className="flex flex-wrap gap-x-5 gap-y-2 mt-5">
+                  <div><span className="font-bold text-sm">{profile?.followerCount ?? 0}</span><span className="text-xs text-muted-foreground ml-1">Followers</span></div>
+                  <div><span className="font-bold text-sm">{profile?.followingCount ?? 0}</span><span className="text-xs text-muted-foreground ml-1">Following</span></div>
+                  {profile?.totalLikes > 0 && <div className="text-teal-400 text-xs font-medium">♥ {profile.totalLikes} likes</div>}
                 </div>
-              </div>
-            )}
 
-            {/* Banner */}
-            {!isEditing && (
-              <div className="mt-5 relative h-28 md:h-40 rounded-2xl overflow-hidden bg-gradient-brand border border-white/10">
-                {bannerSrc && (
-                  <img
-                    src={bannerSrc}
-                    alt="banner"
-                    className="w-full h-full object-cover"
-                  />
-                )}
-              </div>
+                <div className="mt-4 flex flex-col gap-2">
+                  {profile?.bio ? (
+                    <p className="text-sm md:text-base leading-relaxed max-w-2xl text-foreground/90">{profile.bio}</p>
+                  ) : isOwnProfile ? (
+                    <p className="text-muted-foreground italic text-sm">No bio yet. <button onClick={() => setIsEditing(true)} className="text-primary hover:underline">Add one</button></p>
+                  ) : <p className="text-muted-foreground italic text-sm">No bio yet.</p>}
+
+                  <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
+                    {profile?.location && <span>📍 {profile.location}</span>}
+                    {profile?.stateProvince && <span>{profile.stateProvince}</span>}
+                    {profile?.country && <span>🌍 {profile.country}</span>}
+                    {profile?.website && (
+                      <a href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
+                        ↗ {profile.website.replace(/^https?:\/\//, "")}
+                      </a>
+                    )}
+                    {profile?.twitter && (
+                      <a href={`https://x.com/${profile.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
+                        @{profile.twitter.replace("@", "")}
+                      </a>
+                    )}
+                  </div>
+                  <span className="text-muted-foreground text-[11px] font-mono">{truncateAddress(address)}</span>
+                </div>
+              </>
             )}
 
             {/* Edit Form */}
