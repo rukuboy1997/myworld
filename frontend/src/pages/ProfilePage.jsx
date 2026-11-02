@@ -423,43 +423,44 @@ export default function ProfilePage() {
           <div className="px-4 md:px-8 pb-6">
             {!isEditing && (
               <>
-                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-                  <div className="flex items-end gap-4 min-w-0 -mt-10 md:-mt-14">
-                    {avatarSrc ? (
-                      <img
-                        src={avatarSrc}
-                        alt={profile?.username || "Profile"}
-                        className="relative z-10 w-24 h-24 md:w-32 md:h-32 rounded-full object-cover border-4 border-background shadow-xl flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="relative z-10 w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-3xl md:text-5xl shadow-xl border-4 border-background flex-shrink-0">
-                        {initial}
-                      </div>
-                    )}
+                <div className="relative z-10 -mt-12 md:-mt-16">
+                  {avatarSrc ? (
+                    <img
+                      src={avatarSrc}
+                      alt={profile?.username || "Profile"}
+                      className="w-24 h-24 md:w-32 md:h-32 rounded-full object-cover border-4 border-background shadow-xl"
+                    />
+                  ) : (
+                    <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-3xl md:text-5xl shadow-xl border-4 border-background">
+                      {initial}
+                    </div>
+                  )}
+                </div>
 
-                    <div className="min-w-0 pb-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <h1 className="text-xl md:text-3xl font-bold tracking-tight truncate">
-                          {profile?.displayName || profile?.username || "Anonymous"}
-                        </h1>
-                        {profile?.membership?.badge && profile.membership.planId !== "free" && (
-                          <span
-                            title={profile.membership.name}
-                            className="flex-shrink-0 inline-flex items-center gap-1 rounded-full bg-primary/15 border border-primary/25 px-2 py-1 text-[10px] font-bold text-primary"
-                          >
-                            ★ {profile.membership.name}
-                          </span>
-                        )}
-                      </div>
-                      {profile?.username && profile?.displayName && (
-                        <p className="text-muted-foreground text-sm">@{profile.username}</p>
-                      )}
-                      {profile?.profession && (
-                        <span className="inline-block mt-1.5 text-xs font-medium bg-primary/10 text-primary px-2.5 py-1 rounded-full border border-primary/20">
-                          {profile.profession}
+                {/* Identity starts below the cover overlap so long names and professions never sit over the banner. */}
+                <div className="mt-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <h1 className="text-xl md:text-3xl font-bold tracking-tight break-words">
+                        {profile?.displayName || profile?.username || "Anonymous"}
+                      </h1>
+                      {profile?.membership?.badge && profile.membership.planId !== "free" && (
+                        <span
+                          title={profile.membership.name}
+                          className="flex-shrink-0 inline-flex items-center gap-1 rounded-full bg-primary/15 border border-primary/25 px-2 py-1 text-[10px] font-bold text-primary"
+                        >
+                          ★ {profile.membership.name}
                         </span>
                       )}
                     </div>
+                    {profile?.username && profile?.displayName && (
+                      <p className="text-muted-foreground text-sm">@{profile.username}</p>
+                    )}
+                    {profile?.profession && (
+                      <span className="inline-block mt-2 text-xs font-medium bg-primary/10 text-primary px-2.5 py-1 rounded-full border border-primary/20">
+                        {profile.profession}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap sm:justify-end">
@@ -504,7 +505,7 @@ export default function ProfilePage() {
                           ⋯
                         </button>
                         {showMoreActions && (
-                          <div className="absolute right-0 top-12 z-20 w-44 rounded-2xl border border-white/10 bg-background/95 backdrop-blur shadow-2xl p-1.5">
+                          <div className="absolute right-0 top-12 z-20 w-48 rounded-2xl border border-white/10 bg-background/95 backdrop-blur shadow-2xl p-1.5">
                             {!blockStatus.hasBlockedMe && (
                               <button
                                 onClick={() => { setShowMoreActions(false); handleBlockToggle(); }}
@@ -521,11 +522,7 @@ export default function ProfilePage() {
                               Report user
                             </button>
                             <div className="my-1 border-t border-white/10" />
-                            <ShareProfileButton
-                              address={address}
-                              username={profile?.username}
-                              className="w-full"
-                            />
+                            <ShareProfileButton address={address} username={profile?.username} className="w-full" />
                           </div>
                         )}
                       </div>
