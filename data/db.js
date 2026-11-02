@@ -947,9 +947,25 @@ export async function getProfile(address) {
   return rowToProfile(rows[0]);
 }
 
+export async function getPrivateProfileContact(address) {
+  const { rows } = await pool.query(
+    `SELECT phone_number, phone_visibility FROM profiles WHERE address = $1`,
+    [address],
+  );
+  const row = rows[0];
+  if (!row) return { phoneNumber: "", phoneVisibility: "only_me" };
+  return {
+    phoneNumber: row.phone_number || "",
+    phoneVisibility: row.phone_visibility || "only_me",
+  };
+}
+
 export async function saveProfile(address, profile) {
-  const existing = await getProfile(address);
-  const merged = { ...(existing || {}), ...profile, address };
+  const [existing, privateContact] = await Promise.all([
+    getProfile(address),
+    getPrivateProfileContact(address),
+  ]);
+  const merged = { ...(existing || {}), ...privateContact, ...profile, address };
   await pool.query(
     `INSERT INTO profiles (address, username, bio, display_name, avatar_blob_id, avatar_url,
        banner_blob_id, banner_url, website, location, twitter, profession, country, state_province, phone_number, phone_visibility, updated_at)
