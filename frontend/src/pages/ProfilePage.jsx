@@ -418,6 +418,10 @@ export default function ProfilePage() {
     ? profile.username.charAt(0).toUpperCase()
     : truncateAddress(address).charAt(0);
 
+  const profilePosts = Array.isArray(profile?.posts) ? profile.posts : [];
+  const profileUpdates = profilePosts.filter((post) => post.mediaType !== "video");
+  const profileReels = profilePosts.filter((post) => post.mediaType === "video");
+
   return (
     <Layout>
       <div className="max-w-4xl mx-auto w-full px-4 py-6 md:py-10 animate-fade-in">
@@ -839,18 +843,16 @@ export default function ProfilePage() {
         </div>
 
         {/* Profile content navigation */}
-        {(() => {
-          const allPosts = Array.isArray(profile?.posts) ? profile.posts : [];
-          const updates = allPosts.filter((post) => post.mediaType !== "video");
-          const reels = allPosts.filter((post) => post.mediaType === "video");
-          const tabs = [
-            { id: "updates", label: "Updates", count: updates.length },
-            { id: "reels", label: "Reels", count: reels.length },
-            { id: "about", label: "About", count: null },
-          ];
+        <section className="mt-2">
+          {(() => {
+            const tabs = [
+              { id: "updates", label: "Updates", count: profileUpdates.length },
+              { id: "reels", label: "Reels", count: profileReels.length },
+              { id: "about", label: "About", count: null },
+            ];
 
-          return (
-            <section className="mt-2">
+            return (
+              <>
               <div role="tablist" aria-label="Profile sections" className="flex items-center gap-1 border-b border-white/10 mb-5 overflow-x-auto">
                 {tabs.map((tab) => (
                   <button
@@ -879,7 +881,7 @@ export default function ProfilePage() {
                 className="min-h-40"
               >
                 {activeTab === "updates" && (
-                  updates.length === 0 ? (
+                  profileUpdates.length === 0 ? (
                     <div className="glass-panel rounded-3xl p-10 md:p-12 text-center">
                       <div className="text-3xl mb-3" aria-hidden="true">✦</div>
                       <h2 className="font-semibold text-foreground mb-1">No updates yet</h2>
@@ -894,7 +896,7 @@ export default function ProfilePage() {
                     </div>
                   ) : (
                     <div className="flex flex-col gap-5">
-                      {updates.map((post) => (
+                      {profileUpdates.map((post) => (
                         <PostCard
                           key={post.id}
                           post={{ ...post, profile }}
@@ -907,7 +909,7 @@ export default function ProfilePage() {
                 )}
 
                 {activeTab === "reels" && (
-                  reels.length === 0 ? (
+                  profileReels.length === 0 ? (
                     <div className="glass-panel rounded-3xl p-10 md:p-12 text-center">
                       <div className="text-3xl mb-3" aria-hidden="true">▶</div>
                       <h2 className="font-semibold text-foreground mb-1">No reels yet</h2>
@@ -917,7 +919,7 @@ export default function ProfilePage() {
                     </div>
                   ) : (
                     <div className="flex flex-col gap-5">
-                      {reels.map((post) => (
+                      {profileReels.map((post) => (
                         <PostCard
                           key={post.id}
                           post={{ ...post, profile }}
@@ -939,7 +941,6 @@ export default function ProfilePage() {
                     )}
 
                     <div className="mt-5 flex flex-wrap gap-x-5 gap-y-3 text-sm text-muted-foreground">
-                      {profile?.profession && <span>💼 {profile.profession}</span>}
                       {profile?.location && <span>📍 {profile.location}</span>}
                       {profile?.stateProvince && <span>{profile.stateProvince}</span>}
                       {profile?.country && <span>🌍 {profile.country}</span>}
@@ -966,9 +967,10 @@ export default function ProfilePage() {
                   </div>
                 )}
               </div>
-            </section>
-          );
-        })()}
+              </>
+            );
+          })()}
+        </section>
       </div>
     </Layout>
   );
