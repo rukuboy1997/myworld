@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import PostCard from "../components/PostCard.jsx";
 import {
   getProfile,
+  getMyProfileContact,
   createProfile,
   followUser,
   unfollowUser,
@@ -124,6 +126,7 @@ const EMPTY_FORM = {
   profession: "",
   country: "",
   stateProvince: "",
+  phoneNumber: "",
 };
 
 export default function ProfilePage() {
@@ -151,7 +154,9 @@ export default function ProfilePage() {
   const [safetyMessage, setSafetyMessage] = useState("");
   const [safetyError, setSafetyError] = useState("");
   const [showMoreActions, setShowMoreActions] = useState(false);
+  const [moreActionsPosition, setMoreActionsPosition] = useState(null);
 
+  const moreActionsButtonRef = useRef(null);
   const avatarRef = useRef(null);
   const bannerRef = useRef(null);
 
@@ -161,6 +166,14 @@ export default function ProfilePage() {
       const data = await getProfile(address, currentWallet);
       setProfile(data);
       if (data) {
+        let privateContact = null;
+        if (isOwnProfile) {
+          try {
+            privateContact = await getMyProfileContact();
+          } catch (contactError) {
+            console.error("Failed to load private profile contact", contactError);
+          }
+        }
         setEditForm({
           username: data.username || "",
           bio: data.bio || "",
@@ -171,6 +184,7 @@ export default function ProfilePage() {
           profession: data.profession || "",
           country: data.country || "",
           stateProvince: data.stateProvince || "",
+          phoneNumber: privateContact?.phoneNumber || privateContact?.contact?.phoneNumber || "",
         });
       }
     } catch (err) {
@@ -337,6 +351,7 @@ export default function ProfilePage() {
         profession: editForm.profession,
         country: editForm.country.trim(),
         stateProvince: editForm.stateProvince.trim(),
+        phoneNumber: editForm.phoneNumber.trim(),
         ...(avatarFile ? { avatar: avatarFile } : {}),
         ...(bannerFile ? { banner: bannerFile } : {}),
       });
@@ -438,7 +453,7 @@ export default function ProfilePage() {
                 </div>
 
                 {/* Identity starts below the cover overlap so long names and professions never sit over the banner. */}
-                <div className="mt-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div className="mt-3 flex flex-row items-start justify-between gap-2 sm:gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <h1 className="text-xl md:text-3xl font-bold tracking-tight break-words">
@@ -463,13 +478,13 @@ export default function ProfilePage() {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+                  <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
                     {!isOwnProfile && isAuthenticated && !blockStatus.blockedByMe && !blockStatus.hasBlockedMe && (
                       <>
                         <button
                           onClick={handleFollowToggle}
                           disabled={isFollowLoading}
-                          className={`px-5 py-2.5 rounded-full font-semibold text-sm transition-colors border disabled:opacity-60 ${
+                          className={`px-3 py-2 md:px-5 md:py-2.5 rounded-full font-semibold text-xs md:text-sm whitespace-nowrap transition-colors border disabled:opacity-60 ${
                             isFollowing
                               ? "bg-secondary border-white/10 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400"
                               : "bg-primary text-primary-foreground border-transparent hover:bg-primary/90"
@@ -479,7 +494,7 @@ export default function ProfilePage() {
                         </button>
                         <button
                           onClick={() => navigate(`/messages?with=${encodeURIComponent(address)}`)}
-                          className="px-5 py-2.5 rounded-full font-semibold text-sm bg-secondary text-secondary-foreground border border-white/10 hover:bg-secondary/80 transition-colors"
+                          className="px-3 py-2 md:px-5 md:py-2.5 rounded-full font-semibold text-xs md:text-sm whitespace-nowrap bg-secondary text-secondary-foreground border border-white/10 hover:bg-secondary/80 transition-colors"
                         >
                           Message
                         </button>
@@ -488,7 +503,7 @@ export default function ProfilePage() {
                     {isOwnProfile && (
                       <button
                         onClick={() => setIsEditing(true)}
-                        className="bg-secondary text-secondary-foreground px-5 py-2.5 rounded-full font-semibold hover:bg-secondary/80 transition-colors border border-white/10 text-sm"
+                        className="bg-secondary text-secondary-foreground px-3 py-2 md:px-5 md:py-2.5 rounded-full font-semibold hover:bg-secondary/80 transition-colors border border-white/10 text-xs md:text-sm whitespace-nowrap"
                       >
                         Edit Profile
                       </button>
@@ -497,15 +512,24 @@ export default function ProfilePage() {
                       <div className="relative">
                         <button
                           type="button"
-                          onClick={() => setShowMoreActions((value) => !value)}
+                          ref={moreActionsButtonRef}
+                          onClick={() => {
+                            if (showMoreActions) {
+                              setShowMoreActions(false);
+                              return;
+                            }
+                            const rect = moreActionsButtonRef.current?.getBoundingClientRect();
+                            if (rect) setMoreActionsPosition({ top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) });
+                            setShowMoreActions(true);
+                          }}
                           aria-expanded={showMoreActions}
                           aria-label="More profile actions"
-                          className="w-10 h-10 rounded-full border border-white/10 bg-secondary hover:bg-secondary/80 transition-colors text-lg"
+                          className="w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-full border border-white/10 bg-secondary hover:bg-secondary/80 transition-colors text-lg"
                         >
                           ⋯
                         </button>
-                        {showMoreActions && (
-                          <div className="absolute right-0 top-12 z-20 w-48 rounded-2xl border border-white/10 bg-background/95 backdrop-blur shadow-2xl p-1.5">
+                        {showMoreActions && moreActionsPosition && createPortal(
+                          <div style={{ position: "fixed", top: moreActionsPosition.top, right: moreActionsPosition.right }} className="z-[1000] w-48 rounded-2xl border border-white/10 bg-background/95 backdrop-blur shadow-2xl p-1.5">
                             {!blockStatus.hasBlockedMe && (
                               <button
                                 onClick={() => { setShowMoreActions(false); handleBlockToggle(); }}
@@ -523,7 +547,8 @@ export default function ProfilePage() {
                             </button>
                             <div className="my-1 border-t border-white/10" />
                             <ShareProfileButton address={address} username={profile?.username} className="w-full" />
-                          </div>
+                          </div>,
+                          document.body
                         )}
                       </div>
                     )}
@@ -721,7 +746,7 @@ export default function ProfilePage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">
                       Location
@@ -792,6 +817,19 @@ export default function ProfilePage() {
                       className="w-full bg-secondary/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">Phone number · Private</label>
+                  <input
+                    type="tel"
+                    autoComplete="tel"
+                    value={editForm.phoneNumber}
+                    onChange={(e) => setEditForm((p) => ({ ...p, phoneNumber: e.target.value }))}
+                    placeholder="Add your phone number"
+                    className="w-full bg-secondary/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">Only you can view this number. It is not shown on your public profile.</p>
                 </div>
 
                 <div className="flex justify-end gap-3 mt-1">
