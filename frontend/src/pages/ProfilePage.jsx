@@ -519,7 +519,7 @@ export default function ProfilePage() {
                               return;
                             }
                             const rect = moreActionsButtonRef.current?.getBoundingClientRect();
-                            if (rect) setMoreActionsPosition({ top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) });
+                            if (rect) setMoreActionsPosition({ top: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 160)), right: Math.max(8, window.innerWidth - rect.right) });
                             setShowMoreActions(true);
                           }}
                           aria-expanded={showMoreActions}
@@ -529,7 +529,7 @@ export default function ProfilePage() {
                           ⋯
                         </button>
                         {showMoreActions && moreActionsPosition && createPortal(
-                          <div style={{ position: "fixed", top: moreActionsPosition.top, right: moreActionsPosition.right }} className="z-[1000] w-48 rounded-2xl border border-white/10 bg-background/95 backdrop-blur shadow-2xl p-1.5">
+                          <div style={{ position: "fixed", top: moreActionsPosition.top, right: moreActionsPosition.right }} className="z-[1000] w-48 max-h-[calc(100vh-1rem)] overflow-y-auto rounded-2xl border border-white/10 bg-background/95 backdrop-blur shadow-2xl p-1.5">
                             {!blockStatus.hasBlockedMe && (
                               <button
                                 onClick={() => { setShowMoreActions(false); handleBlockToggle(); }}
