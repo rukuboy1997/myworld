@@ -2249,13 +2249,21 @@ export function buildApp() {
           location,
           twitter,
           profession,
-          country,
-          stateProvince,
-          phoneNumber,
+        };
+        // New fields are opt-in at the API boundary so older clients cannot
+        // accidentally erase values they do not yet know how to edit.
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, "country")) {
+          update.country = country;
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, "stateProvince")) {
+          update.stateProvince = stateProvince;
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, "phoneNumber")) {
+          update.phoneNumber = phoneNumber;
           // Phase 2 starts with the safest privacy default. We intentionally do
           // not accept a public visibility value until the privacy UI exists.
-          phoneVisibility: "only_me",
-        };
+          update.phoneVisibility = "only_me";
+        }
         if (req.files?.avatar?.[0]) {
           const f = req.files.avatar[0];
           const contentType = String(f.mimetype || "").toLowerCase();
