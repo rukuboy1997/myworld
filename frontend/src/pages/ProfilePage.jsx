@@ -932,6 +932,7 @@ export default function ProfilePage() {
                     )}
 
                     <div className="mt-5 flex flex-wrap gap-x-5 gap-y-3 text-sm text-muted-foreground">
+                      {profile?.profession && <span>Profession: {profile.profession}</span>}
                       {profile?.location && <span>📍 {profile.location}</span>}
                       {profile?.stateProvince && <span>{profile.stateProvince}</span>}
                       {profile?.country && <span>🌍 {profile.country}</span>}
@@ -947,7 +948,7 @@ export default function ProfilePage() {
                       )}
                     </div>
 
-                    {!profile?.bio && !profile?.location && !profile?.stateProvince && !profile?.country && !profile?.website && !profile?.twitter && (
+                    {!profile?.bio && !profile?.profession && !profile?.location && !profile?.stateProvince && !profile?.country && !profile?.website && !profile?.twitter && (
                       <p className="mt-5 text-xs text-muted-foreground">No additional profile information is available.</p>
                     )}
                     {isOwnProfile && (
@@ -958,7 +959,6 @@ export default function ProfilePage() {
                   </div>
                 )}
               </div>
-          </>
         </section>
       </div>
     </Layout>
