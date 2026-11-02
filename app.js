@@ -42,6 +42,7 @@ import {
   savePost,
   updatePost,
   getProfile,
+  getPrivateProfileContact,
   saveProfile,
   getAllProfiles,
   getProfileStats,
@@ -2359,9 +2360,9 @@ export function buildApp() {
   // A phone number must never be included in /api/profile/:address responses.
   app.get("/api/profile/me/contact", requireAuth, async (req, res) => {
     try {
-      const profile = await getProfile(req.userAddress);
+      const contact = await getPrivateProfileContact(req.userAddress);
       res.json({
-        phoneNumber: profile?.phoneNumber || "",
+        phoneNumber: contact.phoneNumber,
         phoneVisibility: "only_me",
       });
     } catch (err) {
