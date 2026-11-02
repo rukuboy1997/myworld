@@ -44,6 +44,9 @@ const profile = {
   followerCount: 7,
   followingCount: 2,
   posts: [],
+  country: "Nigeria",
+  stateProvince: "FCT",
+  membership: { planId: "premium", name: "Premium", badge: "blue" },
 };
 
 function renderProfile(address = "0xTARGET") {
@@ -80,6 +83,21 @@ describe("ProfilePage", () => {
     expect(screen.getByText("Building myWorld")).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(getProfile).toHaveBeenCalledWith("0xTARGET", "0xVIEWER");
+  });
+
+  it("shows public profile identity details without exposing private contact data", async () => {
+    renderProfile();
+
+    expect(await screen.findByText("Nigeria")).toBeInTheDocument();
+    expect(screen.getByText("FCT")).toBeInTheDocument();
+    expect(screen.getByText(/Premium/)).toBeInTheDocument();
+    expect(screen.queryByText(/phone/i)).not.toBeInTheDocument();
+  });
+
+  it("offers Message as a primary action", async () => {
+    renderProfile();
+
+    expect(await screen.findByRole("button", { name: "Message" })).toBeInTheDocument();
   });
 
   it("follows a profile and increments the follower count", async () => {
