@@ -849,8 +849,7 @@ export default function ProfilePage() {
 
         {/* Profile content navigation */}
         <section className="mt-2">
-          <>
-              <div role="tablist" aria-label="Profile sections" className="flex items-center gap-1 border-b border-white/10 mb-5 overflow-x-auto">
+          <div role="tablist" aria-label="Profile sections" className="flex items-center gap-1 border-b border-white/10 mb-5 overflow-x-auto">
                 {profileTabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -885,11 +884,6 @@ export default function ProfilePage() {
                       <p className="text-sm text-muted-foreground">
                         {isOwnProfile ? "Your text and photo updates will appear here." : "This creator hasn't shared any updates yet."}
                       </p>
-                      {isOwnProfile && (
-                        <button type="button" onClick={() => navigate("/")} className="mt-4 text-sm font-semibold text-primary hover:underline">
-                          Share an update
-                        </button>
-                      )}
                     </div>
                   ) : (
                     <div className="flex flex-col gap-5">
@@ -953,7 +947,7 @@ export default function ProfilePage() {
                       )}
                     </div>
 
-                    {!profile?.bio && !profile?.profession && !profile?.location && !profile?.stateProvince && !profile?.country && !profile?.website && !profile?.twitter && (
+                    {!profile?.bio && !profile?.location && !profile?.stateProvince && !profile?.country && !profile?.website && !profile?.twitter && (
                       <p className="mt-5 text-xs text-muted-foreground">No additional profile information is available.</p>
                     )}
                     {isOwnProfile && (
