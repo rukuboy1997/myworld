@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../lib/auth.jsx";
+import { RefreshCw } from "./icons.jsx";
 import { createStatus, getStatuses, getStatusMedia, getStatusViewers, recordStatusView } from "../lib/api.js";
 
 const STATUS_VIDEO_MAX_SECONDS = 180;
@@ -260,18 +261,18 @@ export default function StatusTray() {
 
   return (
     <>
-      <section className="glass-panel rounded-3xl border border-white/10 p-4 md:p-5">
+      <section className="surface-panel rounded-3xl border border-border/80 bg-card/85 p-3 shadow-sm sm:p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-bold text-base md:text-lg">Status</h2>
-            <p className="text-xs text-muted-foreground">Little moments, gone in 24 hours.</p>
+            <h2 className="font-display text-sm font-bold sm:text-base">Status</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">Moments from your community · 24 hours</p>
           </div>
-          <button type="button" onClick={refresh} disabled={loading} className="rounded-full px-3 py-2 text-xs font-semibold hover:bg-white/10 disabled:opacity-50">
-            {loading ? "Refreshing…" : "Refresh"}
+          <button type="button" onClick={refresh} disabled={loading} aria-label="Refresh statuses" title="Refresh statuses" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50">
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden="true" />
           </button>
         </div>
 
-        <div className="flex gap-4 overflow-x-auto pb-1">
+        <div className="flex gap-3 overflow-x-auto pb-1 sm:gap-4">
           <button
             type="button"
             onClick={() => {
