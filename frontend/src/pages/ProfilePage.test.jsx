@@ -201,7 +201,8 @@ describe("ProfilePage", () => {
     renderProfile();
 
     expect(await screen.findByRole("heading", { name: "Anonymous" })).toBeInTheDocument();
-    expect(screen.getByText("No bio yet.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "About" }));
+    expect(screen.getByText("No bio added yet.")).toBeInTheDocument();
   });
 
   it("does not show follow controls to signed-out visitors", async () => {
