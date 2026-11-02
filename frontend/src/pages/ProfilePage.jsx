@@ -16,7 +16,7 @@ import {
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 
-function ShareProfileButton({ address, username }) {
+function ShareProfileButton({ address, username, className = "" }) {
   const [copied, setCopied] = useState(false);
   const url = `${window.location.origin}/profile/${address}`;
   const text = `Check out ${username ? "@" + username : "this profile"} on myWorld — a social network!`;
