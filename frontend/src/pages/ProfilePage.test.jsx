@@ -44,6 +44,7 @@ const profile = {
   followerCount: 7,
   followingCount: 2,
   posts: [],
+  profession: "Software Engineer",
   country: "Nigeria",
   stateProvince: "FCT",
   membership: { planId: "premium", name: "Premium", badge: "blue" },
@@ -88,8 +89,9 @@ describe("ProfilePage", () => {
   it("shows public profile identity details without exposing private contact data", async () => {
     renderProfile();
 
-    expect(await screen.findByText("Nigeria")).toBeInTheDocument();
+    expect(await screen.findByText(/Nigeria/)).toBeInTheDocument();
     expect(screen.getByText("FCT")).toBeInTheDocument();
+    expect(screen.getByText("Software Engineer")).toBeInTheDocument();
     expect(screen.getByText(/Premium/)).toBeInTheDocument();
     expect(screen.queryByText(/phone/i)).not.toBeInTheDocument();
   });
