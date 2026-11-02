@@ -155,6 +155,7 @@ export const createProfile = async (data) => {
   return requestForm("POST", "/profile", fd);
 };
 
+export const getMyProfileContact = () => request("GET", "/profile/me/contact");
 export const getAllProfiles = () => request("GET", "/profiles");
 
 // ─── Follows ──────────────────────────────────────────────────────────────────
