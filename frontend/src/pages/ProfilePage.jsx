@@ -429,10 +429,10 @@ export default function ProfilePage() {
                       <img
                         src={avatarSrc}
                         alt={profile?.username || "Profile"}
-                        className="w-24 h-24 md:w-32 md:h-32 rounded-full object-cover border-4 border-background shadow-xl flex-shrink-0"
+                        className="relative z-10 w-24 h-24 md:w-32 md:h-32 rounded-full object-cover border-4 border-background shadow-xl flex-shrink-0"
                       />
                     ) : (
-                      <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-3xl md:text-5xl shadow-xl border-4 border-background flex-shrink-0">
+                      <div className="relative z-10 w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-3xl md:text-5xl shadow-xl border-4 border-background flex-shrink-0">
                         {initial}
                       </div>
                     )}
@@ -520,11 +520,16 @@ export default function ProfilePage() {
                             >
                               Report user
                             </button>
+                            <div className="my-1 border-t border-white/10" />
+                            <ShareProfileButton
+                              address={address}
+                              username={profile?.username}
+                              className="w-full"
+                            />
                           </div>
                         )}
                       </div>
                     )}
-                    <ShareProfileButton address={address} username={profile?.username} />
                   </div>
                 </div>
 
@@ -540,7 +545,12 @@ export default function ProfilePage() {
                 <div className="flex flex-wrap gap-x-5 gap-y-2 mt-5">
                   <div><span className="font-bold text-sm">{profile?.followerCount ?? 0}</span><span className="text-xs text-muted-foreground ml-1">Followers</span></div>
                   <div><span className="font-bold text-sm">{profile?.followingCount ?? 0}</span><span className="text-xs text-muted-foreground ml-1">Following</span></div>
-                  {profile?.totalLikes > 0 && <div className="text-teal-400 text-xs font-medium">♥ {profile.totalLikes} likes</div>}
+                  {profile?.totalLikes > 0 && (
+                    <div className="flex items-center gap-1 text-teal-400 text-xs font-medium leading-none">
+                      <span aria-hidden="true" className="inline-flex leading-none">♥</span>
+                      <span>{profile.totalLikes} likes</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-4 flex flex-col gap-2">
@@ -565,7 +575,9 @@ export default function ProfilePage() {
                       </a>
                     )}
                   </div>
-                  <span className="text-muted-foreground text-[11px] font-mono">{truncateAddress(address)}</span>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="truncate">🔗 myworld.app/profile/{profile?.username || truncateAddress(address)}</span>
+                  </div>
                 </div>
               </>
             )}
