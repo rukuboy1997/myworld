@@ -820,8 +820,9 @@ export default function ProfilePage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">Phone number · Private</label>
+                  <label htmlFor="profile-phone-number" className="text-xs font-bold text-muted-foreground uppercase mb-1 block">Phone number · Private</label>
                   <input
+                    id="profile-phone-number"
                     type="tel"
                     autoComplete="tel"
                     value={editForm.phoneNumber}
