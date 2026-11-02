@@ -1,3 +1,4 @@
+import { MessageCircle, Clapperboard, Newspaper, Bell } from "./icons.jsx";
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
@@ -407,9 +408,7 @@ export default function Layout({ children, immersive = false, fixedHeight = fals
             aria-label="Messages"
             className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold transition-colors ${isActive("/messages") ? "text-primary" : "text-muted-foreground"}`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
+            <MessageCircle size={21} strokeWidth={1.8} aria-hidden="true" />
             <span>Messages</span>
             {unreadMsgs > 0 && (
               <span className="absolute top-0 right-[calc(50%-19px)] min-w-[16px] h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center px-1 pointer-events-none">
@@ -423,11 +422,7 @@ export default function Layout({ children, immersive = false, fixedHeight = fals
             aria-label="Reels"
             className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold transition-colors ${isActive("/reels") ? "text-primary" : "text-muted-foreground"}`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="4" />
-              <path d="m9 3 6 6M15 3l6 6M3 9l6 6M9 21l6-6M15 21l6-6" />
-              <path d="m10 8 6 4-6 4z" fill="currentColor" stroke="none" />
-            </svg>
+            <Clapperboard size={21} strokeWidth={1.8} aria-hidden="true" />
             <span>Reels</span>
           </Link>
 
@@ -436,10 +431,7 @@ export default function Layout({ children, immersive = false, fixedHeight = fals
             aria-label="Updates"
             className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold transition-colors ${isActive("/feed") ? "text-primary" : "text-muted-foreground"}`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="4" width="18" height="17" rx="2" />
-              <path d="M16 2v4M8 2v4M3 10h18M7 14h4M7 17h7" />
-            </svg>
+            <Newspaper size={21} strokeWidth={1.8} aria-hidden="true" />
             <span>Updates</span>
           </Link>
 
@@ -448,10 +440,7 @@ export default function Layout({ children, immersive = false, fixedHeight = fals
             aria-label="Notifications"
             className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[10px] font-semibold transition-colors ${isActive("/notifications") ? "text-primary" : "text-muted-foreground"}`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-            </svg>
+            <Bell size={21} strokeWidth={1.8} aria-hidden="true" />
             <span>Notifications</span>
             {unreadNotifs > 0 && (
               <span className="absolute top-0 right-[calc(50%-19px)] min-w-[16px] h-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center px-1 pointer-events-none">
