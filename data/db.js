@@ -977,7 +977,12 @@ export async function saveProfile(address, profile) {
        banner_blob_id = COALESCE(EXCLUDED.banner_blob_id, profiles.banner_blob_id),
        banner_url = COALESCE(EXCLUDED.banner_url, profiles.banner_url),
        website = EXCLUDED.website, location = EXCLUDED.location, twitter = EXCLUDED.twitter,
-       profession = EXCLUDED.profession, updated_at = NOW()`,
+       profession = EXCLUDED.profession,
+       country = EXCLUDED.country,
+       state_province = EXCLUDED.state_province,
+       phone_number = EXCLUDED.phone_number,
+       phone_visibility = EXCLUDED.phone_visibility,
+       updated_at = NOW()`,
     [
       address,
       merged.username || "",
@@ -991,6 +996,10 @@ export async function saveProfile(address, profile) {
       merged.location || "",
       merged.twitter || "",
       merged.profession || "",
+      merged.country || "",
+      merged.stateProvince || "",
+      merged.phoneNumber || "",
+      merged.phoneVisibility || "only_me",
     ],
   );
   return getProfile(address);
