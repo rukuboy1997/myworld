@@ -39,7 +39,7 @@ function ShareProfileButton({ address, username, className = "" }) {
     <button
       onClick={handleShare}
       title="Share profile"
-      className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-colors
+      className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-colors ${className}
         ${copied ? "border-green-500/30 text-green-400 bg-green-500/10" : "border-white/10 text-muted-foreground bg-secondary hover:bg-secondary/80 hover:text-foreground"}`}
     >
       {copied ? (
@@ -575,9 +575,7 @@ export default function ProfilePage() {
                       </a>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="truncate">🔗 myworld.app/profile/{profile?.username || truncateAddress(address)}</span>
-                  </div>
+                  
                 </div>
               </>
             )}
