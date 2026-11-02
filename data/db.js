@@ -299,6 +299,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_by TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS restored_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS restored_by TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS profession TEXT DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS country TEXT DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS state_province TEXT DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_number TEXT DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_visibility TEXT DEFAULT 'only_me';
 
 CREATE TABLE IF NOT EXISTS moderation_audit_log (
   id TEXT PRIMARY KEY,
@@ -551,6 +555,8 @@ function rowToProfile(r) {
     location: r.location || "",
     twitter: r.twitter || "",
     profession: r.profession || "",
+    country: r.country || "",
+    stateProvince: r.state_province || "",
     createdAt:
       r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
   };
@@ -946,8 +952,8 @@ export async function saveProfile(address, profile) {
   const merged = { ...(existing || {}), ...profile, address };
   await pool.query(
     `INSERT INTO profiles (address, username, bio, display_name, avatar_blob_id, avatar_url,
-       banner_blob_id, banner_url, website, location, twitter, profession, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
+       banner_blob_id, banner_url, website, location, twitter, profession, country, state_province, phone_number, phone_visibility, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW())
      ON CONFLICT (address) DO UPDATE SET
        username = EXCLUDED.username, bio = EXCLUDED.bio, display_name = EXCLUDED.display_name,
        avatar_blob_id = COALESCE(EXCLUDED.avatar_blob_id, profiles.avatar_blob_id),
