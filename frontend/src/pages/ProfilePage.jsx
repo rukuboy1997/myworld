@@ -731,6 +731,34 @@ export default function ProfilePage() {
                   </div>
                   <div>
                     <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">
+                      Country
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.country}
+                      onChange={(e) =>
+                        setEditForm((p) => ({ ...p, country: e.target.value }))
+                      }
+                      placeholder="Nigeria"
+                      className="w-full bg-secondary/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">
+                      State / Province
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.stateProvince}
+                      onChange={(e) =>
+                        setEditForm((p) => ({ ...p, stateProvince: e.target.value }))
+                      }
+                      placeholder="FCT"
+                      className="w-full bg-secondary/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">
                       Website
                     </label>
                     <input
