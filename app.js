@@ -198,6 +198,9 @@ export function buildApp() {
   const PROFILE_LOCATION_MAX_LENGTH = 80;
   const PROFILE_TWITTER_MAX_LENGTH = 50;
   const PROFILE_PROFESSION_MAX_LENGTH = 80;
+  const PROFILE_COUNTRY_MAX_LENGTH = 80;
+  const PROFILE_STATE_PROVINCE_MAX_LENGTH = 80;
+  const PROFILE_PHONE_MAX_LENGTH = 30;
   const POST_TITLE_MAX_LENGTH = 200;
   const POST_CONTENT_MAX_LENGTH = 10000;
   const COMMENT_CONTENT_MAX_LENGTH = 1000;
@@ -2167,6 +2170,9 @@ export function buildApp() {
         const location = normalizeTextInput(req.body?.location);
         const twitter = normalizeTextInput(req.body?.twitter);
         const profession = normalizeTextInput(req.body?.profession);
+        const country = normalizeTextInput(req.body?.country);
+        const stateProvince = normalizeTextInput(req.body?.stateProvince);
+        const phoneNumber = normalizeTextInput(req.body?.phoneNumber);
         if (!username)
           return res.status(400).json({ error: "username required" });
         if (
@@ -2214,6 +2220,25 @@ export function buildApp() {
           )
         )
           return;
+        if (validateMaxLength(res, "country", country, PROFILE_COUNTRY_MAX_LENGTH)) return;
+        if (
+          validateMaxLength(
+            res,
+            "stateProvince",
+            stateProvince,
+            PROFILE_STATE_PROVINCE_MAX_LENGTH,
+          )
+        )
+          return;
+        if (
+          validateMaxLength(
+            res,
+            "phoneNumber",
+            phoneNumber,
+            PROFILE_PHONE_MAX_LENGTH,
+          )
+        )
+          return;
         const effectiveAddress = req.userAddress;
         const update = {
           username,
@@ -2223,6 +2248,12 @@ export function buildApp() {
           location,
           twitter,
           profession,
+          country,
+          stateProvince,
+          phoneNumber,
+          // Phase 2 starts with the safest privacy default. We intentionally do
+          // not accept a public visibility value until the privacy UI exists.
+          phoneVisibility: "only_me",
         };
         if (req.files?.avatar?.[0]) {
           const f = req.files.avatar[0];
@@ -2324,6 +2355,21 @@ export function buildApp() {
     },
   );
 
+  // Private contact data is deliberately separate from the public profile API.
+  // A phone number must never be included in /api/profile/:address responses.
+  app.get("/api/profile/me/contact", requireAuth, async (req, res) => {
+    try {
+      const profile = await getProfile(req.userAddress);
+      res.json({
+        phoneNumber: profile?.phoneNumber || "",
+        phoneVisibility: "only_me",
+      });
+    } catch (err) {
+      console.error("get_profile_contact error:", err);
+      res.status(500).json({ error: "Could not load private contact information" });
+    }
+  });
+
   app.get("/api/profile/:address", async (req, res) => {
     try {
       const targetAddr = req.params.address;
@@ -2347,10 +2393,23 @@ export function buildApp() {
         }),
       );
       const totalLikes = enrichedPosts.reduce((acc, p) => acc + p.likes, 0);
-      const [followerCount, followingCount] = await Promise.all([
+      const [followerCount, followingCount, subscription] = await Promise.all([
         getFollowerCount(targetAddr),
         getFollowingCount(targetAddr),
+        getMembershipSubscription(targetAddr),
       ]);
+      const entitled = isMembershipEntitled(subscription ? {
+        status: subscription.status,
+        currentPeriodEnd: subscription.current_period_end,
+      } : null);
+      const plan = getPublicMembershipPlan(
+        entitled ? subscription.plan_id : "free",
+      );
+      const publicMembership = {
+        planId: plan.id,
+        name: plan.name,
+        badge: plan.badge,
+      };
       res.json({
         address: targetAddr,
         ...(profile || defaultProfile(targetAddr)),
@@ -2359,6 +2418,7 @@ export function buildApp() {
         postCount: enrichedPosts.length,
         followerCount,
         followingCount,
+        membership: publicMembership,
       });
     } catch (err) {
       console.error("get_profile error:", err);
