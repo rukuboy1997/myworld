@@ -18,7 +18,7 @@ vi.mock("../components/Layout.jsx", () => ({
 }));
 
 vi.mock("../components/PostCard.jsx", () => ({
-  default: () => null,
+  default: ({ post }) => <div data-testid="profile-post">{post.title}</div>,
 }));
 
 vi.mock("../lib/auth.jsx", () => ({
@@ -86,6 +86,7 @@ describe("ProfilePage", () => {
     renderProfile();
 
     expect(await screen.findByRole("heading", { name: "Faruk Dakta" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /About/ }));
     expect(screen.getByText("Building myWorld")).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(getProfile).toHaveBeenCalledWith("0xTARGET", "0xVIEWER");
@@ -94,6 +95,7 @@ describe("ProfilePage", () => {
   it("shows public profile identity details without exposing private contact data", async () => {
     renderProfile();
 
+    fireEvent.click(await screen.findByRole("tab", { name: /About/ }));
     expect(await screen.findByText(/Nigeria/)).toBeInTheDocument();
     expect(screen.getByText("FCT")).toBeInTheDocument();
     expect(screen.getByText("Software Engineer")).toBeInTheDocument();
@@ -119,6 +121,29 @@ describe("ProfilePage", () => {
         phoneNumber: "+2348098765432",
       }));
     });
+  });
+
+  it("separates Updates and Reels and shows profile details in About", async () => {
+    getProfile.mockResolvedValue({
+      ...profile,
+      posts: [
+        { id: "update-1", title: "A photo update", mediaType: "image" },
+        { id: "reel-1", title: "A short reel", mediaType: "video" },
+      ],
+    });
+    renderProfile();
+
+    expect(await screen.findByRole("tab", { name: /Updates 1/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("A photo update")).toBeInTheDocument();
+    expect(screen.queryByText("A short reel")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Reels 1/ }));
+    expect(screen.getByText("A short reel")).toBeInTheDocument();
+    expect(screen.queryByText("A photo update")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "About" }));
+    expect(screen.getByText("Building myWorld")).toBeInTheDocument();
+    expect(screen.getByText(/Nigeria/)).toBeInTheDocument();
   });
 
   it("offers Message as a primary action", async () => {
@@ -176,7 +201,8 @@ describe("ProfilePage", () => {
     renderProfile();
 
     expect(await screen.findByRole("heading", { name: "Anonymous" })).toBeInTheDocument();
-    expect(screen.getByText("No bio yet.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "About" }));
+    expect(screen.getByText("No bio added yet.")).toBeInTheDocument();
   });
 
   it("does not show follow controls to signed-out visitors", async () => {
