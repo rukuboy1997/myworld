@@ -5,25 +5,7 @@ import PostCard from "../components/PostCard.jsx";
 import StatusTray from "../components/StatusTray.jsx";
 import { getFeed } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
-
-function FeedNavLink({ to, children, active = false }) {
-  return (
-    <Link
-      to={to}
-      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function NavIcon({ children }) {
-  return (
-    <span className="flex h-5 w-5 items-center justify-center" aria-hidden="true">
-      {children}
-    </span>
-  );
-}
+import { Plus, RefreshCw, Sparkles, Compass } from "../components/icons.jsx";
 
 export default function FeedPage() {
   const { address: wallet, user, isAuthenticated, openAuthModal } = useAuth();
@@ -92,151 +74,107 @@ export default function FeedPage() {
     );
   };
 
+  const openPostComposer = () => {
+    if (isAuthenticated) navigate("/create");
+    else openAuthModal("signin");
+  };
+
   return (
     <Layout>
-      <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-6 px-3 py-4 sm:px-5 md:py-7 lg:grid-cols-[220px_minmax(0,620px)] lg:gap-8 lg:px-6 xl:grid-cols-[220px_minmax(0,620px)_280px] xl:gap-10">
-        {/* Desktop navigation rail */}
-        <aside className="hidden lg:block">
-          <div className="sticky top-24 flex flex-col gap-5">
-            <div className="surface-panel p-3">
-              <p className="px-3 pb-2 pt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                Your space
-              </p>
-              <nav className="flex flex-col gap-1" aria-label="Feed navigation">
-                <FeedNavLink to="/feed" active>
-                  <NavIcon>⌂</NavIcon> Home
-                </FeedNavLink>
-                <FeedNavLink to="/explore">
-                  <NavIcon>⌕</NavIcon> Explore people
-                </FeedNavLink>
-                <FeedNavLink to="/reels">
-                  <NavIcon>▷</NavIcon> Reels
-                </FeedNavLink>
-                <FeedNavLink to="/messages">
-                  <NavIcon>▤</NavIcon> Messages
-                </FeedNavLink>
-                <FeedNavLink to="/notifications">
-                  <NavIcon>♧</NavIcon> Notifications
-                </FeedNavLink>
-                {isAuthenticated && wallet && (
-                  <FeedNavLink to={`/profile/${wallet}`}>
-                    <NavIcon>◉</NavIcon> My profile
-                  </FeedNavLink>
-                )}
-              </nav>
-            </div>
+      <main className="mx-auto w-full max-w-3xl px-3 pb-8 pt-3 sm:px-5 md:pt-6">
+        {/* Status is intentionally the first content block on this page. */}
+        <section aria-label="Status updates" className="mb-5">
+          <StatusTray />
+        </section>
 
-            <div className="rounded-2xl border border-primary/15 bg-primary/[0.06] p-4">
-              <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-lg text-primary">
-                ✦
+        {/* Lightweight composer: the full create flow remains on its existing route. */}
+        <section className="surface-panel mb-7 rounded-3xl border border-border/80 p-3 shadow-sm sm:p-4" aria-label="Create an update">
+          <div className="flex items-center gap-3">
+            {user?.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt=""
+                className="h-11 w-11 shrink-0 rounded-full border border-border object-cover"
+              />
+            ) : (
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-sm font-bold text-white">
+                {(user?.username || "Y").charAt(0).toUpperCase()}
               </div>
-              <h2 className="font-display text-base font-semibold">A world of your own</h2>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Share a moment, discover a new voice, and stay close to your community.
-              </p>
-              <Link
-                to="/create"
-                className="mt-3 inline-flex text-xs font-bold text-primary hover:underline"
-              >
-                Create a post →
-              </Link>
-            </div>
-          </div>
-        </aside>
-
-        {/* Main social feed */}
-        <section className="min-w-0">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <div>
-              <p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-primary">
-                Your community
-              </p>
-              <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
-                Your world
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Moments, people, and things worth sharing.
-              </p>
-            </div>
+            )}
             <button
               type="button"
-              onClick={fetchFeed}
-              disabled={isLoading}
-              aria-label="Refresh feed"
-              title="Refresh feed"
-              className="interactive-surface flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground hover:text-foreground disabled:opacity-60"
+              onClick={openPostComposer}
+              className="interactive-surface min-w-0 flex-1 rounded-full border border-border bg-secondary/60 px-4 py-3 text-left text-sm text-muted-foreground transition hover:border-primary/40 hover:bg-secondary hover:text-foreground"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="19"
-                height="19"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={isLoading ? "animate-spin" : ""}
-                aria-hidden="true"
-              >
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
+              What's happening in your world?
+            </button>
+            <button
+              type="button"
+              onClick={openPostComposer}
+              aria-label="Create an update"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              <Plus size={21} strokeWidth={2} aria-hidden="true" />
             </button>
           </div>
+          <div className="mt-3 flex items-center justify-between border-t border-border/70 pt-3">
+            <span className="text-xs text-muted-foreground">
+              Share a thought, photo, or moment with your community.
+            </span>
+            <button
+              type="button"
+              onClick={openPostComposer}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/10"
+            >
+              <Plus size={14} aria-hidden="true" />
+              Create
+            </button>
+          </div>
+        </section>
 
-          <div className="mb-5 overflow-hidden rounded-2xl border border-border bg-card p-3 shadow-sm sm:p-4">
-            <div className="flex items-center gap-3">
-              {user?.avatarUrl ? (
-                <img
-                  src={user.avatarUrl}
-                  alt=""
-                  className="h-10 w-10 flex-shrink-0 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-brand text-sm font-bold text-white">
-                  {(user?.username || "Y").charAt(0).toUpperCase()}
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => (isAuthenticated ? navigate("/create") : openAuthModal("signin"))}
-                className="interactive-surface min-w-0 flex-1 rounded-full border border-border bg-secondary/60 px-4 py-3 text-left text-sm text-muted-foreground hover:text-foreground"
-              >
-                What's happening in your world?
-              </button>
-              <Link
-                to="/create"
-                aria-label="Create a post"
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary text-xl font-medium text-primary-foreground transition hover:brightness-95"
-              >
-                +
-              </Link>
+        {/* Updates feed */}
+        <section aria-labelledby="updates-heading">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="mb-1 flex items-center gap-2 text-primary">
+                <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.16em]">Your community</span>
+              </div>
+              <h1 id="updates-heading" className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
+                Updates
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                The latest moments from people in your world.
+              </p>
             </div>
-          </div>
-
-          <div className="mb-5">
-            <StatusTray />
-          </div>
-
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="font-display text-lg font-semibold">Posts from your world</h2>
-            <div className="flex rounded-full border border-border bg-secondary/60 p-1" role="group" aria-label="Feed sorting">
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-full border border-border bg-secondary/60 p-1" role="group" aria-label="Feed sorting">
+                <button
+                  type="button"
+                  onClick={() => setSort("for-you")}
+                  aria-pressed={sort === "for-you"}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${sort === "for-you" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  For You
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSort("latest")}
+                  aria-pressed={sort === "latest"}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${sort === "latest" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Latest
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={() => setSort("for-you")}
-                aria-pressed={sort === "for-you"}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${sort === "for-you" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={fetchFeed}
+                disabled={isLoading}
+                aria-label="Refresh updates"
+                title="Refresh updates"
+                className="interactive-surface flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition hover:text-foreground disabled:opacity-50"
               >
-                For You
-              </button>
-              <button
-                type="button"
-                onClick={() => setSort("latest")}
-                aria-pressed={sort === "latest"}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:text-sm ${sort === "latest" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                Latest
+                <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -244,7 +182,7 @@ export default function FeedPage() {
           {isLoading && posts.length === 0 ? (
             <div className="flex flex-col gap-4">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="surface-panel h-64 animate-pulse p-5">
+                <div key={i} className="surface-panel h-64 animate-pulse rounded-3xl p-5">
                   <div className="mb-5 flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-secondary" />
                     <div className="flex-1 space-y-2">
@@ -257,10 +195,12 @@ export default function FeedPage() {
               ))}
             </div>
           ) : error ? (
-            <div className="surface-panel flex flex-col items-center gap-4 p-8 text-center sm:p-10">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-2xl text-destructive">!</div>
+            <div className="surface-panel flex flex-col items-center gap-4 rounded-3xl p-8 text-center sm:p-10">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                <RefreshCw size={21} aria-hidden="true" />
+              </div>
               <div>
-                <h3 className="mb-2 text-lg font-bold">We couldn't load your feed</h3>
+                <h2 className="mb-2 text-lg font-bold">We couldn't load your updates</h2>
                 <p className="text-sm text-muted-foreground">{error}</p>
               </div>
               <button
@@ -272,17 +212,31 @@ export default function FeedPage() {
               </button>
             </div>
           ) : posts.length === 0 ? (
-            <div className="surface-panel flex flex-col items-center gap-4 p-8 text-center sm:p-12">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-3xl text-primary">✦</div>
+            <div className="surface-panel flex flex-col items-center gap-4 rounded-3xl p-8 text-center sm:p-12">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Compass size={29} strokeWidth={1.6} aria-hidden="true" />
+              </div>
               <div>
-                <h3 className="font-display text-2xl font-bold">Your world is just getting started</h3>
+                <h2 className="font-display text-2xl font-bold">Your world is just getting started</h2>
                 <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                  There aren't any posts to show yet. Share something with the community or explore people to find new voices.
+                  There aren't any updates to show yet. Share a moment or explore people to find new voices in your community.
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-3">
-                <Link to="/create" className="rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground transition hover:brightness-95">Share a moment</Link>
-                <Link to="/explore" className="rounded-full border border-border px-5 py-2.5 text-sm font-semibold transition hover:bg-secondary">Explore people</Link>
+                <button
+                  type="button"
+                  onClick={openPostComposer}
+                  className="rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground transition hover:brightness-95"
+                >
+                  Share a moment
+                </button>
+                <Link
+                  to="/explore"
+                  className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-semibold transition hover:bg-secondary"
+                >
+                  <Compass size={15} aria-hidden="true" />
+                  Explore people
+                </Link>
               </div>
             </div>
           ) : (
@@ -303,40 +257,13 @@ export default function FeedPage() {
                   disabled={isLoadingMore}
                   className="w-full rounded-full border border-border bg-card px-5 py-3 text-sm font-semibold transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isLoadingMore ? "Loading more posts…" : "Show more posts"}
+                  {isLoadingMore ? "Loading more updates…" : "Show more updates"}
                 </button>
               )}
             </div>
           )}
         </section>
-
-        {/* Discovery rail appears on wide screens only */}
-        <aside className="hidden xl:block">
-          <div className="sticky top-24 flex flex-col gap-5">
-            <div className="surface-panel p-4">
-              <h2 className="font-display text-lg font-semibold">Find your people</h2>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                Discover creators, meet new people, and see what the community is sharing.
-              </p>
-              <Link
-                to="/explore"
-                className="mt-4 flex w-full items-center justify-center rounded-xl border border-border px-3 py-2.5 text-sm font-semibold transition hover:bg-secondary"
-              >
-                Explore myWorld
-              </Link>
-            </div>
-            <div className="rounded-2xl border border-border bg-card/70 p-4">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">A little reminder</p>
-              <p className="mt-2 text-sm leading-relaxed text-foreground">
-                Your next favorite conversation could start with a simple post.
-              </p>
-            </div>
-            <p className="px-2 text-[11px] leading-relaxed text-muted-foreground">
-              myWorld · A place to share your world.
-            </p>
-          </div>
-        </aside>
-      </div>
+      </main>
     </Layout>
   );
 }
