@@ -126,7 +126,23 @@ export default function StatusTray() {
     setLoading(true);
     try {
       const data = await getStatuses();
-      setStatuses(data.items || []);
+      const incoming = data.items || [];
+      setStatuses((current) => {
+        const previousById = new Map(current.map((status) => [status.id, status]));
+        return incoming.map((status) => {
+          const previous = previousById.get(status.id);
+          // Keep still-valid signed preview URLs stable across the 8-second
+          // status refresh so visible image/video cards do not restart loading.
+          if (previous?.previewUrl && previous.previewExpiresAt > Date.now() + 30000) {
+            return {
+              ...status,
+              previewUrl: previous.previewUrl,
+              previewExpiresAt: previous.previewExpiresAt,
+            };
+          }
+          return status;
+        });
+      });
     } catch (err) {
       setError(err.message || "Couldn't load statuses");
     } finally {
