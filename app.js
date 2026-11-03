@@ -1572,6 +1572,21 @@ export function buildApp() {
     },
   );
 
+  app.get("/api/statuses/:id/media-url", requireAuth, async (req, res) => {
+    try {
+      const media = await getActiveStatusMediaKey(req.params.id, req.userAddress);
+      if (!media?.media_key) {
+        return res.status(404).json({ error: "Status media not found or unavailable" });
+      }
+      const url = createPresignedR2ReadUrl(media.media_key, 300);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ url, mediaType: media.media_mime?.startsWith("video/") ? "video" : "image" });
+    } catch (err) {
+      console.error("[status] media URL creation failed:", err);
+      res.status(503).json({ error: "Status media is temporarily unavailable" });
+    }
+  });
+
   app.get("/api/statuses/:id/media", requireAuth, async (req, res) => {
     try {
       const media = await getActiveStatusMediaKey(req.params.id, req.userAddress);
