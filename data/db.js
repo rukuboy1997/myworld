@@ -2378,6 +2378,29 @@ export async function getActiveStatusesForViewer(viewer) {
   return rows.map(rowToStatus);
 }
 
+export async function getActiveStatusMediaPreviewsForViewer(viewer) {
+  const { rows } = await pool.query(
+    `SELECT s.id, s.media_key, s.media_type
+     FROM statuses s
+     WHERE s.expires_at > NOW() AND s.media_key IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM blocked_users b
+         WHERE (b.blocker = $1 AND b.blocked = s.owner)
+            OR (b.blocker = s.owner AND b.blocked = $1)
+       )
+       AND (
+         s.owner = $1
+         OR s.audience = 'everyone'
+         OR (s.audience = 'followers' AND EXISTS (
+           SELECT 1 FROM follows f WHERE f.follower = s.owner AND f.following = $1
+         ))
+       )
+     ORDER BY s.created_at ASC`,
+    [viewer],
+  );
+  return rows;
+}
+
 export async function getActiveStatusById(statusId, viewer) {
   const { rows } = await pool.query(
     `SELECT s.*,
