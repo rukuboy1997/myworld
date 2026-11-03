@@ -356,7 +356,7 @@ export default function StatusTray() {
         </div>
       </section>
 
-      {error && !composerOpen && <p role="alert" className="text-sm text-rose-300">{error}</p>}
+      {error && !composerOpen && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
       {composerOpen && (
         <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setComposerOpen(false); }}>
@@ -369,7 +369,7 @@ export default function StatusTray() {
             <div className="mt-2 flex justify-end text-xs text-muted-foreground">{content.length}/700</div>
             <div className="mt-3 rounded-2xl border border-dashed border-border bg-secondary/40 p-3 transition hover:border-primary/50">
               {typeof window !== "undefined" && window.isNativeApp && (
-                <button type="button" onClick={() => window.ReactNativeWebView?.postMessage(JSON.stringify({ type: "pick-status-media" }))} className="mb-2 rounded-full bg-pink-500/15 px-3 py-2 text-xs font-semibold text-pink-200 hover:bg-pink-500/25">
+                <button type="button" onClick={() => window.ReactNativeWebView?.postMessage(JSON.stringify({ type: "pick-status-media" }))} className="mb-2 rounded-full bg-primary/10 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/20">
                   Open phone gallery
                 </button>
               )}
@@ -401,7 +401,7 @@ export default function StatusTray() {
                 <option value="everyone">Everyone on myWorld</option>
               </select>
             </label>
-            {error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}
+            {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
             <button disabled={saving} className="mt-5 w-full rounded-full bg-primary px-5 py-3 font-bold text-primary-foreground disabled:opacity-60">{saving ? "Publishing…" : "Share status"}</button>
           </form>
         </div>
