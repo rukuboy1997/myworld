@@ -57,6 +57,7 @@ export default function StatusTray() {
   const [mediaSrc, setMediaSrc] = useState(null);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaError, setMediaError] = useState("");
+  const [mediaRetry, setMediaRetry] = useState(0);
   const [filePreview, setFilePreview] = useState(null);
 
   useEffect(() => {
@@ -304,7 +305,7 @@ export default function StatusTray() {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [currentStatus?.id, currentStatus?.mediaType]);
+  }, [currentStatus?.id, currentStatus?.mediaType, mediaRetry]);
 
   return (
     <>
@@ -431,7 +432,7 @@ export default function StatusTray() {
               ) : mediaError ? (
                 <div className="max-w-xs text-center text-sm text-white/80" role="alert">
                   <p>{mediaError}</p>
-                  <button type="button" onClick={() => { setMediaError(""); setMediaLoading(true); getStatusMedia(currentStatus.id).then((blob) => { const url = URL.createObjectURL(blob); setMediaSrc(url); setMediaLoading(false); }).catch((err) => { setMediaError(err.message || "Couldn't load status media"); setMediaLoading(false); }); }} className="mt-3 rounded-full border border-white/30 px-4 py-2 font-semibold text-white">Try again</button>
+                  <button type="button" onClick={() => setMediaRetry((value) => value + 1)} className="mt-3 rounded-full border border-white/30 px-4 py-2 font-semibold text-white">Try again</button>
                 </div>
               ) : currentStatus.mediaType === "image" && mediaSrc ? <img src={mediaSrc} alt="Status" className="max-h-full max-w-full rounded-xl object-contain" /> :
                currentStatus.mediaType === "video" && mediaSrc ? <video src={mediaSrc} className="max-h-full max-w-full rounded-xl object-contain" controls autoPlay playsInline /> :
