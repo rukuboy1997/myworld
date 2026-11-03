@@ -5,7 +5,7 @@ import PostCard from "../components/PostCard.jsx";
 import StatusTray from "../components/StatusTray.jsx";
 import { getFeed } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
-import { Plus, RefreshCw, Sparkles, Compass } from "../components/icons.jsx";
+import { Plus, RefreshCw, Sparkles, Compass, Images } from "../components/icons.jsx";
 
 export default function FeedPage() {
   const { address: wallet, user, isAuthenticated, openAuthModal } = useAuth();
@@ -88,49 +88,23 @@ export default function FeedPage() {
         </section>
 
         {/* Lightweight composer: the full create flow remains on its existing route. */}
-        <section className="surface-panel mb-7 rounded-3xl border border-border/80 p-3 shadow-sm sm:p-4" aria-label="Create an update">
-          <div className="flex items-center gap-3">
-            {user?.avatarUrl ? (
-              <img
-                src={user.avatarUrl}
-                alt=""
-                className="h-11 w-11 shrink-0 rounded-full border border-border object-cover"
-              />
-            ) : (
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-sm font-bold text-white">
-                {(user?.username || "Y").charAt(0).toUpperCase()}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={openPostComposer}
-              className="interactive-surface min-w-0 flex-1 rounded-full border border-border bg-secondary/60 px-4 py-3 text-left text-sm text-muted-foreground transition hover:border-primary/40 hover:bg-secondary hover:text-foreground"
-            >
-              What's happening in your world?
-            </button>
-            <button
-              type="button"
-              onClick={openPostComposer}
-              aria-label="Create an update"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            >
-              <Plus size={21} strokeWidth={2} aria-hidden="true" />
-            </button>
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-border/70 pt-3">
-            <span className="text-xs text-muted-foreground">
-              Share a thought, photo, or moment with your community.
-            </span>
-            <button
-              type="button"
-              onClick={openPostComposer}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/10"
-            >
-              <Plus size={14} aria-hidden="true" />
-              Create
-            </button>
-          </div>
-        </section>
+        <button
+          type="button"
+          onClick={openPostComposer}
+          aria-label="Create an update"
+          className="surface-panel interactive-surface mb-7 flex w-full items-center gap-3 rounded-3xl border border-border/80 p-4 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md sm:p-5"
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <Images size={23} strokeWidth={1.8} aria-hidden="true" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-foreground">Share something with your world</span>
+            <span className="mt-1 block text-xs text-muted-foreground">A thought, photo, or moment…</span>
+          </span>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+            <Plus size={19} strokeWidth={2} aria-hidden="true" />
+          </span>
+        </button>
 
         {/* Updates feed */}
         <section aria-labelledby="updates-heading">
