@@ -319,6 +319,7 @@ export default function StatusTray() {
     getStatusMediaUrl(currentStatus.id)
       .then((result) => {
         if (cancelled) return;
+        if (!result?.url) throw new Error("The status media URL was not returned.");
         setMediaSrc(result.url);
       })
       .catch((err) => {
