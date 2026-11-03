@@ -99,7 +99,6 @@ export default function FeedPage() {
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-semibold text-foreground">Share something with your world</span>
-            <span className="mt-1 block text-xs text-muted-foreground">A thought, photo, or moment…</span>
           </span>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
             <Plus size={19} strokeWidth={2} aria-hidden="true" />
