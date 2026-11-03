@@ -3,7 +3,7 @@ import { onValue, ref } from "firebase/database";
 import { useAuth, getAuthToken } from "../lib/auth.jsx";
 import { firebaseDb } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
-import { ImagePlus, LoaderCircle } from "./icons.jsx";
+import { Clapperboard, ImagePlus, LoaderCircle, Plus } from "./icons.jsx";
 import { createStatus, getStatuses, getStatusMedia, getStatusViewers, recordStatusView } from "../lib/api.js";
 
 const STATUS_VIDEO_MAX_SECONDS = 180;
@@ -144,8 +144,19 @@ export default function StatusTray() {
     if (!isAuthenticated || !address) return undefined;
     let active = true;
     let refreshTimer = null;
+    let pollTimer = null;
     let unsubscribeOwn = null;
     let unsubscribePublic = null;
+    const refreshIfVisible = () => {
+      if (active && document.visibilityState === "visible") refresh();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshIfVisible();
+    };
+    // Firebase is the instant-update path. This lightweight fallback keeps
+    // the tray fresh if a device temporarily loses its RTDB subscription.
+    pollTimer = window.setInterval(refreshIfVisible, 8000);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     const handleStatusEvent = (snapshot) => {
       if (!snapshot.exists()) return;
       if (refreshTimer) window.clearTimeout(refreshTimer);
@@ -169,6 +180,8 @@ export default function StatusTray() {
     return () => {
       active = false;
       if (refreshTimer) window.clearTimeout(refreshTimer);
+      if (pollTimer) window.clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (unsubscribeOwn) unsubscribeOwn();
       if (unsubscribePublic) unsubscribePublic();
     };
@@ -317,42 +330,64 @@ export default function StatusTray() {
           </div>
         </div>
 
-        <div className="flex gap-3 overflow-x-auto pb-1 sm:gap-4">
-          <button
-            type="button"
-            onClick={() => {
-              if (!isAuthenticated) return openAuthModal("signin");
-              if (ownGroup) return openGroup(ownGroup);
-              setComposerOpen(true);
-            }}
-            className="flex w-[76px] shrink-0 flex-col items-center gap-2 text-center"
-            aria-label={ownGroup ? "View your status and viewers" : "Create your first status"}
-          >
-            <span className={`relative flex h-[66px] w-[66px] items-center justify-center rounded-full p-[3px] ${ownGroup ? "bg-gradient-to-tr from-fuchsia-500 via-pink-500 to-amber-300" : "border-2 border-dashed border-white/30 bg-white/5"}`}>
-              <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border-2 border-background bg-secondary text-2xl font-bold">
-                {ownGroup?.profile?.avatarUrl ? <img src={ownGroup.profile.avatarUrl} alt="" className="h-full w-full object-cover" /> : ownGroup ? initials(ownGroup.statuses[0]) : "+"}
+        <div className="flex gap-3 overflow-x-auto px-0.5 pb-2 pt-1 sm:gap-4">
+          <div className="relative w-[104px] shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (!isAuthenticated) return openAuthModal("signin");
+                if (ownGroup) return openGroup(ownGroup);
+                setComposerOpen(true);
+              }}
+              className="group relative flex h-[152px] w-full flex-col justify-between overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-primary/35 via-secondary to-slate-950 p-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              aria-label={ownGroup ? "View your status" : "Create your first status"}
+            >
+              {ownGroup?.profile?.avatarUrl ? (
+                <img src={ownGroup.profile.avatarUrl} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-65 transition duration-300 group-hover:scale-105" />
+              ) : null}
+              <span className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/15 to-black/85" />
+              <span className="relative z-10 flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-secondary text-sm font-bold text-foreground shadow-lg">
+                {ownGroup?.profile?.avatarUrl ? <img src={ownGroup.profile.avatarUrl} alt="" className="h-full w-full object-cover" /> : ownGroup ? initials(ownGroup.statuses[0]) : <Plus size={20} />}
               </span>
-              {ownGroup && <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-emerald-500 text-sm font-bold text-white">+</span>}
-            </span>
-            <span className="w-full truncate text-xs font-medium">{ownGroup ? "Your status" : "Add status"}</span>
-          </button>
-          {ownGroup && (
-            <button type="button" onClick={() => setComposerOpen(true)} className="flex w-[50px] shrink-0 flex-col items-center gap-2 pt-2 text-center" aria-label="Add another status">
-              <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/5 text-xl">+</span>
-              <span className="w-full truncate text-[10px]">Add</span>
+              <span className="relative z-10 min-w-0 text-[11px] font-semibold leading-tight text-white">
+                {ownGroup ? "Your status" : "Add status"}
+              </span>
             </button>
-          )}
+            {ownGroup && (
+              <button type="button" onClick={() => setComposerOpen(true)} className="absolute -right-1 -top-1 z-20 flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground shadow-md" aria-label="Add another status">
+                <Plus size={15} />
+              </button>
+            )}
+          </div>
 
-          {groups.filter((group) => group.owner !== address).map((group) => (
-            <button key={group.owner} type="button" onClick={() => openGroup(group)} className="flex w-[76px] shrink-0 flex-col items-center gap-2 text-center">
-              <span className={`flex h-[66px] w-[66px] items-center justify-center rounded-full p-[3px] ${group.hasUnseen ? "bg-gradient-to-tr from-fuchsia-500 via-pink-500 to-amber-300" : "border-2 border-white/20"}`}>
-                <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border-2 border-background bg-secondary text-lg font-bold">
-                  {group.profile?.avatarUrl ? <img src={group.profile.avatarUrl} alt="" className="h-full w-full object-cover" /> : initials(group.statuses[0])}
+          {groups.filter((group) => group.owner !== address).map((group) => {
+            const latestStatus = group.statuses[group.statuses.length - 1];
+            const label = group.profile?.displayName || group.profile?.username || "myWorld user";
+            return (
+              <button
+                key={group.owner}
+                type="button"
+                onClick={() => openGroup(group)}
+                className="group relative flex h-[152px] w-[104px] shrink-0 flex-col justify-between overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-primary/30 via-secondary to-slate-950 p-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                aria-label={`View ${label}'s status`}
+              >
+                {group.profile?.avatarUrl ? (
+                  <img src={group.profile.avatarUrl} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-65 transition duration-300 group-hover:scale-105" />
+                ) : null}
+                <span className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/15 to-black/85" />
+                <span className={`relative z-10 flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border-2 bg-secondary text-sm font-bold text-foreground shadow-lg ${group.hasUnseen ? "border-fuchsia-400 ring-2 ring-fuchsia-400/30" : "border-white/60"}`}>
+                  {group.profile?.avatarUrl ? <img src={group.profile.avatarUrl} alt="" className="h-full w-full object-cover" /> : initials(latestStatus)}
                 </span>
-              </span>
-              <span className="w-full truncate text-xs">{group.profile?.displayName || group.profile?.username || "myWorld user"}</span>
-            </button>
-          ))}
+                <span className="relative z-10 flex min-w-0 items-end justify-between gap-1">
+                  <span className="min-w-0 truncate text-[11px] font-semibold leading-tight text-white">{label}</span>
+                  {latestStatus.mediaType === "video" ? <Clapperboard size={13} className="shrink-0 text-white/90" aria-label="Video status" /> : null}
+                </span>
+                {latestStatus.content && !latestStatus.mediaType && (
+                  <span className="absolute inset-x-2 top-14 line-clamp-3 text-[10px] font-medium leading-snug text-white/90">{latestStatus.content}</span>
+                )}
+              </button>
+            );
+          })}
           {!groups.length && !loading && <p className="self-center py-3 text-xs text-muted-foreground">No active statuses yet. Be the first to share a moment.</p>}
         </div>
       </section>
