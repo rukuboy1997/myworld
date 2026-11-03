@@ -8,7 +8,7 @@ import { useAuth } from "../lib/auth.jsx";
 import { Plus, RefreshCw, Sparkles, Compass, Images } from "../components/icons.jsx";
 
 export default function FeedPage() {
-  const { address: wallet, user, isAuthenticated, openAuthModal } = useAuth();
+  const { address: wallet, isAuthenticated, openAuthModal } = useAuth();
   const navigate = useNavigate();
   const [posts, setPosts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
