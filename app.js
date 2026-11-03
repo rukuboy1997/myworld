@@ -1422,7 +1422,10 @@ export function buildApp() {
       const previewById = new Map();
       for (const media of mediaPreviews) {
         try {
-          previewById.set(media.id, createPresignedR2ReadUrl(media.media_key, 300));
+          previewById.set(media.id, {
+            url: createPresignedR2ReadUrl(media.media_key, 300),
+            expiresAt: Date.now() + 300000,
+          });
         } catch (previewError) {
           console.warn("[status] preview URL unavailable:", previewError.message);
         }
@@ -1431,7 +1434,8 @@ export function buildApp() {
       res.json({
         items: statuses.map((status) => ({
           ...status,
-          previewUrl: previewById.get(status.id) || null,
+          previewUrl: previewById.get(status.id)?.url || null,
+          previewExpiresAt: previewById.get(status.id)?.expiresAt || null,
         })),
       });
     } catch (err) {
