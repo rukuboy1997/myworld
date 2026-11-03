@@ -16,6 +16,7 @@ import {
   matchesR2UploadMetadata,
   matchesR2UploadSignature,
   r2MediaUrl,
+  createPresignedR2ReadUrl,
   sniffMime,
 } from "./services/r2.service.js";
 import {
@@ -32,6 +33,7 @@ import {
   getFeedEngagement,
   createStatus,
   getActiveStatusesForViewer,
+  getActiveStatusMediaPreviewsForViewer,
   getActiveStatusById,
   getActiveStatusMediaKey,
   recordStatusView,
@@ -1413,9 +1415,25 @@ export function buildApp() {
   // ─── Status ───────────────────────────────────────────────────────────────
   app.get("/api/statuses", requireAuth, async (req, res) => {
     try {
-      const statuses = await getActiveStatusesForViewer(req.userAddress);
+      const [statuses, mediaPreviews] = await Promise.all([
+        getActiveStatusesForViewer(req.userAddress),
+        getActiveStatusMediaPreviewsForViewer(req.userAddress),
+      ]);
+      const previewById = new Map();
+      for (const media of mediaPreviews) {
+        try {
+          previewById.set(media.id, createPresignedR2ReadUrl(media.media_key, 300));
+        } catch (previewError) {
+          console.warn("[status] preview URL unavailable:", previewError.message);
+        }
+      }
       res.set("Cache-Control", "private, no-store");
-      res.json({ items: statuses });
+      res.json({
+        items: statuses.map((status) => ({
+          ...status,
+          previewUrl: previewById.get(status.id) || null,
+        })),
+      });
     } catch (err) {
       console.error("get_statuses error:", err);
       res.status(500).json({ error: "Failed to load statuses" });
