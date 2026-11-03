@@ -2,13 +2,21 @@
 // Add icons here as individual features migrate to the shared icon system.
 export {
   Bell,
+  Check,
   Clapperboard,
+  Clock3,
   Compass,
+  Copy,
+  Heart,
   MessageCircle,
   Moon,
+  MoreHorizontal,
   Newspaper,
   Plus,
   RefreshCw,
+  Share2,
   Sparkles,
   Sun,
+  X,
+  ZoomIn,
 } from "lucide-react";

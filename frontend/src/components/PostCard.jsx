@@ -6,8 +6,18 @@ import { useAuth } from "../lib/auth.jsx";
 import PostActionsMenu from "./PostActionsMenu.jsx";
 import PhotoViewer from "./PhotoViewer.jsx";
 import CommentSheet from "./CommentSheet.jsx";
+import {
+  Check,
+  Clock3,
+  Copy,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Share2,
+  ZoomIn,
+} from "./icons.jsx";
 
-const CONTENT_LIMIT = 200;
+const CONTENT_LIMIT = 240;
 const APP_URL = window.location.origin;
 
 function ShareMenu({ postId, postTitle, onClose }) {
@@ -19,34 +29,32 @@ function ShareMenu({ postId, postTitle, onClose }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    const handler = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) onClose();
     };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
   }, [onClose]);
 
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(url);
-    } catch {}
-    setCopied(true);
-    setTimeout(() => {
-      setCopied(false);
-      onClose();
-    }, 1500);
+      setCopied(true);
+      window.setTimeout(onClose, 1200);
+    } catch {
+      // Keep the menu open so the user can still choose another share method.
+    }
   };
 
   const shareNative = async () => {
-    // Android/iOS WebViews do not consistently expose Web Share API. Route
-    // native-app shares through the React Native bridge when available.
     if (window.isNativeApp && window.ReactNativeWebView?.postMessage) {
       try {
         window.ReactNativeWebView.postMessage(
-          JSON.stringify({
-            type: "native-share",
-            payload: { title: text, text, url },
-          }),
+          JSON.stringify({ type: "native-share", payload: { title: text, text, url } }),
         );
       } catch {}
       onClose();
@@ -55,139 +63,71 @@ function ShareMenu({ postId, postTitle, onClose }) {
 
     if (navigator.share) {
       try {
-        await navigator.share({ title: text, url });
+        await navigator.share({ title: text, text, url });
       } catch {}
       onClose();
     }
   };
 
-  const options = [
-    {
-      label: copied ? "Copied!" : "Copy link",
-      icon: copied ? (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      ) : (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-        </svg>
-      ),
-      action: copyLink,
-      highlight: copied,
-    },
-    {
-      label: "Share on X",
-      icon: (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-        >
-          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.258 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-        </svg>
-      ),
-      action: () => {
-        window.open(
-          `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
-          "_blank",
-        );
-        onClose();
-      },
-    },
-    {
-      label: "Share on WhatsApp",
-      icon: (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-        >
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-        </svg>
-      ),
-      action: () => {
-        window.open(
-          `https://wa.me/?text=${encodeURIComponent(text + " " + url)}`,
-          "_blank",
-        );
-        onClose();
-      },
-    },
-    ...(window.isNativeApp || navigator.share
-      ? [
-          {
-            label: "More options…",
-            icon: (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="18" cy="5" r="3" />
-                <circle cx="6" cy="12" r="3" />
-                <circle cx="18" cy="19" r="3" />
-                <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" />
-                <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" />
-              </svg>
-            ),
-            action: shareNative,
-          },
-        ]
-      : []),
-  ];
-
   return (
     <div
       ref={menuRef}
-      className="absolute bottom-8 right-0 z-50 bg-card border border-white/10 rounded-2xl shadow-2xl py-1.5 min-w-[180px] animate-fade-in"
-      style={{ backdropFilter: "blur(12px)" }}
+      className="absolute bottom-12 right-0 z-50 min-w-[205px] overflow-hidden rounded-2xl border border-border bg-card p-1.5 shadow-2xl animate-fade-in"
+      role="menu"
+      aria-label="Share post"
     >
-      {options.map((o, i) => (
+      <button
+        type="button"
+        role="menuitem"
+        onClick={copyLink}
+        className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-foreground transition hover:bg-secondary"
+      >
+        {copied ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} className="text-muted-foreground" />}
+        {copied ? "Link copied" : "Copy link"}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          window.open(
+            `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
+            "_blank",
+            "noopener,noreferrer",
+          );
+          onClose();
+        }}
+        className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-foreground transition hover:bg-secondary"
+      >
+        <Share2 size={16} className="text-muted-foreground" />
+        Share on X
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          window.open(
+            `https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`,
+            "_blank",
+            "noopener,noreferrer",
+          );
+          onClose();
+        }}
+        className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-foreground transition hover:bg-secondary"
+      >
+        <Share2 size={16} className="text-muted-foreground" />
+        Share on WhatsApp
+      </button>
+      {(window.isNativeApp || navigator.share) && (
         <button
-          key={i}
-          onClick={o.action}
-          className={`flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-left transition-colors hover:bg-white/5 ${o.highlight ? "text-green-400" : "text-foreground"}`}
+          type="button"
+          role="menuitem"
+          onClick={shareNative}
+          className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-foreground transition hover:bg-secondary"
         >
-          <span
-            className={o.highlight ? "text-green-400" : "text-muted-foreground"}
-          >
-            {o.icon}
-          </span>
-          {o.label}
+          <Share2 size={16} className="text-muted-foreground" />
+          More options
         </button>
-      ))}
+      )}
     </div>
   );
 }
@@ -203,10 +143,13 @@ export default function PostCard({ post, onLikeUpdate, onPostDelete }) {
   const [showActions, setShowActions] = useState(false);
   const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false);
 
-  // Sync liked state when the prop changes (e.g. feed re-fetches)
   useEffect(() => {
     setIsLiked(!!post.userLiked);
   }, [post.userLiked]);
+
+  useEffect(() => {
+    setLikesCount(post.likes || 0);
+  }, [post.likes]);
 
   const requireAuth = async () => {
     if (isAuthenticated) return true;
@@ -217,253 +160,203 @@ export default function PostCard({ post, onLikeUpdate, onPostDelete }) {
   const handleLike = async () => {
     if (isLiking) return;
     if (!(await requireAuth())) return;
-    const prevLiked = isLiked;
-    const prevCount = likesCount;
-    // Optimistic update
-    setIsLiked(!prevLiked);
-    setLikesCount((c) => (prevLiked ? c - 1 : c + 1));
+
+    const previousLiked = isLiked;
+    const previousCount = likesCount;
+    setIsLiked(!previousLiked);
+    setLikesCount((count) => Math.max(0, previousLiked ? count - 1 : count + 1));
     setIsLiking(true);
+
     try {
-      const res = await likePost(post.id, wallet);
-      // Sync with server truth
-      setIsLiked(res.liked);
-      setLikesCount(res.likes);
-      if (onLikeUpdate) onLikeUpdate(post.id, res.likes);
+      const result = await likePost(post.id, wallet);
+      setIsLiked(result.liked);
+      setLikesCount(result.likes);
+      onLikeUpdate?.(post.id, result.likes);
     } catch {
-      // Rollback on error
-      setIsLiked(prevLiked);
-      setLikesCount(prevCount);
+      setIsLiked(previousLiked);
+      setLikesCount(previousCount);
     } finally {
       setIsLiking(false);
     }
-  };
-
-  const toggleComments = () => {
-    setShowComments((current) => !current);
   };
 
   const timeAgo = post.createdAt
     ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })
     : "just now";
   const avatarUrl = post.profile?.avatarUrl;
-  const initial = post.profile?.username
-    ? post.profile.username.charAt(0).toUpperCase()
-    : truncateAddress(post.owner).charAt(0);
-
+  const username = post.profile?.username || truncateAddress(post.owner);
+  const initial = username?.charAt(0)?.toUpperCase() || "M";
   const content = post.content || "";
   const isTruncatable = content.length > CONTENT_LIMIT;
   const displayContent =
     isTruncatable && !expanded
-      ? content.slice(0, CONTENT_LIMIT).trimEnd() + "…"
+      ? `${content.slice(0, CONTENT_LIMIT).trimEnd()}…`
       : content;
+  const hasText = Boolean(post.title || content);
+  const isVideo = post.mediaType === "video";
+  const isImage = post.mediaType === "image";
 
   return (
-    <div className="glass-panel rounded-3xl p-4 md:p-6 flex flex-col gap-3 md:gap-4 animate-slide-up overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+    <article className="group overflow-visible rounded-[1.6rem] border border-border bg-card shadow-sm transition duration-200 hover:border-border-strong hover:shadow-lg">
+      <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
         <Link
           to={`/profile/${post.owner}`}
-          className="flex items-center gap-3 group min-w-0"
+          className="flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          aria-label={`View ${username}'s profile`}
         >
           {avatarUrl ? (
             <img
               src={avatarUrl}
-              alt={post.profile?.username || "avatar"}
-              className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover shadow-lg flex-shrink-0"
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="h-11 w-11 shrink-0 rounded-full border border-border object-cover sm:h-12 sm:w-12"
             />
           ) : (
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-base md:text-lg shadow-lg flex-shrink-0">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-base font-bold text-white shadow-sm sm:h-12 sm:w-12">
               {initial}
             </div>
           )}
           <div className="min-w-0">
-            <h3 className="font-bold text-sm md:text-base group-hover:text-primary transition-colors truncate">
-              {post.profile?.username || truncateAddress(post.owner)}
-            </h3>
-            <p className="text-xs text-muted-foreground">{timeAgo}</p>
+            <p className="truncate text-sm font-bold text-foreground transition group-hover:text-primary sm:text-[15px]">
+              {username}
+            </p>
+            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock3 size={12} aria-hidden="true" />
+              <time dateTime={post.createdAt || undefined}>{timeAgo}</time>
+            </p>
           </div>
         </Link>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="relative">
-            <button
-              onClick={() => setShowActions(!showActions)}
-              title="Post actions"
-              className="p-2 rounded-full hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground flex-shrink-0"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="12" cy="19" r="2" />
-              </svg>
-            </button>
-            {showActions && (
-              <PostActionsMenu
-                post={post}
-                onClose={() => setShowActions(false)}
-                onPostDelete={(deletedPostId) => {
-                  onPostDelete?.(deletedPostId);
-                }}
-                onPostEdit={(updatedPost) => {
-                  // Handle post edit (update in feed)
-                  onLikeUpdate?.(
-                    post.id,
-                    undefined,
-                    undefined,
-                    "edit",
-                    updatedPost,
-                  );
-                }}
-              />
-            )}
-          </div>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowActions((current) => !current)}
+            aria-label="Post options"
+            aria-expanded={showActions}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <MoreHorizontal size={21} strokeWidth={2.2} />
+          </button>
+          {showActions && (
+            <PostActionsMenu
+              post={post}
+              onClose={() => setShowActions(false)}
+              onPostDelete={(deletedPostId) => onPostDelete?.(deletedPostId)}
+              onPostEdit={(updatedPost) => {
+                onLikeUpdate?.(post.id, undefined, undefined, "edit", updatedPost);
+              }}
+            />
+          )}
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex flex-col gap-2 min-w-0">
-        <h2 className="text-base md:text-xl font-bold text-foreground leading-tight break-words">
-          {post.title}
-        </h2>
-        <p className="text-muted-foreground whitespace-pre-wrap text-sm md:text-base leading-relaxed break-words">
-          {displayContent}
-        </p>
-        {isTruncatable && (
-          <button
-            onClick={() => setExpanded((e) => !e)}
-            className="text-xs text-primary font-semibold hover:underline self-start"
-          >
-            {expanded ? "Show less" : "Read more"}
-          </button>
-        )}
-
-        {post.mediaUrl && post.mediaType === "image" && (
-          <>
+      {hasText && (
+        <div className="px-4 pb-4 sm:px-5">
+          {post.title && (
+            <h2 className="mb-1.5 break-words text-[17px] font-bold leading-snug tracking-tight text-foreground sm:text-lg">
+              {post.title}
+            </h2>
+          )}
+          {content && (
+            <p className="whitespace-pre-wrap break-words text-sm leading-[1.75] text-foreground/85 sm:text-[15px]">
+              {displayContent}
+            </p>
+          )}
+          {isTruncatable && (
             <button
               type="button"
-              onClick={() => setIsPhotoViewerOpen(true)}
-              aria-label={`View photo: ${post.title || "Post image"}`}
-              className="group relative mt-1 block w-full overflow-hidden rounded-2xl border border-border bg-black/[0.035] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              onClick={() => setExpanded((current) => !current)}
+              aria-expanded={expanded}
+              className="mt-2 rounded-md text-sm font-semibold text-primary transition hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
+              {expanded ? "Show less" : "Read more"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {post.mediaUrl && isImage && (
+        <>
+          <button
+            type="button"
+            onClick={() => setIsPhotoViewerOpen(true)}
+            aria-label={`Open photo: ${post.title || "Post image"}`}
+            className="group/media relative block w-full overflow-hidden border-y border-border bg-black/[0.035] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+          >
+            <div className="relative flex max-h-[560px] min-h-36 items-center justify-center sm:max-h-[680px]">
               <img
                 src={post.mediaUrl}
                 alt={post.title || "Post image"}
-                className="mx-auto block max-h-[520px] w-full object-contain transition-transform duration-300 group-hover:scale-[1.01] md:max-h-[680px]"
                 loading="lazy"
                 decoding="async"
+                className="block max-h-[560px] w-full object-contain sm:max-h-[680px]"
               />
-              <span className="pointer-events-none absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true">
-                <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="7" />
-                  <path d="m20 20-4-4M11 8v6M8 11h6" />
-                </svg>
-              </span>
-            </button>
-            {isPhotoViewerOpen && (
-              <PhotoViewer
-                src={post.mediaUrl}
-                alt={post.title || "Post image"}
-                caption={post.title}
-                onClose={() => setIsPhotoViewerOpen(false)}
-              />
-            )}
-          </>
-        )}
-        {post.mediaUrl && post.mediaType === "video" && (
-          <div className="mt-1 overflow-hidden rounded-2xl border border-border bg-black">
-            <video
+            </div>
+            <span className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-black/65 text-white opacity-0 shadow-lg backdrop-blur-sm transition group-hover/media:opacity-100 group-focus-visible/media:opacity-100">
+              <ZoomIn size={18} aria-hidden="true" />
+            </span>
+          </button>
+          {isPhotoViewerOpen && (
+            <PhotoViewer
               src={post.mediaUrl}
-              controls
-              playsInline
-              preload="metadata"
-              aria-label={post.title || "Post video"}
-              className="mx-auto block max-h-[520px] w-full object-contain md:max-h-[680px]"
+              alt={post.title || "Post image"}
+              caption={post.title}
+              onClose={() => setIsPhotoViewerOpen(false)}
             />
-          </div>
-        )}
-      </div>
+          )}
+        </>
+      )}
 
-      {/* Actions */}
-      <div className="pt-3 mt-1 border-t border-white/5 flex items-center gap-5">
-        {/* Like */}
-        <button
-          onClick={handleLike}
-          disabled={isLiking}
-          className={`flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 disabled:opacity-70
-            ${isLiked ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill={isLiked ? "currentColor" : "none"}
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={
-              isLiked ? "drop-shadow-[0_0_6px_rgba(0,194,255,0.6)]" : ""
-            }
-          >
-            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-          </svg>
-          <span
-            className={`font-medium text-sm tabular-nums ${isLiked ? "text-primary" : ""}`}
-          >
-            {likesCount}
-          </span>
-        </button>
+      {post.mediaUrl && isVideo && (
+        <div className="overflow-hidden border-y border-border bg-black">
+          <video
+            src={post.mediaUrl}
+            controls
+            playsInline
+            preload="metadata"
+            aria-label={post.title || "Post video"}
+            className="mx-auto block max-h-[560px] w-full object-contain sm:max-h-[680px]"
+          />
+        </div>
+      )}
 
-        {/* Comment */}
-        <button
-          onClick={toggleComments}
-          className={`flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 ${showComments ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z" />
-          </svg>
-          <span className="font-medium text-sm">{post.commentCount || 0}</span>
-        </button>
-
-        {/* Share */}
-        <div className="relative ml-auto">
+      <div className="mx-4 flex items-center justify-between gap-3 border-t border-border/80 py-3 sm:mx-5 sm:py-3.5">
+        <div className="flex min-w-0 items-center gap-1 sm:gap-2">
           <button
-            onClick={() => setShowShare((s) => !s)}
-            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-all hover:scale-105 active:scale-95"
+            type="button"
+            onClick={handleLike}
+            disabled={isLiking}
+            aria-pressed={isLiked}
+            aria-label={isLiked ? `Unlike post, ${likesCount} likes` : `Like post, ${likesCount} likes`}
+            className={`inline-flex min-h-10 items-center gap-2 rounded-full px-3 text-sm font-semibold transition active:scale-95 disabled:opacity-60 ${isLiked ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="17"
-              height="17"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-              <polyline points="16 6 12 2 8 6" />
-              <line x1="12" x2="12" y1="2" y2="15" />
-            </svg>
-            <span className="font-medium text-sm">Share</span>
+            <Heart size={18} strokeWidth={2} fill={isLiked ? "currentColor" : "none"} />
+            <span className="tabular-nums">{likesCount}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowComments((current) => !current)}
+            aria-expanded={showComments}
+            className={`inline-flex min-h-10 items-center gap-2 rounded-full px-3 text-sm font-semibold transition active:scale-95 ${showComments ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+          >
+            <MessageCircle size={18} strokeWidth={2} />
+            <span className="tabular-nums">{post.commentCount || 0}</span>
+            <span className="hidden sm:inline">Comment</span>
+          </button>
+        </div>
+
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowShare((current) => !current)}
+            aria-expanded={showShare}
+            aria-label="Share post"
+            className="inline-flex min-h-10 items-center gap-2 rounded-full px-3 text-sm font-semibold text-muted-foreground transition hover:bg-secondary hover:text-foreground active:scale-95"
+          >
+            <Share2 size={18} strokeWidth={2} />
+            <span>Share</span>
           </button>
           {showShare && (
             <ShareMenu
@@ -483,6 +376,6 @@ export default function PostCard({ post, onLikeUpdate, onPostDelete }) {
           onLikeUpdate?.(post.id, undefined, nextCount);
         }}
       />
-    </div>
+    </article>
   );
 }
