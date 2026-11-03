@@ -97,8 +97,8 @@ export default function FeedPage() {
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <Images size={23} strokeWidth={1.8} aria-hidden="true" />
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-foreground">Share something with your world</span>
+          <span className="flex min-h-12 min-w-0 flex-1 items-center rounded-full border border-border bg-secondary/60 px-5 text-sm font-medium text-muted-foreground shadow-inner sm:min-h-14">
+            Share something with your world
           </span>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
             <Plus size={19} strokeWidth={2} aria-hidden="true" />
