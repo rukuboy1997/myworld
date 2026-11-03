@@ -144,8 +144,19 @@ export default function StatusTray() {
     if (!isAuthenticated || !address) return undefined;
     let active = true;
     let refreshTimer = null;
+    let pollTimer = null;
     let unsubscribeOwn = null;
     let unsubscribePublic = null;
+    const refreshIfVisible = () => {
+      if (active && document.visibilityState === "visible") refresh();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshIfVisible();
+    };
+    // Firebase is the instant-update path. This lightweight fallback keeps
+    // the tray fresh if a device temporarily loses its RTDB subscription.
+    pollTimer = window.setInterval(refreshIfVisible, 8000);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     const handleStatusEvent = (snapshot) => {
       if (!snapshot.exists()) return;
       if (refreshTimer) window.clearTimeout(refreshTimer);
@@ -169,6 +180,8 @@ export default function StatusTray() {
     return () => {
       active = false;
       if (refreshTimer) window.clearTimeout(refreshTimer);
+      if (pollTimer) window.clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (unsubscribeOwn) unsubscribeOwn();
       if (unsubscribePublic) unsubscribePublic();
     };
@@ -339,7 +352,6 @@ export default function StatusTray() {
               <span className="relative z-10 min-w-0 text-[11px] font-semibold leading-tight text-white">
                 {ownGroup ? "Your status" : "Add status"}
               </span>
-              {ownGroup && <span className="absolute bottom-8 right-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground shadow"><Plus size={14} /></span>}
             </button>
             {ownGroup && (
               <button type="button" onClick={() => setComposerOpen(true)} className="absolute -right-1 -top-1 z-20 flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground shadow-md" aria-label="Add another status">
