@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useAuth } from "../lib/auth.jsx";
-import { RefreshCw } from "./icons.jsx";
+import { onValue, ref } from "firebase/database";
+import { useAuth, getAuthToken } from "../lib/auth.jsx";
+import { firebaseDb } from "../lib/firebase.js";
+import { syncFirebaseAuth } from "../lib/firebase-auth.js";
+import { ImagePlus, LoaderCircle } from "./icons.jsx";
 import { createStatus, getStatuses, getStatusMedia, getStatusViewers, recordStatusView } from "../lib/api.js";
 
 const STATUS_VIDEO_MAX_SECONDS = 180;
@@ -52,6 +55,9 @@ export default function StatusTray() {
   const [error, setError] = useState("");
   const [viewers, setViewers] = useState(null);
   const [mediaSrc, setMediaSrc] = useState(null);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaError, setMediaError] = useState("");
+  const [mediaRetry, setMediaRetry] = useState(0);
   const [filePreview, setFilePreview] = useState(null);
 
   useEffect(() => {
@@ -131,6 +137,42 @@ export default function StatusTray() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Firebase carries lightweight status-change signals only. The API remains
+  // the source of truth for audience, blocking, expiry and status visibility.
+  useEffect(() => {
+    if (!isAuthenticated || !address) return undefined;
+    let active = true;
+    let refreshTimer = null;
+    let unsubscribeOwn = null;
+    let unsubscribePublic = null;
+    const handleStatusEvent = (snapshot) => {
+      if (!snapshot.exists()) return;
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        if (active) refresh();
+      }, 120);
+    };
+
+    syncFirebaseAuth(getAuthToken()).then((authenticated) => {
+      if (!active || !authenticated) return;
+      unsubscribeOwn = onValue(ref(firebaseDb, "statusEvents/" + address), handleStatusEvent, (error) => {
+        console.warn("[status] private realtime listener unavailable:", error.message);
+      });
+      unsubscribePublic = onValue(ref(firebaseDb, "publicStatusEvents/latest"), handleStatusEvent, (error) => {
+        console.warn("[status] public realtime listener unavailable:", error.message);
+      });
+    }).catch((error) => {
+      console.warn("[status] realtime authentication unavailable; initial API loading remains active:", error.message);
+    });
+
+    return () => {
+      active = false;
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      if (unsubscribeOwn) unsubscribeOwn();
+      if (unsubscribePublic) unsubscribePublic();
+    };
+  }, [address, isAuthenticated, refresh]);
 
   const groups = useMemo(() => {
     const map = new Map();
@@ -243,33 +285,36 @@ export default function StatusTray() {
     let objectUrl = null;
     let cancelled = false;
     setMediaSrc(null);
+    setMediaError("");
+    setMediaLoading(Boolean(currentStatus?.mediaType));
     if (!currentStatus?.mediaType) return undefined;
     getStatusMedia(currentStatus.id)
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setMediaSrc(objectUrl);
+        setMediaLoading(false);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message || "Couldn't load status media");
+        if (!cancelled) {
+          setMediaError(err.message || "Couldn't load status media");
+          setMediaLoading(false);
+        }
       });
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [currentStatus?.id, currentStatus?.mediaType]);
+  }, [currentStatus?.id, currentStatus?.mediaType, mediaRetry]);
 
   return (
     <>
       <section className="surface-panel rounded-3xl border border-border/80 bg-card/85 p-3 shadow-sm sm:p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
+          <div className="flex w-full items-center justify-between gap-3">
             <h2 className="font-display text-sm font-bold sm:text-base">Status</h2>
-            <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">Moments from your community · 24 hours</p>
+            <span className="text-[11px] font-medium text-muted-foreground sm:text-xs">24 hours</span>
           </div>
-          <button type="button" onClick={refresh} disabled={loading} aria-label="Refresh statuses" title="Refresh statuses" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50">
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden="true" />
-          </button>
         </div>
 
         <div className="flex gap-3 overflow-x-auto pb-1 sm:gap-4">
@@ -312,32 +357,32 @@ export default function StatusTray() {
         </div>
       </section>
 
-      {error && !composerOpen && <p role="alert" className="text-sm text-rose-300">{error}</p>}
+      {error && !composerOpen && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
       {composerOpen && (
         <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setComposerOpen(false); }}>
-          <form onSubmit={submit} className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-slate-950 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-3xl">
+          <form onSubmit={submit} className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-card-foreground shadow-2xl sm:rounded-3xl">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-fuchsia-500/20 to-pink-500/20 text-xl">◉</span><div><h3 className="text-xl font-bold tracking-tight">Create a status</h3><p className="mt-1 text-xs text-muted-foreground">Share a moment. It disappears in 24 hours.</p></div></div>
-              <button type="button" onClick={() => setComposerOpen(false)} className="rounded-full px-3 py-2 hover:bg-white/10" aria-label="Close">✕</button>
+              <div className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary"><ImagePlus size={22} aria-hidden="true" /></span><div><h3 className="text-xl font-bold tracking-tight">Create a status</h3><p className="mt-1 text-xs text-muted-foreground">Share a moment. It disappears in 24 hours.</p></div></div>
+              <button type="button" onClick={() => setComposerOpen(false)} className="rounded-full px-3 py-2 text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Close">✕</button>
             </div>
-            <textarea value={content} onChange={(e) => setContent(e.target.value.slice(0, 700))} rows={4} placeholder="What's happening?" className="w-full resize-none rounded-2xl border border-white/10 bg-white/5 p-4 outline-none focus:border-pink-400" />
+            <textarea value={content} onChange={(e) => setContent(e.target.value.slice(0, 700))} rows={4} placeholder="What's happening?" className="w-full resize-none rounded-2xl border border-border bg-secondary/70 p-4 text-foreground placeholder:text-muted-foreground outline-none focus:border-primary" />
             <div className="mt-2 flex justify-end text-xs text-muted-foreground">{content.length}/700</div>
-            <div className="mt-3 rounded-2xl border border-dashed border-white/20 bg-white/[0.03] p-3 transition hover:border-pink-400/60">
+            <div className="mt-3 rounded-2xl border border-dashed border-border bg-secondary/40 p-3 transition hover:border-primary/50">
               {typeof window !== "undefined" && window.isNativeApp && (
-                <button type="button" onClick={() => window.ReactNativeWebView?.postMessage(JSON.stringify({ type: "pick-status-media" }))} className="mb-2 rounded-full bg-pink-500/15 px-3 py-2 text-xs font-semibold text-pink-200 hover:bg-pink-500/25">
+                <button type="button" onClick={() => window.ReactNativeWebView?.postMessage(JSON.stringify({ type: "pick-status-media" }))} className="mb-2 rounded-full bg-primary/10 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/20">
                   Open phone gallery
                 </button>
               )}
               <label className="flex cursor-pointer items-center gap-3 rounded-xl p-2 text-sm">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500/20 to-pink-500/20 text-xl" aria-hidden="true">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary" aria-hidden="true">
                   {file?.type?.startsWith("video/") || (file && /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(file.name)) ? "▶" : "▧"}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block font-semibold">{file ? "Media selected" : "Add a photo or video"}</span>
                   <span className="mt-1 block truncate text-xs text-muted-foreground">{file ? file.name : "Photos up to 25 MiB · Videos up to 500 MiB, maximum 3 minutes"}</span>
                 </span>
-                <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold">{file ? "Change" : "Browse"}</span>
+                <span className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground">{file ? "Change" : "Browse"}</span>
                 <input key={file?.name || "status-media-input"} type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.heif,.bmp,.mp4,.m4v,.mov,.webm,.3gp,.mkv" className="sr-only" onChange={handleFileChange} />
               </label>
               {file && filePreview && (
@@ -352,13 +397,13 @@ export default function StatusTray() {
               )}
             </div>
             <label className="mt-4 block text-sm"><span className="mb-2 block font-semibold">Who can see this?</span>
-              <select value={audience} onChange={(e) => setAudience(e.target.value)} className="w-full rounded-xl border border-white/10 bg-slate-900 p-3">
+              <select value={audience} onChange={(e) => setAudience(e.target.value)} className="w-full rounded-xl border border-border bg-secondary p-3 text-foreground">
                 <option value="followers">People who follow me</option>
                 <option value="everyone">Everyone on myWorld</option>
               </select>
             </label>
-            {error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}
-            <button disabled={saving} className="mt-5 w-full rounded-full bg-gradient-to-r from-fuchsia-600 to-pink-500 px-5 py-3 font-bold text-white disabled:opacity-60">{saving ? "Publishing…" : "Share status"}</button>
+            {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
+            <button disabled={saving} className="mt-5 w-full rounded-full bg-primary px-5 py-3 font-bold text-primary-foreground disabled:opacity-60">{saving ? "Publishing…" : "Share status"}</button>
           </form>
         </div>
       )}
@@ -379,7 +424,17 @@ export default function StatusTray() {
             <button type="button" onClick={() => moveViewer(-1)} className="absolute inset-y-20 left-0 z-10 w-1/4" aria-label="Previous status" />
             <button type="button" onClick={() => moveViewer(1)} className="absolute inset-y-20 right-0 z-10 w-1/4" aria-label="Next status" />
             <div className="flex min-h-0 flex-1 items-center justify-center bg-black px-5 pb-8 pt-20 text-center text-white">
-              {currentStatus.mediaType === "image" && mediaSrc ? <img src={mediaSrc} alt="Status" className="max-h-full max-w-full rounded-xl object-contain" /> :
+              {mediaLoading ? (
+                <div className="flex flex-col items-center gap-3 text-white/75" role="status" aria-live="polite">
+                  <LoaderCircle size={34} className="animate-spin text-white" aria-hidden="true" />
+                  <span className="text-sm">Loading status…</span>
+                </div>
+              ) : mediaError ? (
+                <div className="max-w-xs text-center text-sm text-white/80" role="alert">
+                  <p>{mediaError}</p>
+                  <button type="button" onClick={() => setMediaRetry((value) => value + 1)} className="mt-3 rounded-full border border-white/30 px-4 py-2 font-semibold text-white">Try again</button>
+                </div>
+              ) : currentStatus.mediaType === "image" && mediaSrc ? <img src={mediaSrc} alt="Status" className="max-h-full max-w-full rounded-xl object-contain" /> :
                currentStatus.mediaType === "video" && mediaSrc ? <video src={mediaSrc} className="max-h-full max-w-full rounded-xl object-contain" controls autoPlay playsInline /> :
                <p className="whitespace-pre-wrap break-words text-2xl font-bold">{currentStatus.content}</p>}
             </div>

@@ -1497,6 +1497,44 @@ export function buildApp() {
         }
 
         const status = await createStatus({ id: statusId, owner: req.userAddress, content, mediaKey, mediaUrl, mediaType, mediaMime, audience });
+
+        // Realtime nodes contain only an event signal, never status content or media.
+        // The authenticated API remains authoritative for visibility and blocking.
+        void (async () => {
+          try {
+            const event = {
+              statusId: status.id,
+              owner: req.userAddress,
+              createdAt: status.createdAt,
+              expiresAt: status.expiresAt,
+            };
+            const updates = {
+              ["statusEvents/" + req.userAddress]: event,
+            };
+            if (audience === "everyone") {
+              updates["publicStatusEvents/latest"] = event;
+            } else {
+              const { rows: followers } = await pool.query(
+                `SELECT f.follower AS address
+                 FROM follows f
+                 WHERE f.following = $1
+                   AND NOT EXISTS (
+                     SELECT 1 FROM blocked_users b
+                     WHERE (b.blocker = $1 AND b.blocked = f.follower)
+                        OR (b.blocker = f.follower AND b.blocked = $1)
+                   )`,
+                [req.userAddress],
+              );
+              for (const follower of followers) {
+                updates["statusEvents/" + follower.address] = event;
+              }
+            }
+            await firebasePatch("", updates);
+          } catch (realtimeError) {
+            console.warn("[status] realtime event publish failed:", realtimeError.message);
+          }
+        })();
+
         res.status(201).json({ status });
       } catch (err) {
         if (bufferedMediaCompleted && bufferedMediaKey) {

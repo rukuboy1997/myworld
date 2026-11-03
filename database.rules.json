@@ -18,6 +18,16 @@
         ".read": "auth != null",
         ".write": false
       }
+    },
+    "statusEvents": {
+      "$address": {
+        ".read": "auth != null && auth.uid === $address",
+        ".write": false
+      }
+    },
+    "publicStatusEvents": {
+      ".read": "auth != null",
+      ".write": false
     }
   }
 }
