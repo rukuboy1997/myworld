@@ -16,6 +16,7 @@ import {
   matchesR2UploadMetadata,
   matchesR2UploadSignature,
   r2MediaUrl,
+  createPresignedR2ReadUrl,
   sniffMime,
 } from "./services/r2.service.js";
 import {
@@ -32,6 +33,7 @@ import {
   getFeedEngagement,
   createStatus,
   getActiveStatusesForViewer,
+  getActiveStatusMediaPreviewsForViewer,
   getActiveStatusById,
   getActiveStatusMediaKey,
   recordStatusView,
@@ -1413,9 +1415,29 @@ export function buildApp() {
   // ─── Status ───────────────────────────────────────────────────────────────
   app.get("/api/statuses", requireAuth, async (req, res) => {
     try {
-      const statuses = await getActiveStatusesForViewer(req.userAddress);
+      const [statuses, mediaPreviews] = await Promise.all([
+        getActiveStatusesForViewer(req.userAddress),
+        getActiveStatusMediaPreviewsForViewer(req.userAddress),
+      ]);
+      const previewById = new Map();
+      for (const media of mediaPreviews) {
+        try {
+          previewById.set(media.id, {
+            url: createPresignedR2ReadUrl(media.media_key, 300),
+            expiresAt: Date.now() + 300000,
+          });
+        } catch (previewError) {
+          console.warn("[status] preview URL unavailable:", previewError.message);
+        }
+      }
       res.set("Cache-Control", "private, no-store");
-      res.json({ items: statuses });
+      res.json({
+        items: statuses.map((status) => ({
+          ...status,
+          previewUrl: previewById.get(status.id)?.url || null,
+          previewExpiresAt: previewById.get(status.id)?.expiresAt || null,
+        })),
+      });
     } catch (err) {
       console.error("get_statuses error:", err);
       res.status(500).json({ error: "Failed to load statuses" });
@@ -1553,6 +1575,21 @@ export function buildApp() {
       }
     },
   );
+
+  app.get("/api/statuses/:id/media-url", requireAuth, async (req, res) => {
+    try {
+      const media = await getActiveStatusMediaKey(req.params.id, req.userAddress);
+      if (!media?.media_key) {
+        return res.status(404).json({ error: "Status media not found or unavailable" });
+      }
+      const url = createPresignedR2ReadUrl(media.media_key, 300);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ url, mediaType: media.media_mime?.startsWith("video/") ? "video" : "image" });
+    } catch (err) {
+      console.error("[status] media URL creation failed:", err);
+      res.status(503).json({ error: "Status media is temporarily unavailable" });
+    }
+  });
 
   app.get("/api/statuses/:id/media", requireAuth, async (req, res) => {
     try {

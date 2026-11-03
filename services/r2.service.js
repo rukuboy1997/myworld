@@ -265,7 +265,7 @@ function hmac(key, value, encoding) {
  * Range is deliberately sent as an ordinary request header so R2 can return
  * HTTP 206 without exposing storage credentials or downloading the full object.
  */
-function createPresignedR2ReadUrl(key, expiresIn = 60, now = new Date()) {
+export function createPresignedR2ReadUrl(key, expiresIn = 300, now = new Date()) {
   if (!key || typeof key !== "string" || key.startsWith("/") || key.includes("..")) {
     throw new Error("A safe R2 object key is required");
   }

@@ -4,7 +4,7 @@ import { useAuth, getAuthToken } from "../lib/auth.jsx";
 import { firebaseDb } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
 import { Clapperboard, ImagePlus, LoaderCircle, Plus } from "./icons.jsx";
-import { createStatus, getStatuses, getStatusMedia, getStatusViewers, recordStatusView } from "../lib/api.js";
+import { createStatus, getStatuses, getStatusMediaUrl, getStatusViewers, recordStatusView } from "../lib/api.js";
 
 const STATUS_VIDEO_MAX_SECONDS = 180;
 const STATUS_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
@@ -126,7 +126,23 @@ export default function StatusTray() {
     setLoading(true);
     try {
       const data = await getStatuses();
-      setStatuses(data.items || []);
+      const incoming = data.items || [];
+      setStatuses((current) => {
+        const previousById = new Map(current.map((status) => [status.id, status]));
+        return incoming.map((status) => {
+          const previous = previousById.get(status.id);
+          // Keep still-valid signed preview URLs stable across the 8-second
+          // status refresh so visible image/video cards do not restart loading.
+          if (previous?.previewUrl && previous.previewExpiresAt > Date.now() + 30000) {
+            return {
+              ...status,
+              previewUrl: previous.previewUrl,
+              previewExpiresAt: previous.previewExpiresAt,
+            };
+          }
+          return status;
+        });
+      });
     } catch (err) {
       setError(err.message || "Couldn't load statuses");
     } finally {
@@ -295,29 +311,22 @@ export default function StatusTray() {
   const currentStatus = viewerGroup?.statuses?.[viewerIndex];
 
   useEffect(() => {
-    let objectUrl = null;
     let cancelled = false;
     setMediaSrc(null);
     setMediaError("");
     setMediaLoading(Boolean(currentStatus?.mediaType));
     if (!currentStatus?.mediaType) return undefined;
-    getStatusMedia(currentStatus.id)
-      .then((blob) => {
+    getStatusMediaUrl(currentStatus.id)
+      .then((result) => {
         if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setMediaSrc(objectUrl);
-        setMediaLoading(false);
+        setMediaSrc(result.url);
       })
       .catch((err) => {
-        if (!cancelled) {
-          setMediaError(err.message || "Couldn't load status media");
-          setMediaLoading(false);
-        }
+        if (cancelled) return;
+        setMediaError(err.message || "Couldn't prepare status media");
+        setMediaLoading(false);
       });
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+    return () => { cancelled = true; };
   }, [currentStatus?.id, currentStatus?.mediaType, mediaRetry]);
 
   return (
@@ -342,7 +351,13 @@ export default function StatusTray() {
               className="group relative flex h-[152px] w-full flex-col justify-between overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-primary/35 via-secondary to-slate-950 p-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               aria-label={ownGroup ? "View your status" : "Create your first status"}
             >
-              {ownGroup?.profile?.avatarUrl ? (
+              {ownGroup?.statuses?.[ownGroup.statuses.length - 1]?.previewUrl ? (
+                ownGroup.statuses[ownGroup.statuses.length - 1].mediaType === "video" ? (
+                  <video src={ownGroup.statuses[ownGroup.statuses.length - 1].previewUrl} muted playsInline preload="metadata" onLoadedData={(event) => { event.currentTarget.currentTime = 0; }} className="absolute inset-0 h-full w-full object-cover opacity-75" />
+                ) : (
+                  <img src={ownGroup.statuses[ownGroup.statuses.length - 1].previewUrl} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-75" />
+                )
+              ) : ownGroup?.profile?.avatarUrl ? (
                 <img src={ownGroup.profile.avatarUrl} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-65 transition duration-300 group-hover:scale-105" />
               ) : null}
               <span className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/15 to-black/85" />
@@ -371,7 +386,13 @@ export default function StatusTray() {
                 className="group relative flex h-[152px] w-[104px] shrink-0 flex-col justify-between overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-primary/30 via-secondary to-slate-950 p-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                 aria-label={`View ${label}'s status`}
               >
-                {group.profile?.avatarUrl ? (
+                {latestStatus.previewUrl ? (
+                  latestStatus.mediaType === "video" ? (
+                    <video src={latestStatus.previewUrl} muted playsInline preload="metadata" onLoadedData={(event) => { event.currentTarget.currentTime = 0; }} className="absolute inset-0 h-full w-full object-cover opacity-75" />
+                  ) : (
+                    <img src={latestStatus.previewUrl} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-75" />
+                  )
+                ) : group.profile?.avatarUrl ? (
                   <img src={group.profile.avatarUrl} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-65 transition duration-300 group-hover:scale-105" />
                 ) : null}
                 <span className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/15 to-black/85" />
@@ -469,8 +490,8 @@ export default function StatusTray() {
                   <p>{mediaError}</p>
                   <button type="button" onClick={() => setMediaRetry((value) => value + 1)} className="mt-3 rounded-full border border-white/30 px-4 py-2 font-semibold text-white">Try again</button>
                 </div>
-              ) : currentStatus.mediaType === "image" && mediaSrc ? <img src={mediaSrc} alt="Status" className="max-h-full max-w-full rounded-xl object-contain" /> :
-               currentStatus.mediaType === "video" && mediaSrc ? <video src={mediaSrc} className="max-h-full max-w-full rounded-xl object-contain" controls autoPlay playsInline /> :
+              ) : currentStatus.mediaType === "image" && mediaSrc ? <img src={mediaSrc} alt="Status" onLoad={() => setMediaLoading(false)} onError={() => { setMediaLoading(false); setMediaError("Couldn't load this image."); }} className="max-h-full max-w-full rounded-xl object-contain" /> :
+               currentStatus.mediaType === "video" && mediaSrc ? <video src={mediaSrc} className="max-h-full max-w-full rounded-xl object-contain" controls autoPlay muted playsInline preload="auto" onLoadedData={() => setMediaLoading(false)} onError={() => { setMediaLoading(false); setMediaError("Couldn't stream this video. Please try again."); }} /> :
                <p className="whitespace-pre-wrap break-words text-2xl font-bold">{currentStatus.content}</p>}
             </div>
             {currentStatus.content && currentStatus.mediaType && <p className="absolute bottom-16 left-4 right-4 z-20 rounded-xl bg-black/45 px-3 py-2 text-center text-sm text-white">{currentStatus.content}</p>}
