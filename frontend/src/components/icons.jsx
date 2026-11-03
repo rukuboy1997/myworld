@@ -9,6 +9,7 @@ export {
   Copy,
   Heart,
   ImagePlus,
+  Images,
   LoaderCircle,
   MessageCircle,
   Moon,
