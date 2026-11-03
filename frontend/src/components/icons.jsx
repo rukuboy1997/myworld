@@ -8,6 +8,8 @@ export {
   Compass,
   Copy,
   Heart,
+  ImagePlus,
+  LoaderCircle,
   MessageCircle,
   Moon,
   MoreHorizontal,
