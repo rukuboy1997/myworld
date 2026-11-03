@@ -4,7 +4,7 @@ import { useAuth, getAuthToken } from "../lib/auth.jsx";
 import { firebaseDb } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
 import { Clapperboard, ImagePlus, LoaderCircle, Plus } from "./icons.jsx";
-import { createStatus, getStatuses, getStatusViewers, recordStatusView } from "../lib/api.js";
+import { createStatus, getStatuses, getStatusMediaUrl, getStatusViewers, recordStatusView } from "../lib/api.js";
 
 const STATUS_VIDEO_MAX_SECONDS = 180;
 const STATUS_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
@@ -295,14 +295,23 @@ export default function StatusTray() {
   const currentStatus = viewerGroup?.statuses?.[viewerIndex];
 
   useEffect(() => {
-    setMediaSrc(currentStatus?.previewUrl || null);
+    let cancelled = false;
+    setMediaSrc(null);
     setMediaError("");
-    setMediaLoading(Boolean(currentStatus?.mediaType && currentStatus?.previewUrl));
-    if (currentStatus?.mediaType && !currentStatus?.previewUrl) {
-      setMediaError("Status preview is unavailable. Please try again.");
-      setMediaLoading(false);
-    }
-  }, [currentStatus?.id, currentStatus?.mediaType, currentStatus?.previewUrl, mediaRetry]);
+    setMediaLoading(Boolean(currentStatus?.mediaType));
+    if (!currentStatus?.mediaType) return undefined;
+    getStatusMediaUrl(currentStatus.id)
+      .then((result) => {
+        if (cancelled) return;
+        setMediaSrc(result.url);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setMediaError(err.message || "Couldn't prepare status media");
+        setMediaLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [currentStatus?.id, currentStatus?.mediaType, mediaRetry]);
 
   return (
     <>
