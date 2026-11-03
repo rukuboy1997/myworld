@@ -479,20 +479,56 @@ export default function StatusTray() {
             </div>
             <button type="button" onClick={() => moveViewer(-1)} className="absolute inset-y-20 left-0 z-10 w-1/4" aria-label="Previous status" />
             <button type="button" onClick={() => moveViewer(1)} className="absolute inset-y-20 right-0 z-10 w-1/4" aria-label="Next status" />
-            <div className="flex min-h-0 flex-1 items-center justify-center bg-black px-5 pb-8 pt-20 text-center text-white">
-              {mediaLoading ? (
-                <div className="flex flex-col items-center gap-3 text-white/75" role="status" aria-live="polite">
-                  <LoaderCircle size={34} className="animate-spin text-white" aria-hidden="true" />
-                  <span className="text-sm">Loading status…</span>
-                </div>
-              ) : mediaError ? (
+            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black px-5 pb-8 pt-20 text-center text-white">
+              {mediaError ? (
                 <div className="max-w-xs text-center text-sm text-white/80" role="alert">
                   <p>{mediaError}</p>
                   <button type="button" onClick={() => setMediaRetry((value) => value + 1)} className="mt-3 rounded-full border border-white/30 px-4 py-2 font-semibold text-white">Try again</button>
                 </div>
-              ) : currentStatus.mediaType === "image" && mediaSrc ? <img src={mediaSrc} alt="Status" onLoad={() => setMediaLoading(false)} onError={() => { setMediaLoading(false); setMediaError("Couldn't load this image."); }} className="max-h-full max-w-full rounded-xl object-contain" /> :
-               currentStatus.mediaType === "video" && mediaSrc ? <video src={mediaSrc} className="max-h-full max-w-full rounded-xl object-contain" controls autoPlay muted playsInline preload="auto" onLoadedData={() => setMediaLoading(false)} onError={() => { setMediaLoading(false); setMediaError("Couldn't stream this video. Please try again."); }} /> :
-               <p className="whitespace-pre-wrap break-words text-2xl font-bold">{currentStatus.content}</p>}
+              ) : currentStatus.mediaType === "image" && mediaSrc ? (
+                <>
+                  <img
+                    src={mediaSrc}
+                    alt="Status"
+                    onLoad={() => setMediaLoading(false)}
+                    onError={() => { setMediaLoading(false); setMediaError("Couldn't load this image."); }}
+                    className="max-h-full max-w-full rounded-xl object-contain"
+                  />
+                  {mediaLoading && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/55 text-white/80" role="status" aria-live="polite">
+                      <LoaderCircle size={34} className="animate-spin text-white" aria-hidden="true" />
+                      <span className="text-sm">Loading image…</span>
+                    </div>
+                  )}
+                </>
+              ) : currentStatus.mediaType === "video" && mediaSrc ? (
+                <>
+                  <video
+                    src={mediaSrc}
+                    className="max-h-full max-w-full rounded-xl object-contain"
+                    controls
+                    autoPlay
+                    muted
+                    playsInline
+                    preload="auto"
+                    onLoadedData={() => setMediaLoading(false)}
+                    onError={() => { setMediaLoading(false); setMediaError("Couldn't stream this video. Please try again."); }}
+                  />
+                  {mediaLoading && (
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/55 text-white/80" role="status" aria-live="polite">
+                      <LoaderCircle size={34} className="animate-spin text-white" aria-hidden="true" />
+                      <span className="text-sm">Buffering video…</span>
+                    </div>
+                  )}
+                </>
+              ) : mediaLoading ? (
+                <div className="flex flex-col items-center gap-3 text-white/75" role="status" aria-live="polite">
+                  <LoaderCircle size={34} className="animate-spin text-white" aria-hidden="true" />
+                  <span className="text-sm">Preparing status media…</span>
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap break-words text-2xl font-bold">{currentStatus.content}</p>
+              )}
             </div>
             {currentStatus.content && currentStatus.mediaType && <p className="absolute bottom-16 left-4 right-4 z-20 rounded-xl bg-black/45 px-3 py-2 text-center text-sm text-white">{currentStatus.content}</p>}
             <div className="relative z-20 flex items-center justify-between gap-3 border-t border-white/10 bg-slate-950 px-4 py-3 text-xs text-white/70">
