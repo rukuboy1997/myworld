@@ -323,16 +323,8 @@ export const createStatus = (payload) =>
 export const recordStatusView = (statusId) => request("POST", `/statuses/${encodeURIComponent(statusId)}/view`, {});
 export const getStatusViewers = (statusId) => request("GET", `/statuses/${encodeURIComponent(statusId)}/viewers`);
 
-export async function getStatusMedia(statusId) {
-  const res = await fetch(`${BASE}/statuses/${encodeURIComponent(statusId)}/media`, {
-    headers: { ...authHeaders() },
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Couldn't load status media");
-  }
-  return res.blob();
-}
+export const getStatusMediaUrl = (statusId) =>
+  request("GET", `/statuses/${encodeURIComponent(statusId)}/media-url`);
 
 
 export const getAdminMediaStorageAudit = ({ limit = 50, offset = 0 } = {}) => {
