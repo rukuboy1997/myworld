@@ -113,6 +113,6 @@ describe("ReelsPage playback states", () => {
       expect(screen.queryByText("We couldn't load this Reel")).not.toBeInTheDocument();
     });
     expect(screen.getByText("Loading video…")).toBeInTheDocument();
-    expect(screen.getByLabelText("A test Reel")).toBeInTheDocument();
+    expect(screen.getByLabelText(/A test Reel/)).toBeInTheDocument();
   });
 });
