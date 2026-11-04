@@ -736,6 +736,37 @@ export async function getReelsPage({ limit = 10, beforeCreatedAt = null, beforeI
   return rows.map(rowToPost);
 }
 
+// Chronological video feed from creators the authenticated viewer follows.
+export async function getFollowingReelsPage({ viewer, limit = 10, beforeCreatedAt = null, beforeId = null } = {}) {
+  if (typeof viewer !== "string" || !viewer.trim()) return [];
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 10, 1), 31);
+  const { rows } = await pool.query(
+    `SELECT p.*
+     FROM posts p
+     INNER JOIN follows f
+       ON f.following = p.owner
+      AND f.follower = $1
+     WHERE p.is_deleted = false
+       AND p.media_type = 'video'
+       AND ((p.media_url IS NOT NULL AND p.media_url <> '') OR p.media_blob_id LIKE 'posts/%')
+       AND p.owner <> $1
+       AND (
+         $2::timestamptz IS NULL
+         OR (p.created_at, p.id) < ($2::timestamptz, $3::text)
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM blocked_users b
+         WHERE (b.blocker = $1 AND b.blocked = p.owner)
+            OR (b.blocker = p.owner AND b.blocked = $1)
+       )
+     ORDER BY p.created_at DESC, p.id DESC
+     LIMIT $4`,
+    [viewer, beforeCreatedAt, beforeId, safeLimit],
+  );
+  return rows.map(rowToPost);
+}
+
 export async function recordReelWatch({ sessionId, postId, viewer, watchedMs, durationMs, completed }) {
   const { rows } = await pool.query(
     `INSERT INTO reel_watch_sessions
