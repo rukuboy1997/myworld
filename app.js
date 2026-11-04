@@ -738,6 +738,10 @@ export function buildApp() {
           EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = false AND (p.media_blob_id = o.object_key OR p.media_url LIKE '%' || o.object_key)) OR
           EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at > NOW() AND (s.media_key = o.object_key OR s.media_url LIKE '%' || o.object_key)) OR
           EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NULL AND (m.attachment_key = o.object_key OR m.attachment_url LIKE '%' || o.object_key)) OR
+          EXISTS (
+            SELECT 1 FROM comments c INNER JOIN posts p ON p.id = c.post_id
+            WHERE c.media_blob_id = o.object_key AND p.is_deleted = false
+          ) OR
           EXISTS (SELECT 1 FROM profiles pr WHERE pr.avatar_blob_id = o.object_key OR pr.banner_blob_id = o.object_key OR pr.avatar_url LIKE '%' || o.object_key OR pr.banner_url LIKE '%' || o.object_key) AS referenced,
           u.user_address, u.media_category, u.size_bytes, u.object_key IS NOT NULL AS has_usage,
           u.deleted_at IS NULL AND u.object_key IS NOT NULL AS active_usage,
@@ -754,7 +758,7 @@ export function buildApp() {
       const indexed = new Map(dbResult.rows.map((row) => [row.object_key, row]));
       const results = page.objects.map((object) => {
         const row = indexed.get(object.key) || {};
-        const managed = /^(posts|statuses|messages|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(object.key) && !object.key.includes("..");
+        const managed = /^(posts|statuses|messages|comments|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(object.key) && !object.key.includes("..");
         const reasons = [];
         if (row.deleted_post) reasons.push("deleted_post");
         if (row.deleted_message) reasons.push("deleted_message");
@@ -799,6 +803,7 @@ export function buildApp() {
         "posts/": "post",
         "statuses/": "status",
         "messages/": "message",
+        "comments/": "comment",
         "avatars/": "avatar",
         "banners/": "banner",
       };
@@ -807,7 +812,7 @@ export function buildApp() {
         key.includes("..") ||
         key.startsWith("/") ||
         !Object.keys(prefixToCategory).some((prefix) => key.startsWith(prefix)) ||
-        !/^(posts|statuses|messages|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(key)
+        !/^(posts|statuses|messages|comments|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(key)
       );
       if (invalid.length) return res.status(400).json({ error: "One or more selected object keys are not eligible for cleanup" });
 
@@ -816,6 +821,10 @@ export function buildApp() {
           EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = false AND (p.media_blob_id = o.object_key OR p.media_url LIKE '%' || o.object_key)) OR
           EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at > NOW() AND (s.media_key = o.object_key OR s.media_url LIKE '%' || o.object_key)) OR
           EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NULL AND (m.attachment_key = o.object_key OR m.attachment_url LIKE '%' || o.object_key)) OR
+          EXISTS (
+            SELECT 1 FROM comments c INNER JOIN posts p ON p.id = c.post_id
+            WHERE c.media_blob_id = o.object_key AND p.is_deleted = false
+          ) OR
           EXISTS (SELECT 1 FROM profiles pr WHERE pr.avatar_blob_id = o.object_key OR pr.banner_blob_id = o.object_key OR pr.avatar_url LIKE '%' || o.object_key OR pr.banner_url LIKE '%' || o.object_key) AS referenced,
           u.user_address,
           EXISTS (SELECT 1 FROM media_deletion_queue q WHERE q.object_key = o.object_key) AS queued
