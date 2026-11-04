@@ -1,6 +1,8 @@
 // Shared Lucide exports for the myWorld web interface.
 // Add icons here as individual features migrate to the shared icon system.
 export {
+  ArrowLeft,
+  BarChart3,
   Bell,
   Check,
   Clapperboard,
@@ -15,11 +17,15 @@ export {
   Moon,
   MoreHorizontal,
   Newspaper,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
   Share2,
   Sparkles,
   Sun,
+  Volume2,
+  VolumeX,
   X,
   ZoomIn,
 } from "lucide-react";

@@ -96,6 +96,24 @@ describe("ReelsPage playback states", () => {
     });
   });
 
+  it("updates the accessible playback progress as the Reel plays", async () => {
+    render(
+      <MemoryRouter initialEntries={["/reels"]}>
+        <ReelsPage />
+      </MemoryRouter>,
+    );
+
+    const video = await screen.findByLabelText(/A test Reel/);
+    Object.defineProperty(video, "duration", { configurable: true, value: 20 });
+    Object.defineProperty(video, "currentTime", { configurable: true, value: 7 });
+
+    fireEvent.timeUpdate(video);
+
+    expect(
+      screen.getByRole("progressbar", { name: "Reel playback progress" }),
+    ).toHaveAttribute("aria-valuenow", "35");
+  });
+
   it("offers a retry when a Reel video fails to load", async () => {
     render(
       <MemoryRouter initialEntries={["/reels"]}>
