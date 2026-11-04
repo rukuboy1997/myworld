@@ -182,7 +182,14 @@ export function r2MediaUrl(key) {
 /** Compare declared MIME type with the object's actual leading-byte signature. */
 export function matchesR2UploadSignature(expectedContentType, prefix) {
   if (typeof expectedContentType !== "string" || !Buffer.isBuffer(prefix)) return false;
-  return sniffMime(prefix) === expectedContentType.toLowerCase();
+  const expected = expectedContentType.toLowerCase();
+  const detected = sniffMime(prefix);
+  // WebM is a shared EBML container: MediaRecorder may create audio-only WebM,
+  // while the container signature itself is the same as video/webm.
+  if (expected === "audio/webm") return detected === "video/webm";
+  // Audio-only MP4/M4A files may use a generic ISO-BMFF brand rather than M4A.
+  if (expected === "audio/mp4") return detected === "audio/mp4" || detected === "video/mp4";
+  return detected === expected;
 }
 
 /** Compare authoritative R2 response metadata with a reserved upload intent. */
@@ -203,6 +210,14 @@ export function matchesR2UploadMetadata({ expectedBytes, expectedContentType }, 
 export function sniffMime(buf) {
   if (!buf || buf.length < 4) return null;
   const b = buf;
+  if (b.length >= 12 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WAVE") {
+    return "audio/wav";
+  }
+  if (b.toString("ascii", 0, 3) === "ID3" ||
+      (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) {
+    return "audio/mpeg";
+  }
+  if (b.toString("ascii", 0, 4) === "OggS") return "audio/ogg";
   if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47)
     return "image/png";
   if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
@@ -227,9 +242,9 @@ export function sniffMime(buf) {
     b[6] === 0x79 &&
     b[7] === 0x70
   ) {
-    if (b[8] === 0x71 && b[9] === 0x74 && b[10] === 0x20 && b[11] === 0x20) {
-      return "video/quicktime";
-    }
+    const brand = b.toString("ascii", 8, 12);
+    if (brand === "qt  ") return "video/quicktime";
+    if (brand === "M4A " || brand === "M4B " || brand === "F4A ") return "audio/mp4";
     return "video/mp4";
   }
   if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3)

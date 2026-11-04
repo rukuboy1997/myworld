@@ -48,19 +48,29 @@ export async function uploadStatusMediaDirectly(file, onUploadProgress) {
   return uploadMediaDirectly(file, "status", onUploadProgress);
 }
 
+export async function uploadCommentMediaDirectly(file, onUploadProgress) {
+  if (import.meta.env.VITE_ENABLE_DIRECT_R2_UPLOADS !== "true") {
+    throw new Error("Comment media uploads are not enabled in this app build.");
+  }
+  return uploadMediaDirectly(file, "comment", onUploadProgress);
+}
+
 async function uploadMediaDirectly(file, category, onUploadProgress) {
-  const contentType = (file.type || "").toLowerCase();
+  const contentType = (file.type || "").toLowerCase().split(";")[0].trim();
   const mediaType = contentType.startsWith("image/")
     ? "image"
     : contentType.startsWith("video/")
       ? "video"
-      : null;
+      : contentType.startsWith("audio/")
+        ? "audio"
+        : null;
   const allowedTypes = new Set([
     "image/jpeg", "image/png", "image/webp", "image/gif",
     "video/mp4", "video/webm", "video/quicktime",
+    "audio/webm", "audio/ogg", "audio/mpeg", "audio/wav", "audio/mp4",
   ]);
-  if (!mediaType || !allowedTypes.has(contentType)) {
-    throw new Error("Choose a supported image (JPEG, PNG, WebP, GIF) or video (MP4, WebM, MOV).");
+  if (!mediaType || !allowedTypes.has(contentType) || (mediaType === "audio" && category !== "comment")) {
+    throw new Error("Choose a supported image, video, or audio file. Audio attachments are available in comments.");
   }
 
   const intentResponse = await fetch(`${BASE}/media/upload-intents`, {

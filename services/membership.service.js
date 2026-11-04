@@ -11,6 +11,7 @@ export const MEMBERSHIP_PLANS = Object.freeze({
     reelDurationSeconds: 180,
     maxImageBytes: 10 * 1024 * 1024,
     maxVideoBytes: 25 * 1024 * 1024,
+    maxAudioBytes: 15 * 1024 * 1024,
     storageBytes: 1 * 1024 * 1024 * 1024,
     uploadsPerDay: 10,
     uploadsPerMonth: 100,
@@ -26,6 +27,7 @@ export const MEMBERSHIP_PLANS = Object.freeze({
     reelDurationSeconds: 300,
     maxImageBytes: 15 * 1024 * 1024,
     maxVideoBytes: 100 * 1024 * 1024,
+    maxAudioBytes: 25 * 1024 * 1024,
     storageBytes: 5 * 1024 * 1024 * 1024,
     uploadsPerDay: 30,
     uploadsPerMonth: 500,
@@ -41,6 +43,7 @@ export const MEMBERSHIP_PLANS = Object.freeze({
     reelDurationSeconds: 900,
     maxImageBytes: 20 * 1024 * 1024,
     maxVideoBytes: 250 * 1024 * 1024,
+    maxAudioBytes: 50 * 1024 * 1024,
     storageBytes: 25 * 1024 * 1024 * 1024,
     uploadsPerDay: 100,
     uploadsPerMonth: 2000,
@@ -56,6 +59,7 @@ export const MEMBERSHIP_PLANS = Object.freeze({
     reelDurationSeconds: 1800,
     maxImageBytes: 25 * 1024 * 1024,
     maxVideoBytes: 500 * 1024 * 1024,
+    maxAudioBytes: 100 * 1024 * 1024,
     storageBytes: 100 * 1024 * 1024 * 1024,
     uploadsPerDay: 300,
     uploadsPerMonth: 5000,
@@ -101,5 +105,6 @@ export function getMediaSizeLimit(planId = "free", mediaType) {
   const plan = getMembershipPlan(planId);
   if (mediaType === "image") return plan.maxImageBytes;
   if (mediaType === "video") return plan.maxVideoBytes;
+  if (mediaType === "audio") return plan.maxAudioBytes;
   return null;
 }

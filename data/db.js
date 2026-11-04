@@ -93,12 +93,33 @@ CREATE TABLE IF NOT EXISTS likes (
 );
 
 CREATE TABLE IF NOT EXISTS comments (
-  id          TEXT PRIMARY KEY,
-  post_id     TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  owner       TEXT NOT NULL,
-  content     TEXT NOT NULL,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+  id                TEXT PRIMARY KEY,
+  post_id           TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  owner             TEXT NOT NULL,
+  content           TEXT NOT NULL DEFAULT '',
+  parent_comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
+  media_blob_id     TEXT,
+  media_type        TEXT,
+  media_mime        TEXT,
+  media_size_bytes  BIGINT,
+  created_at        TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS parent_comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE;
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS media_blob_id TEXT;
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS media_type TEXT;
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS media_mime TEXT;
+ALTER TABLE comments ADD COLUMN IF NOT EXISTS media_size_bytes BIGINT;
+ALTER TABLE comments ALTER COLUMN content SET DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_comments_post_created ON comments (post_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_comments_parent_created ON comments (parent_comment_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS comment_likes (
+  comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+  owner TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (comment_id, owner)
+);
+CREATE INDEX IF NOT EXISTS idx_comment_likes_owner ON comment_likes (owner, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY, sender TEXT NOT NULL, receiver TEXT NOT NULL,
@@ -418,7 +439,7 @@ CREATE TABLE IF NOT EXISTS media_usage_events (
   id TEXT PRIMARY KEY,
   user_address TEXT NOT NULL REFERENCES users(address) ON DELETE CASCADE,
   object_key TEXT NOT NULL UNIQUE,
-  media_category TEXT NOT NULL CHECK (media_category IN ('post', 'status', 'message', 'avatar', 'banner')),
+  media_category TEXT NOT NULL CHECK (media_category IN ('post', 'status', 'message', 'comment', 'avatar', 'banner')),
   media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video', 'audio', 'other')),
   size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -427,6 +448,11 @@ CREATE TABLE IF NOT EXISTS media_usage_events (
 CREATE INDEX IF NOT EXISTS idx_media_usage_user_created
   ON media_usage_events (user_address, created_at DESC)
   WHERE deleted_at IS NULL;
+ALTER TABLE media_usage_events
+  DROP CONSTRAINT IF EXISTS media_usage_events_media_category_check;
+ALTER TABLE media_usage_events
+  ADD CONSTRAINT media_usage_events_media_category_check
+  CHECK (media_category IN ('post', 'status', 'message', 'comment', 'avatar', 'banner'));
 CREATE INDEX IF NOT EXISTS idx_media_usage_user_size
   ON media_usage_events (user_address, size_bytes)
   WHERE deleted_at IS NULL;
@@ -436,7 +462,7 @@ CREATE INDEX IF NOT EXISTS idx_media_usage_user_size
 CREATE TABLE IF NOT EXISTS media_deletion_queue (
   object_key TEXT PRIMARY KEY,
   user_address TEXT,
-  media_category TEXT NOT NULL CHECK (media_category IN ('message', 'avatar', 'banner', 'post', 'status')),
+  media_category TEXT NOT NULL CHECK (media_category IN ('message', 'avatar', 'banner', 'post', 'status', 'comment')),
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -450,7 +476,7 @@ ALTER TABLE media_deletion_queue
   DROP CONSTRAINT IF EXISTS media_deletion_queue_category_check;
 ALTER TABLE media_deletion_queue
   ADD CONSTRAINT media_deletion_queue_category_check
-  CHECK (media_category IN ('message', 'avatar', 'banner', 'post', 'status'));
+  CHECK (media_category IN ('message', 'avatar', 'banner', 'post', 'status', 'comment'));
 
 
 /* Direct-to-R2 upload reservations. Pending intents reserve storage and count
@@ -459,7 +485,7 @@ CREATE TABLE IF NOT EXISTS media_upload_intents (
   id TEXT PRIMARY KEY,
   user_address TEXT NOT NULL REFERENCES users(address) ON DELETE CASCADE,
   object_key TEXT NOT NULL UNIQUE,
-  media_category TEXT NOT NULL CHECK (media_category IN ('post', 'status', 'message', 'avatar', 'banner')),
+  media_category TEXT NOT NULL CHECK (media_category IN ('post', 'status', 'message', 'comment', 'avatar', 'banner')),
   media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video', 'audio', 'other')),
   content_type TEXT NOT NULL,
   expected_bytes BIGINT NOT NULL CHECK (expected_bytes > 0),
@@ -478,6 +504,11 @@ ALTER TABLE media_upload_intents
 ALTER TABLE media_upload_intents
   ADD CONSTRAINT media_upload_intents_media_type_check
   CHECK (media_type IN ('image', 'video', 'audio', 'other'));
+ALTER TABLE media_upload_intents
+  DROP CONSTRAINT IF EXISTS media_upload_intents_media_category_check;
+ALTER TABLE media_upload_intents
+  ADD CONSTRAINT media_upload_intents_media_category_check
+  CHECK (media_category IN ('post', 'status', 'message', 'comment', 'avatar', 'banner'));
 
 ALTER TABLE media_upload_intents ADD COLUMN IF NOT EXISTS attached_at TIMESTAMPTZ;
 ALTER TABLE media_upload_intents ADD COLUMN IF NOT EXISTS attached_to TEXT;
@@ -574,11 +605,20 @@ function rowToProfile(r) {
 
 function rowToComment(r) {
   if (!r) return null;
+  const mediaKey = typeof r.media_blob_id === "string" ? r.media_blob_id : null;
   return {
     id: r.id,
     postId: r.post_id,
     owner: r.owner,
-    content: r.content,
+    content: r.content || "",
+    parentCommentId: r.parent_comment_id || null,
+    mediaBlobId: mediaKey,
+    mediaUrl: mediaKey?.startsWith("comments/") ? r2MediaUrl(mediaKey) : null,
+    mediaType: r.media_type || null,
+    mediaMime: r.media_mime || null,
+    mediaSizeBytes: r.media_size_bytes == null ? null : Number(r.media_size_bytes),
+    likeCount: Number(r.like_count || 0),
+    userLiked: Boolean(r.user_liked),
     createdAt:
       r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
   };
@@ -1076,27 +1116,83 @@ export async function getProfileStats() {
 }
 
 // ─── Comments ────────────────────────────────────────────────────────────────
-export async function getComments(postId) {
+export async function getComments(postId, viewer = null) {
   const { rows } = await pool.query(
-    `SELECT * FROM comments WHERE post_id = $1 ORDER BY created_at ASC`,
-    [postId],
+    `SELECT c.*,
+       (SELECT COUNT(*)::int FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
+       EXISTS (
+         SELECT 1 FROM comment_likes cl
+         WHERE cl.comment_id = c.id AND cl.owner = $2
+       ) AS user_liked
+     FROM comments c
+     LEFT JOIN comments parent ON parent.id = c.parent_comment_id
+     WHERE c.post_id = $1
+     ORDER BY COALESCE(parent.created_at, c.created_at) ASC,
+       CASE WHEN c.parent_comment_id IS NULL THEN 0 ELSE 1 END,
+       c.created_at ASC, c.id ASC`,
+    [postId, viewer],
   );
   return rows.map(rowToComment);
 }
 
+export async function getCommentById(id) {
+  const { rows } = await pool.query(
+    "SELECT * FROM comments WHERE id = $1 LIMIT 1",
+    [id],
+  );
+  return rowToComment(rows[0]);
+}
+
 export async function saveComment(comment) {
   const id = comment.id || uuidv4();
-  await pool.query(
-    `INSERT INTO comments (id, post_id, owner, content, created_at) VALUES ($1,$2,$3,$4,$5)`,
+  const { rows } = await pool.query(
+    `INSERT INTO comments
+       (id, post_id, owner, content, parent_comment_id, media_blob_id, media_type, media_mime, media_size_bytes, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     RETURNING *`,
     [
       id,
       comment.postId,
       comment.owner,
-      comment.content,
+      comment.content || "",
+      comment.parentCommentId || null,
+      comment.mediaBlobId || null,
+      comment.mediaType || null,
+      comment.mediaMime || null,
+      comment.mediaSizeBytes ?? null,
       comment.createdAt || new Date().toISOString(),
     ],
   );
-  return { ...comment, id };
+  return rowToComment(rows[0]);
+}
+
+export async function toggleCommentLike(commentId, owner) {
+  const { rows: existing } = await pool.query(
+    "SELECT 1 FROM comment_likes WHERE comment_id = $1 AND owner = $2",
+    [commentId, owner],
+  );
+  if (existing.length) {
+    await pool.query(
+      "DELETE FROM comment_likes WHERE comment_id = $1 AND owner = $2",
+      [commentId, owner],
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO comment_likes (comment_id, owner)
+       VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [commentId, owner],
+    );
+  }
+  const { rows: summary } = await pool.query(
+    `SELECT COUNT(*)::int AS like_count,
+       EXISTS(SELECT 1 FROM comment_likes WHERE comment_id = $1 AND owner = $2) AS user_liked
+     FROM comment_likes WHERE comment_id = $1`,
+    [commentId, owner],
+  );
+  return {
+    liked: Boolean(summary[0]?.user_liked),
+    likeCount: Number(summary[0]?.like_count || 0),
+  };
 }
 
 // ─── Likes ───────────────────────────────────────────────────────────────────
@@ -2861,7 +2957,7 @@ export async function getMembershipSubscription(userAddress) {
  * Object keys are unique so retrying a request cannot double-count storage.
  */
 export async function recordMediaUsage({ id, userAddress, objectKey, category, mediaType, sizeBytes }) {
-  if (!userAddress || !objectKey || !["post", "status", "message", "avatar", "banner"].includes(category) ||
+  if (!userAddress || !objectKey || !["post", "status", "message", "comment", "avatar", "banner"].includes(category) ||
       !["image", "video", "audio", "other"].includes(mediaType) ||
       !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
     throw new TypeError("Invalid media usage event");
@@ -2885,6 +2981,7 @@ export async function getMediaUsageSummary(userAddress) {
        COUNT(*) FILTER (WHERE media_category = 'post')::int AS post_count,
        COUNT(*) FILTER (WHERE media_category = 'status')::int AS status_count,
        COUNT(*) FILTER (WHERE media_category = 'message')::int AS message_count,
+       COUNT(*) FILTER (WHERE media_category = 'comment')::int AS comment_count,
        COUNT(*) FILTER (WHERE media_category IN ('avatar', 'banner'))::int AS profile_media_count
      FROM media_usage_events
      WHERE user_address = $1 AND deleted_at IS NULL`,
@@ -2898,6 +2995,7 @@ export async function getMediaUsageSummary(userAddress) {
       posts: Number(row.post_count || 0),
       statuses: Number(row.status_count || 0),
       messages: Number(row.message_count || 0),
+      comments: Number(row.comment_count || 0),
       profileMedia: Number(row.profile_media_count || 0),
     },
   };
@@ -2913,7 +3011,7 @@ export async function createMediaUploadIntent({
   id, userAddress, objectKey, category, mediaType, contentType, sizeBytes,
   storageLimitBytes, uploadsPerDay, uploadsPerMonth, expiresInSeconds = 300,
 }) {
-  const allowedCategories = ["post", "status", "message", "avatar", "banner"];
+  const allowedCategories = ["post", "status", "message", "comment", "avatar", "banner"];
   if (!id || !userAddress || !objectKey ||
       !allowedCategories.includes(category) ||
       !["image", "video", "audio", "other"].includes(mediaType) ||
@@ -3008,9 +3106,9 @@ export async function createMediaUploadIntent({
 }
 
 /**
- * Expire timed-out reservations and return abandoned R2 objects that are safe
- * to remove. Completed intents are excluded, and objects already registered in
- * media_usage_events are never treated as abandoned.
+ * Expire timed-out reservations and return stale, unattached R2 objects
+ * that are safe to remove. Completed uploads are only abandoned after one hour
+ * without a successful attachment claim.
  */
 export async function getAbandonedMediaUploadIntents({ limit = 100 } = {}) {
   const safeLimit = Number.isInteger(limit) ? Math.min(250, Math.max(1, limit)) : 100;
@@ -3020,14 +3118,21 @@ export async function getAbandonedMediaUploadIntents({ limit = 100 } = {}) {
     await client.query(
       "UPDATE media_upload_intents SET status = 'expired' WHERE status = 'pending' AND expires_at <= NOW()",
     );
+    // Completed but never attached uploads are also abandoned after one hour.
+    // Mark them terminal while holding the same lock used by attachment claims.
+    await client.query(
+      `UPDATE media_upload_intents
+       SET status = 'canceled'
+       WHERE status = 'completed'
+         AND attached_at IS NULL
+         AND attached_to IS NULL
+         AND created_at <= NOW() - INTERVAL '1 hour'`,
+    );
     const { rows } = await client.query(
       `SELECT i.id, i.object_key, i.status
        FROM media_upload_intents i
        WHERE i.status IN ('expired', 'canceled')
          AND i.created_at <= NOW() - INTERVAL '10 minutes'
-         AND NOT EXISTS (
-           SELECT 1 FROM media_usage_events u WHERE u.object_key = i.object_key
-         )
        ORDER BY i.created_at ASC
        LIMIT $1
        FOR UPDATE OF i SKIP LOCKED`,
@@ -3050,9 +3155,8 @@ export async function deleteCleanedMediaUploadIntents(ids) {
     `DELETE FROM media_upload_intents i
      WHERE i.id = ANY($1::text[])
        AND i.status IN ('expired', 'canceled')
-       AND NOT EXISTS (
-         SELECT 1 FROM media_usage_events u WHERE u.object_key = i.object_key
-       )`,
+       AND i.attached_at IS NULL
+       AND i.attached_to IS NULL`,
     [ids],
   );
   return rowCount || 0;
@@ -3213,7 +3317,7 @@ export async function markMediaUsageDeleted(objectKeys) {
 
 export async function enqueueMediaDeletion({ objectKey, userAddress, category }) {
   if (typeof objectKey !== "string" || !objectKey) return false;
-  if (!["message", "avatar", "banner", "post", "status"].includes(category)) {
+  if (!["message", "avatar", "banner", "post", "status", "comment"].includes(category)) {
     throw new Error("Unsupported media deletion category");
   }
   await pool.query(
@@ -3277,7 +3381,7 @@ export async function getMediaIntegrityAuditCandidates({ limit = 50, offset = 0 
   const candidateCte = `
     WITH referenced_media AS (
       SELECT
-        COALESCE(NULLIF(p.media_blob_id, ''), substring(p.media_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')) AS object_key,
+        COALESCE(NULLIF(p.media_blob_id, ''), substring(p.media_url FROM '/((posts|statuses|messages|avatars|banners|comments)/[^?#]+)')) AS object_key,
         p.owner AS user_address, 'post'::text AS media_category, p.media_type,
         NULL::text AS recorded_size_bytes, 'posts'::text AS source_table
       FROM posts p
@@ -3285,14 +3389,14 @@ export async function getMediaIntegrityAuditCandidates({ limit = 50, offset = 0 
 
       UNION ALL
       SELECT
-        COALESCE(NULLIF(s.media_key, ''), substring(s.media_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')),
+        COALESCE(NULLIF(s.media_key, ''), substring(s.media_url FROM '/((posts|statuses|messages|avatars|banners|comments)/[^?#]+)')),
         s.owner, 'status'::text, s.media_type, NULL::text, 'statuses'::text
       FROM statuses s
       WHERE s.expires_at > NOW() AND (NULLIF(s.media_key, '') IS NOT NULL OR s.media_url IS NOT NULL)
 
       UNION ALL
       SELECT
-        COALESCE(NULLIF(m.attachment_key, ''), substring(m.attachment_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')),
+        COALESCE(NULLIF(m.attachment_key, ''), substring(m.attachment_url FROM '/((posts|statuses|messages|avatars|banners|comments)/[^?#]+)')),
         m.sender, 'message'::text,
         CASE WHEN m.attachment_mime LIKE 'image/%' THEN 'image'
              WHEN m.attachment_mime LIKE 'video/%' THEN 'video'
@@ -3303,14 +3407,23 @@ export async function getMediaIntegrityAuditCandidates({ limit = 50, offset = 0 
 
       UNION ALL
       SELECT
-        COALESCE(NULLIF(pr.avatar_blob_id, ''), substring(pr.avatar_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')),
+        c.media_blob_id,
+        c.owner, 'comment'::text, c.media_type,
+        c.media_size_bytes::text, 'comments'::text
+      FROM comments c
+      INNER JOIN posts cp ON cp.id = c.post_id AND cp.is_deleted = false
+      WHERE NULLIF(c.media_blob_id, '') IS NOT NULL
+
+      UNION ALL
+      SELECT
+        COALESCE(NULLIF(pr.avatar_blob_id, ''), substring(pr.avatar_url FROM '/((posts|statuses|messages|avatars|banners|comments)/[^?#]+)')),
         pr.address, 'avatar'::text, 'image'::text, NULL::text, 'profiles.avatar'::text
       FROM profiles pr
       WHERE NULLIF(pr.avatar_blob_id, '') IS NOT NULL OR pr.avatar_url IS NOT NULL
 
       UNION ALL
       SELECT
-        COALESCE(NULLIF(pr.banner_blob_id, ''), substring(pr.banner_url FROM '/((posts|statuses|messages|avatars|banners)/[^?#]+)')),
+        COALESCE(NULLIF(pr.banner_blob_id, ''), substring(pr.banner_url FROM '/((posts|statuses|messages|avatars|banners|comments)/[^?#]+)')),
         pr.address, 'banner'::text, 'image'::text, NULL::text, 'profiles.banner'::text
       FROM profiles pr
       WHERE NULLIF(pr.banner_blob_id, '') IS NOT NULL OR pr.banner_url IS NOT NULL
@@ -3319,7 +3432,7 @@ export async function getMediaIntegrityAuditCandidates({ limit = 50, offset = 0 
       SELECT DISTINCT ON (object_key)
         object_key, user_address, media_category, media_type, recorded_size_bytes, source_table
       FROM referenced_media
-      WHERE object_key ~ '^(posts|statuses|messages|avatars|banners)/'
+      WHERE object_key ~ '^(posts|statuses|messages|avatars|banners|comments)/'
       ORDER BY object_key, source_table
     ),
     candidates AS (
@@ -3329,6 +3442,10 @@ export async function getMediaIntegrityAuditCandidates({ limit = 50, offset = 0 
           EXISTS (SELECT 1 FROM posts p WHERE p.media_blob_id = u.object_key AND p.is_deleted = false)
           OR EXISTS (SELECT 1 FROM statuses s WHERE s.media_key = u.object_key AND s.expires_at > NOW())
           OR EXISTS (SELECT 1 FROM messages m WHERE m.attachment_key = u.object_key AND m.deleted_at IS NULL)
+          OR EXISTS (
+            SELECT 1 FROM comments c INNER JOIN posts p ON p.id = c.post_id
+            WHERE c.media_blob_id = u.object_key AND p.is_deleted = false
+          )
           OR EXISTS (SELECT 1 FROM profiles pr WHERE pr.avatar_blob_id = u.object_key OR pr.banner_blob_id = u.object_key)
         ) AS is_referenced,
         true AS has_usage_record, NULL::text AS source_table

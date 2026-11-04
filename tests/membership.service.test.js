@@ -37,7 +37,10 @@ test("media upload limits follow the server-authoritative membership plan", () =
   assert.equal(getMediaSizeLimit("business", "video"), 250 * 1024 * 1024);
   assert.equal(getMediaSizeLimit("elite", "video"), 500 * 1024 * 1024);
   assert.equal(getMediaSizeLimit("unknown-plan", "image"), 10 * 1024 * 1024);
-  assert.equal(getMediaSizeLimit("elite", "audio"), null);
+  assert.equal(getMediaSizeLimit("free", "audio"), 15 * 1024 * 1024);
+  assert.equal(getMediaSizeLimit("premium", "audio"), 25 * 1024 * 1024);
+  assert.equal(getMediaSizeLimit("business", "audio"), 50 * 1024 * 1024);
+  assert.equal(getMediaSizeLimit("elite", "audio"), 100 * 1024 * 1024);
 });
 
 
