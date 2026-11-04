@@ -1,7 +1,7 @@
 // Best-effort Expo push delivery. In-app notification records remain the source
 // of truth; push provider failures must never fail the originating social action.
 export async function deliverExpoPush(
-  { recipient, type, actorAddress, postId, excerpt } = {},
+  { recipient, type, actorAddress, postId, statusId, excerpt } = {},
   {
     query,
     getProfile,
@@ -46,6 +46,7 @@ export async function deliverExpoPush(
 
     const copy = {
       like: { title: "New like on myWorld", body: actorName + " liked your post." },
+      status_like: { title: "New like on your Status", body: actorName + " liked your status." },
       comment: {
         title: "New comment on myWorld",
         body: actorName + " commented: " + (excerpt || "Open myWorld to view it."),
@@ -62,9 +63,11 @@ export async function deliverExpoPush(
       ? `/messages?with=${encodeURIComponent(actorAddress || "")}`
       : type === "follow"
         ? `/profile/${encodeURIComponent(actorAddress || "")}`
-        : postId
-          ? `/post/${encodeURIComponent(postId)}`
-          : "/notifications";
+        : type === "status_like"
+          ? "/feed"
+          : postId
+            ? `/post/${encodeURIComponent(postId)}`
+            : "/notifications";
 
     let sent = 0;
     let failed = 0;
@@ -89,6 +92,7 @@ export async function deliverExpoPush(
           path,
           type,
           actorAddress: actorAddress || null,
+          statusId: type === "status_like" ? statusId || null : null,
           conversationAddress: type === "message" ? actorAddress || null : null,
           senderAvatarUrl: type === "message" ? senderAvatarUrl : null,
         },
