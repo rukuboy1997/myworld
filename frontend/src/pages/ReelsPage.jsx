@@ -457,18 +457,25 @@ export default function ReelsPage() {
               <Plus size={21} strokeWidth={2.3} aria-hidden="true" />
             </Link>
 
-            <div className="mx-auto flex min-w-0 max-w-[300px] items-center gap-0.5 rounded-full border border-white/15 bg-black/50 p-1 backdrop-blur-md">
+            <div className="mx-auto flex min-w-0 max-w-[360px] items-center gap-0.5 rounded-full border border-white/15 bg-black/50 p-1 backdrop-blur-md">
               {[
                 ["for-you", "For You"],
+                ["following", "Following"],
                 ["trending", "Trending"],
                 ["latest", "Latest"],
               ].map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
-                  onClick={() => setSort(value)}
+                  onClick={() => {
+                    if (value === "following" && !isAuthenticated) {
+                      openAuthModal("signin");
+                      return;
+                    }
+                    setSort(value);
+                  }}
                   aria-pressed={sort === value}
-                  className={"min-w-0 flex-1 whitespace-nowrap rounded-full px-2 py-2 text-[11px] font-bold transition sm:px-3 sm:text-xs " + (sort === value ? "bg-white text-black shadow" : "text-white/75 hover:bg-white/10 hover:text-white")}
+                  className={"min-w-0 flex-1 whitespace-nowrap rounded-full px-1.5 py-2 text-[9px] font-bold transition sm:px-2 sm:text-xs " + (sort === value ? "bg-white text-black shadow" : "text-white/75 hover:bg-white/10 hover:text-white")}
                 >
                   {label}
                 </button>
@@ -501,10 +508,20 @@ export default function ReelsPage() {
           </div>
         ) : reels.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center bg-black px-6 pt-24 text-center">
-            <span className="mb-4 text-5xl">🎬</span>
-            <h2 className="text-xl font-bold">Your Reels feed starts here</h2>
-            <p className="mt-2 max-w-md text-sm leading-relaxed text-white/65">Videos shared as posts will appear here automatically. Upload a video with a caption to publish your first Reel.</p>
-            <Link to="/create" className="mt-5 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black">Create a video post</Link>
+            <span className="mb-4 text-5xl">{sort === "following" ? "👥" : "🎬"}</span>
+            <h2 className="text-xl font-bold">
+              {sort === "following" ? "No Reels from your followed creators yet" : "Your Reels feed starts here"}
+            </h2>
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-white/65">
+              {sort === "following"
+                ? "When creators you follow publish videos, they will appear here. Discover creators to grow your Following feed."
+                : "Videos shared as posts will appear here automatically. Upload a video with a caption to publish your first Reel."}
+            </p>
+            {sort === "following" ? (
+              <Link to="/explore" className="mt-5 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black">Discover creators</Link>
+            ) : (
+              <Link to="/create" className="mt-5 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black">Create a video post</Link>
+            )}
           </div>
         ) : (
           <div
