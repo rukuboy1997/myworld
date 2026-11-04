@@ -1528,7 +1528,7 @@ export function buildApp() {
         void (async () => {
           try {
             const event = {
-              statusId: req.params.id,
+              statusId: status.id,
               owner: req.userAddress,
               createdAt: status.createdAt,
               expiresAt: status.expiresAt,
