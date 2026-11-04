@@ -299,16 +299,15 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
       URL.revokeObjectURL(attachmentUrlRef.current);
       attachmentUrlRef.current = null;
     }
-    const contentType = (file.type || "").toLowerCase();
-    const type = contentType.startsWith("image/")
-      ? "image"
-      : contentType.startsWith("video/")
-        ? "video"
-        : contentType.startsWith("audio/")
-          ? "audio"
-          : null;
+    const contentType = (file.type || "").toLowerCase().split(";")[0].trim();
+    const allowedTypes = {
+      image: new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]),
+      video: new Set(["video/mp4", "video/webm", "video/quicktime"]),
+      audio: new Set(["audio/webm", "audio/ogg", "audio/mpeg", "audio/wav", "audio/mp4"]),
+    };
+    const type = Object.keys(allowedTypes).find((kind) => allowedTypes[kind].has(contentType)) || null;
     if (!type) {
-      setLoadError("Choose an image, video, or audio file.");
+      setLoadError("Choose a supported image, video, or audio file.");
       return;
     }
     const previewUrl = URL.createObjectURL(file);
@@ -636,7 +635,7 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/mp4,video/webm,video/quicktime,audio/*"
+                accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime,audio/webm,audio/ogg,audio/mpeg,audio/wav,audio/mp4"
                 className="hidden"
                 aria-label="Attach image, audio, or video"
                 onChange={(event) => selectAttachment(event.target.files?.[0])}
