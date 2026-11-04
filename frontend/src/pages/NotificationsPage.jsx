@@ -20,6 +20,7 @@ import EmailPreferencesPanel from "../components/EmailPreferencesPanel.jsx";
 function NotificationIcon({ type }) {
   const styles = {
     like: "bg-red-500/15 text-red-400",
+    status_like: "bg-rose-500/15 text-rose-400",
     comment: "bg-blue-500/15 text-blue-400",
     follow: "bg-emerald-500/15 text-emerald-400",
     message: "bg-primary/15 text-primary",
@@ -29,7 +30,7 @@ function NotificationIcon({ type }) {
   return (
     <div className={iconClass} aria-hidden="true">
       <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        {type === "like" ? (
+        {type === "like" || type === "status_like" ? (
           <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" />
         ) : type === "comment" ? (
           <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" />
@@ -59,6 +60,9 @@ function actorName(notification) {
 function notificationText(item) {
   const first = item.notifications[0];
   const actors = item.actors;
+  if (first.type === "status_like") {
+    return <><strong>@{actors[0]?.name || "Someone"}</strong> liked your status</>;
+  }
   if (first.type === "like") {
     if (actors.length === 1) return <><strong>@{actors[0].name}</strong> liked your post</>;
     if (actors.length === 2) return <><strong>@{actors[0].name}</strong> and <strong>@{actors[1].name}</strong> liked your post</>;
@@ -124,6 +128,7 @@ function groupNotifications(notifications) {
 }
 
 function notificationHref(notification) {
+  if (notification.type === "status_like") return "/feed";
   if (notification.type === "message") {
     return notification.actorAddress
       ? `/messages?with=${encodeURIComponent(notification.actorAddress)}`

@@ -221,6 +221,14 @@ CREATE TABLE IF NOT EXISTS status_views (
 );
 CREATE INDEX IF NOT EXISTS idx_status_views_viewer ON status_views (viewer, viewed_at DESC);
 
+CREATE TABLE IF NOT EXISTS status_likes (
+  status_id       TEXT NOT NULL REFERENCES statuses(id) ON DELETE CASCADE,
+  owner           TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (status_id, owner)
+);
+CREATE INDEX IF NOT EXISTS idx_status_likes_owner ON status_likes (owner, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS reel_watch_sessions (
   session_id      TEXT PRIMARY KEY,
   post_id         TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -242,10 +250,12 @@ CREATE TABLE IF NOT EXISTS notifications (
   type          TEXT NOT NULL,
   actor_address TEXT NOT NULL,
   post_id       TEXT,
+  status_id     TEXT,
   excerpt       TEXT,
   created_at    TIMESTAMPTZ DEFAULT NOW(),
   read_at       TIMESTAMPTZ
 );
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS status_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_posts_owner    ON posts(owner);
 CREATE INDEX IF NOT EXISTS idx_posts_created  ON posts(created_at DESC);
@@ -637,6 +647,7 @@ function rowToNotification(r) {
     type: r.type,
     actorAddress: r.actor_address,
     postId: r.post_id,
+    statusId: r.status_id || null,
     excerpt: r.excerpt,
     createdAt:
       r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
@@ -2140,13 +2151,14 @@ export async function createNotification({
   type,
   actorAddress,
   postId,
+  statusId,
   excerpt,
 }) {
   if (recipient === actorAddress) return; // don't notify yourself
   const id = uuidv4();
   await pool.query(
-    `INSERT INTO notifications (id, recipient, type, actor_address, post_id, excerpt) VALUES ($1,$2,$3,$4,$5,$6)`,
-    [id, recipient, type, actorAddress, postId || null, excerpt || null],
+    `INSERT INTO notifications (id, recipient, type, actor_address, post_id, status_id, excerpt) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [id, recipient, type, actorAddress, postId || null, statusId || null, excerpt || null],
   );
 }
 
@@ -2326,6 +2338,8 @@ function rowToStatus(row) {
     expiresAt: row.expires_at instanceof Date ? row.expires_at.toISOString() : row.expires_at,
     viewCount: Number(row.view_count || 0),
     viewedByMe: Boolean(row.viewed_by_me),
+    likeCount: Number(row.like_count || 0),
+    likedByMe: Boolean(row.liked_by_me),
     profile: row.profile_address ? {
       address: row.profile_address,
       username: row.profile_username,
@@ -2353,10 +2367,13 @@ export async function getActiveStatusesForViewer(viewer) {
     `SELECT s.*,
        COUNT(DISTINCT sv.viewer)::int AS view_count,
        COALESCE(BOOL_OR(sv.viewer = $1), FALSE) AS viewed_by_me,
+       COUNT(DISTINCT sl.owner)::int AS like_count,
+       COALESCE(BOOL_OR(sl.owner = $1), FALSE) AS liked_by_me,
        p.address AS profile_address, p.username AS profile_username,
        p.display_name AS profile_display_name, p.avatar_url AS profile_avatar_url
      FROM statuses s
      LEFT JOIN status_views sv ON sv.status_id = s.id
+     LEFT JOIN status_likes sl ON sl.status_id = s.id
      LEFT JOIN profiles p ON p.address = s.owner
      WHERE s.expires_at > NOW()
        AND NOT EXISTS (
@@ -2463,6 +2480,87 @@ export async function recordStatusView(statusId, viewer) {
   );
   // Only the first view by a given account counts; repeat opens are idempotent.
   return (rowCount || 0) > 0;
+}
+
+export async function addStatusLike(statusId, viewer) {
+  const { rowCount } = await pool.query(
+    `INSERT INTO status_likes (status_id, owner)
+     SELECT s.id, $2
+     FROM statuses s
+     WHERE s.id = $1
+       AND s.owner <> $2
+       AND s.expires_at > NOW()
+       AND NOT EXISTS (
+         SELECT 1 FROM blocked_users b
+         WHERE (b.blocker = $2 AND b.blocked = s.owner)
+            OR (b.blocker = s.owner AND b.blocked = $2)
+       )
+       AND (
+         s.audience = 'everyone'
+         OR (s.audience = 'followers' AND EXISTS (
+           SELECT 1 FROM follows f WHERE f.follower = s.owner AND f.following = $2
+         ))
+       )
+     ON CONFLICT (status_id, owner) DO NOTHING`,
+    [statusId, viewer],
+  );
+  return (rowCount || 0) > 0;
+}
+
+export async function removeStatusLike(statusId, viewer) {
+  const { rowCount } = await pool.query(
+    `DELETE FROM status_likes sl
+     USING statuses s
+     WHERE sl.status_id = s.id
+       AND s.id = $1
+       AND sl.owner = $2
+       AND s.expires_at > NOW()
+       AND NOT EXISTS (
+         SELECT 1 FROM blocked_users b
+         WHERE (b.blocker = $2 AND b.blocked = s.owner)
+            OR (b.blocker = s.owner AND b.blocked = $2)
+       )
+       AND (
+         s.audience = 'everyone'
+         OR (s.audience = 'followers' AND EXISTS (
+           SELECT 1 FROM follows f WHERE f.follower = s.owner AND f.following = $2
+         ))
+       )`,
+    [statusId, viewer],
+  );
+  return (rowCount || 0) > 0;
+}
+
+export async function getStatusLikeSummary(statusId, viewer) {
+  const { rows } = await pool.query(
+    `SELECT
+       s.owner AS status_owner,
+       COUNT(sl.owner)::int AS like_count,
+       COALESCE(BOOL_OR(sl.owner = $2), FALSE) AS liked_by_me
+     FROM statuses s
+     LEFT JOIN status_likes sl ON sl.status_id = s.id
+     WHERE s.id = $1
+       AND s.expires_at > NOW()
+       AND NOT EXISTS (
+         SELECT 1 FROM blocked_users b
+         WHERE (b.blocker = $2 AND b.blocked = s.owner)
+            OR (b.blocker = s.owner AND b.blocked = $2)
+       )
+       AND (
+         s.owner = $2
+         OR s.audience = 'everyone'
+         OR (s.audience = 'followers' AND EXISTS (
+           SELECT 1 FROM follows f WHERE f.follower = s.owner AND f.following = $2
+         ))
+       )
+     GROUP BY s.id`,
+    [statusId, viewer],
+  );
+  return rows[0] ? {
+    statusOwner: rows[0].status_owner,
+    likeCount: Number(rows[0].like_count || 0),
+    liked: Boolean(rows[0].liked_by_me),
+  } : null;
 }
 
 export async function getStatusViewers(statusId, owner) {

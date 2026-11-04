@@ -3,8 +3,8 @@ import { onValue, ref } from "firebase/database";
 import { useAuth, getAuthToken } from "../lib/auth.jsx";
 import { firebaseDb } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
-import { Clapperboard, ImagePlus, LoaderCircle, Plus } from "./icons.jsx";
-import { createStatus, getStatuses, getStatusMediaUrl, getStatusViewers, recordStatusView } from "../lib/api.js";
+import { Clapperboard, Heart, ImagePlus, LoaderCircle, Plus } from "./icons.jsx";
+import { createStatus, getStatuses, getStatusMediaUrl, getStatusViewers, likeStatus, unlikeStatus, recordStatusView } from "../lib/api.js";
 
 const STATUS_VIDEO_MAX_SECONDS = 180;
 const STATUS_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
@@ -58,6 +58,8 @@ export default function StatusTray() {
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaError, setMediaError] = useState("");
   const [mediaRetry, setMediaRetry] = useState(0);
+  const [likeSaving, setLikeSaving] = useState(false);
+  const [likeError, setLikeError] = useState("");
   const [filePreview, setFilePreview] = useState(null);
 
   useEffect(() => {
@@ -310,10 +312,39 @@ export default function StatusTray() {
   const ownGroup = groups.find((group) => group.owner === address);
   const currentStatus = viewerGroup?.statuses?.[viewerIndex];
 
+  const handleStatusLike = async () => {
+    if (!currentStatus || likeSaving || currentStatus.owner === address) return;
+    setLikeSaving(true);
+    setLikeError("");
+    try {
+      const result = currentStatus.likedByMe
+        ? await unlikeStatus(currentStatus.id)
+        : await likeStatus(currentStatus.id);
+      const nextState = {
+        likeCount: Number(result.likeCount || 0),
+        likedByMe: Boolean(result.liked),
+      };
+      setStatuses((current) => current.map((status) =>
+        status.id === currentStatus.id ? { ...status, ...nextState } : status,
+      ));
+      setViewerGroup((current) => current ? {
+        ...current,
+        statuses: current.statuses.map((status) =>
+          status.id === currentStatus.id ? { ...status, ...nextState } : status,
+        ),
+      } : current);
+    } catch (err) {
+      setLikeError(err.message || "Couldn't update your reaction. Please try again.");
+    } finally {
+      setLikeSaving(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     setMediaSrc(null);
     setMediaError("");
+    setLikeError("");
     setMediaLoading(Boolean(currentStatus?.mediaType));
     if (!currentStatus?.mediaType) return undefined;
     getStatusMediaUrl(currentStatus.id)
@@ -534,7 +565,26 @@ export default function StatusTray() {
             {currentStatus.content && currentStatus.mediaType && <p className="absolute bottom-16 left-4 right-4 z-20 rounded-xl bg-black/45 px-3 py-2 text-center text-sm text-white">{currentStatus.content}</p>}
             <div className="relative z-20 flex items-center justify-between gap-3 border-t border-white/10 bg-slate-950 px-4 py-3 text-xs text-white/70">
               <span>{currentStatus.viewCount || 0} views</span>
-              {currentStatus.owner === address && <button type="button" className="font-semibold text-white hover:text-pink-300" onClick={async () => { try { const data = await getStatusViewers(currentStatus.id); setViewers(data.viewers || []); } catch (err) { setError(err.message); } }}>Viewers</button>}
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center gap-1.5" aria-label={`${currentStatus.likeCount || 0} likes`}>
+                  <Heart size={16} className="text-rose-400" aria-hidden="true" />
+                  {currentStatus.likeCount || 0}
+                </span>
+                {currentStatus.owner !== address && (
+                  <button
+                    type="button"
+                    onClick={handleStatusLike}
+                    disabled={likeSaving}
+                    aria-pressed={Boolean(currentStatus.likedByMe)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 font-semibold transition disabled:opacity-60 ${currentStatus.likedByMe ? "bg-rose-500/15 text-rose-300" : "bg-white/10 text-white hover:bg-white/15"}`}
+                  >
+                    <Heart size={16} fill={currentStatus.likedByMe ? "currentColor" : "none"} />
+                    {likeSaving ? "Saving…" : currentStatus.likedByMe ? "Liked" : "Like"}
+                  </button>
+                )}
+                {currentStatus.owner === address && <button type="button" className="font-semibold text-white hover:text-pink-300" onClick={async () => { try { const data = await getStatusViewers(currentStatus.id); setViewers(data.viewers || []); } catch (err) { setError(err.message); } }}>Viewers</button>}
+              </div>
+              {likeError && <p role="alert" className="absolute bottom-full left-3 right-3 rounded-lg bg-black/85 px-3 py-2 text-center text-xs text-rose-200">{likeError}</p>}
               {viewers && currentStatus.owner === address && <div className="absolute bottom-full left-0 right-0 max-h-44 overflow-y-auto border-t border-white/10 bg-slate-950 p-3">{viewers.length ? viewers.map((person) => <div key={person.address} className="py-1">{person.displayName || person.username}</div>) : "No views yet"}</div>}
             </div>
           </div>

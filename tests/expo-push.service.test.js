@@ -61,6 +61,37 @@ test("sends a message push with the expected conversation deep link", async () =
   );
 });
 
+test("sends a status-like push with an Updates deep link and status ID", async () => {
+  const requests = [];
+  const result = await deliverExpoPush(
+    {
+      recipient: "0xrecipient",
+      type: "status_like",
+      actorAddress: "0xactor",
+      statusId: "status-1",
+    },
+    {
+      query: async () => ({ rows: [{ token: "ExponentPushToken[abc]" }] }),
+      getProfile: async () => ({ displayName: "Actor", username: "actor" }),
+      fetchImpl: async (url, options) => {
+        requests.push({ url, body: JSON.parse(options.body) });
+        return {
+          ok: true,
+          json: async () => ({ data: [{ status: "ok", id: "ticket-status-like" }] }),
+        };
+      },
+      logger: createLogger(),
+    },
+  );
+
+  assert.deepEqual(result, { sent: 1, failed: 0, total: 1 });
+  assert.equal(requests[0].body[0].title, "New like on your Status");
+  assert.equal(requests[0].body[0].body, "Actor liked your status.");
+  assert.equal(requests[0].body[0].data.type, "status_like");
+  assert.equal(requests[0].body[0].data.path, "/feed");
+  assert.equal(requests[0].body[0].data.statusId, "status-1");
+});
+
 test("removes DeviceNotRegistered tokens from the recipient's token records", async () => {
   const queries = [];
   const result = await deliverExpoPush(

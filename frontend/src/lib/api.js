@@ -322,6 +322,8 @@ export const createStatus = (payload) =>
     : request("POST", "/statuses", payload);
 export const recordStatusView = (statusId) => request("POST", `/statuses/${encodeURIComponent(statusId)}/view`, {});
 export const getStatusViewers = (statusId) => request("GET", `/statuses/${encodeURIComponent(statusId)}/viewers`);
+export const likeStatus = (statusId) => request("POST", `/statuses/${encodeURIComponent(statusId)}/like`, {});
+export const unlikeStatus = (statusId) => request("DELETE", `/statuses/${encodeURIComponent(statusId)}/like`);
 
 export const getStatusMediaUrl = (statusId) =>
   request("GET", `/statuses/${encodeURIComponent(statusId)}/media-url`);
