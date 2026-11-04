@@ -172,6 +172,11 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
     }
   }, [cleanupRecordingStream]);
 
+  const handleClose = useCallback(() => {
+    stopRecording(true);
+    onClose?.();
+  }, [stopRecording, onClose]);
+
   const clearAttachment = useCallback(() => {
     setAttachment(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -252,7 +257,7 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, onClose, isRecording, handleClose]);
+  }, [isOpen, handleClose]);
 
   useEffect(() => {
     if (!isRecording) return undefined;
@@ -270,11 +275,6 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
   }, [isRecording, stopRecording]);
 
   const openSignIn = () => openAuthModal("signin");
-
-  const handleClose = () => {
-    if (isRecording) stopRecording(true);
-    onClose?.();
-  };
 
   const handleLoadRetry = async () => {
     if (!post?.id) return;
