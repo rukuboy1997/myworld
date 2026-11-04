@@ -4,6 +4,7 @@ import Layout from "../components/Layout.jsx";
 import { getReels, likePost, recordReelWatch, truncateAddress } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import CommentSheet from "../components/CommentSheet.jsx";
+import { LoaderCircle } from "../components/icons.jsx";
 
 function createPlaybackSessionId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -26,8 +27,11 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
     sending: false,
   });
   const [isVisible, setIsVisible] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+  const [isMediaLoading, setIsMediaLoading] = useState(Boolean(post.mediaUrl));
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [mediaRetry, setMediaRetry] = useState(0);
   const [liked, setLiked] = useState(Boolean(post.userLiked));
   const [likes, setLikes] = useState(Number(post.likes || 0));
   const [commentCount, setCommentCount] = useState(Number(post.commentCount || 0));
@@ -95,24 +99,28 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
   const handleVideoPlay = () => {
     watchRef.current.lastTickAt = performance.now();
     setIsPlaying(true);
+    setIsMediaLoading(false);
+    setIsBuffering(false);
   };
 
   const handleVideoPause = () => {
     watchRef.current.lastTickAt = null;
     setIsPlaying(false);
+    setIsBuffering(false);
     flushWatch(true);
   };
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (isVisible && !showComments) {
+    if (isVisible && !showComments && !mediaError) {
       video.play().catch(() => setIsPlaying(false));
     } else {
       video.pause();
       setIsPlaying(false);
+      setIsBuffering(false);
     }
-  }, [isVisible, showComments]);
+  }, [isVisible, showComments, mediaError, mediaRetry]);
 
   useEffect(() => () => { flushWatch(true); }, [flushWatch]);
 
@@ -151,8 +159,9 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
 
   return (
     <article ref={cardRef} className="reel-card relative h-[100dvh] min-h-[430px] w-full flex-shrink-0 snap-start snap-always overflow-hidden bg-black sm:mx-auto sm:max-w-[560px] sm:rounded-3xl sm:border sm:border-white/10 sm:shadow-2xl">
-      {!mediaError && post.mediaUrl ? (
+      {post.mediaUrl ? (
         <video
+          key={`${post.id}:${mediaRetry}`}
           ref={videoRef}
           src={post.mediaUrl}
           className="absolute inset-0 h-full w-full cursor-pointer object-contain bg-black"
@@ -161,10 +170,31 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
           muted={isMuted}
           preload={isVisible || shouldPreload ? "auto" : "metadata"}
           onClick={togglePlayback}
+          onLoadStart={() => {
+            setIsMediaLoading(true);
+            setIsBuffering(false);
+          }}
+          onLoadedData={() => {
+            setIsMediaLoading(false);
+            setIsBuffering(false);
+          }}
+          onCanPlay={() => {
+            setIsMediaLoading(false);
+            setIsBuffering(false);
+          }}
+          onWaiting={() => {
+            if (isVisible) setIsBuffering(true);
+          }}
+          onPlaying={() => setIsBuffering(false)}
           onPlay={handleVideoPlay}
           onPause={handleVideoPause}
           onTimeUpdate={handleTimeUpdate}
-          onError={() => setMediaError(true)}
+          onError={() => {
+            setIsMediaLoading(false);
+            setIsBuffering(false);
+            setIsPlaying(false);
+            setMediaError(true);
+          }}
           aria-label={caption || "myWorld Reel"}
         />
       ) : (
@@ -174,12 +204,39 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
         </div>
       )}
 
+      {post.mediaUrl && mediaError && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/85 p-6 text-center text-white">
+          <span className="text-4xl">🎬</span>
+          <p className="font-semibold">We couldn't load this Reel</p>
+          <p className="max-w-xs text-sm text-white/65">Check your connection and try again.</p>
+          <button
+            type="button"
+            onClick={() => {
+              setMediaError(false);
+              setIsMediaLoading(true);
+              setIsBuffering(false);
+              setMediaRetry((value) => value + 1);
+            }}
+            className="rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black transition hover:bg-white/85"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {post.mediaUrl && isVisible && !mediaError && (isMediaLoading || isBuffering) && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/35 text-white" role="status" aria-live="polite">
+          <LoaderCircle size={36} className="animate-spin" aria-hidden="true" />
+          <span className="text-sm font-medium text-white/85">
+            {isBuffering && !isMediaLoading ? "Buffering…" : "Loading video…"}
+          </span>
+        </div>
+      )}
+
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/25" />
 
-
-
-      {!isPlaying && isVisible && !mediaError && (
-        <button type="button" onClick={togglePlayback} className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur" aria-label="Play video">
+      {!isPlaying && isVisible && !mediaError && !isMediaLoading && !isBuffering && (
+        <button type="button" onClick={togglePlayback} className="absolute left-1/2 top-1/2 z-20 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur" aria-label="Play video">
           <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         </button>
       )}
