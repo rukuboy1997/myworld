@@ -2153,7 +2153,12 @@ export function buildApp() {
           console.warn("[comment] reply notification failed:", notificationError.message);
         });
       }
-      const profile = (await getProfile(effectiveOwner)) || defaultProfile(effectiveOwner);
+      let profile = defaultProfile(effectiveOwner);
+      try {
+        profile = (await getProfile(effectiveOwner)) || profile;
+      } catch (profileError) {
+        console.warn("[comment] author profile lookup failed:", profileError.message);
+      }
       res.status(201).json({ ...comment, profile });
     } catch (err) {
       if (!commentSaved && claimedMediaKey) {
