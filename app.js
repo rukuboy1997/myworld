@@ -1642,7 +1642,7 @@ export function buildApp() {
           recipient: status.statusOwner,
           type: "status_like",
           actorAddress: req.userAddress,
-          statusId: status.id,
+          statusId: req.params.id,
           excerpt: "liked your status",
         }).catch((notificationError) => {
           console.warn("[status] like notification failed:", notificationError.message);
