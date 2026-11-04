@@ -1528,7 +1528,7 @@ export function buildApp() {
         void (async () => {
           try {
             const event = {
-              statusId: status.id,
+              statusId: req.params.id,
               owner: req.userAddress,
               createdAt: status.createdAt,
               expiresAt: status.expiresAt,
@@ -1627,19 +1627,19 @@ export function buildApp() {
 
   app.post("/api/statuses/:id/like", requireAuth, async (req, res) => {
     try {
-      const status = await getActiveStatusById(req.params.id, req.userAddress);
+      const status = await getStatusLikeSummary(req.params.id, req.userAddress);
       if (!status) return res.status(404).json({ error: "Status not found or unavailable" });
-      if (status.owner === req.userAddress) {
+      if (status.statusOwner === req.userAddress) {
         return res.status(400).json({ error: "You cannot like your own status" });
       }
 
-      const created = await addStatusLike(status.id, req.userAddress);
-      const summary = await getStatusLikeSummary(status.id, req.userAddress);
+      const created = await addStatusLike(req.params.id, req.userAddress);
+      const summary = await getStatusLikeSummary(req.params.id, req.userAddress);
       if (!summary) return res.status(404).json({ error: "Status not found or unavailable" });
 
       if (created) {
         void createNotificationAndPush({
-          recipient: status.owner,
+          recipient: status.statusOwner,
           type: "status_like",
           actorAddress: req.userAddress,
           statusId: status.id,
@@ -1649,7 +1649,7 @@ export function buildApp() {
         });
       }
 
-      res.json({ ...summary, created });
+      res.json({ liked: summary.liked, likeCount: summary.likeCount, created });
     } catch (err) {
       console.error("[status] like failed:", err);
       res.status(500).json({ error: "Could not like this status" });
@@ -1658,16 +1658,16 @@ export function buildApp() {
 
   app.delete("/api/statuses/:id/like", requireAuth, async (req, res) => {
     try {
-      const status = await getActiveStatusById(req.params.id, req.userAddress);
+      const status = await getStatusLikeSummary(req.params.id, req.userAddress);
       if (!status) return res.status(404).json({ error: "Status not found or unavailable" });
-      if (status.owner === req.userAddress) {
+      if (status.statusOwner === req.userAddress) {
         return res.status(400).json({ error: "You cannot like your own status" });
       }
 
-      await removeStatusLike(status.id, req.userAddress);
-      const summary = await getStatusLikeSummary(status.id, req.userAddress);
+      await removeStatusLike(req.params.id, req.userAddress);
+      const summary = await getStatusLikeSummary(req.params.id, req.userAddress);
       if (!summary) return res.status(404).json({ error: "Status not found or unavailable" });
-      res.json(summary);
+      res.json({ liked: summary.liked, likeCount: summary.likeCount });
     } catch (err) {
       console.error("[status] unlike failed:", err);
       res.status(500).json({ error: "Could not remove your status like" });
