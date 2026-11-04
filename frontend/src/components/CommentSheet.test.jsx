@@ -185,6 +185,79 @@ describe("CommentSheet threaded comments and media", () => {
     });
   });
 
+  it("uploads a selected video as a comment attachment", async () => {
+    renderSheet();
+    await screen.findByText("Original comment");
+
+    const video = new File(["video-bytes"], "clip.mp4", { type: "video/mp4" });
+    fireEvent.change(screen.getByLabelText("Attach image, audio, or video"), {
+      target: { files: [video] },
+    });
+    expect(await screen.findByText("clip.mp4")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+
+    await waitFor(() => {
+      expect(uploadCommentMediaDirectly).toHaveBeenCalledWith(video, expect.any(Function));
+      expect(addComment).toHaveBeenCalledWith("post-1", "", {
+        parentCommentId: undefined,
+        mediaIntentId: "media-intent-1",
+      });
+    });
+  });
+
+  it("records and uploads a voice note through the comment composer", async () => {
+    const stopTrack = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] }) },
+    });
+
+    class MockMediaRecorder {
+      static isTypeSupported(type) {
+        return type === "audio/webm;codecs=opus";
+      }
+
+      constructor(_stream, options) {
+        this.mimeType = options?.mimeType || "audio/webm";
+        this.state = "inactive";
+      }
+
+      start() {
+        this.state = "recording";
+      }
+
+      stop() {
+        this.state = "inactive";
+        this.ondataavailable?.({
+          data: new Blob(["voice-note"], { type: this.mimeType }),
+        });
+        this.onstop?.();
+      }
+    }
+    vi.stubGlobal("MediaRecorder", MockMediaRecorder);
+
+    renderSheet();
+    await screen.findByText("Original comment");
+    fireEvent.click(screen.getByRole("button", { name: "Record voice note" }));
+    await screen.findByRole("button", { name: "Stop voice note recording" });
+    fireEvent.click(screen.getByRole("button", { name: "Stop voice note recording" }));
+
+    expect(await screen.findByText("Voice note")).toBeInTheDocument();
+    expect(stopTrack).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+
+    await waitFor(() => {
+      expect(uploadCommentMediaDirectly).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "voice-note.webm", type: "audio/webm;codecs=opus" }),
+        expect.any(Function),
+      );
+      expect(addComment).toHaveBeenCalledWith("post-1", "", {
+        parentCommentId: undefined,
+        mediaIntentId: "media-intent-1",
+      });
+    });
+  });
+
   it("asks signed-out viewers to sign in before liking or replying", async () => {
     authMock.isAuthenticated = false;
     renderSheet();
