@@ -4,7 +4,7 @@ import Layout from "../components/Layout.jsx";
 import { getReels, likePost, recordReelWatch, truncateAddress } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import CommentSheet from "../components/CommentSheet.jsx";
-import { LoaderCircle } from "../components/icons.jsx";
+import { ArrowLeft, BarChart3, Clapperboard, Heart, LoaderCircle, MessageCircle, Play, Plus, Share2, Volume2, VolumeX } from "../components/icons.jsx";
 
 function createPlaybackSessionId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -32,6 +32,8 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
   const [isMediaLoading, setIsMediaLoading] = useState(Boolean(post.mediaUrl));
   const [isBuffering, setIsBuffering] = useState(false);
   const [mediaRetry, setMediaRetry] = useState(0);
+  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [captionExpanded, setCaptionExpanded] = useState(false);
   const [liked, setLiked] = useState(Boolean(post.userLiked));
   const [likes, setLikes] = useState(Number(post.likes || 0));
   const [commentCount, setCommentCount] = useState(Number(post.commentCount || 0));
@@ -82,6 +84,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
     const watch = watchRef.current;
     if (Number.isFinite(video.duration) && video.duration > 0) {
       watch.durationMs = Math.min(video.duration * 1000, 4 * 60 * 60 * 1000);
+      setPlaybackProgress(Math.round((video.currentTime / video.duration) * 100));
     }
     const now = performance.now();
     if (!video.paused && !video.seeking && watch.lastTickAt !== null) {
@@ -158,7 +161,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
   const caption = [post.title, post.content].filter(Boolean).join(" — ");
 
   return (
-    <article ref={cardRef} className="reel-card relative h-[100dvh] min-h-[430px] w-full flex-shrink-0 snap-start snap-always overflow-hidden bg-black sm:mx-auto sm:max-w-[560px] sm:rounded-3xl sm:border sm:border-white/10 sm:shadow-2xl">
+    <article ref={cardRef} className="reel-card relative h-[100dvh] min-h-[430px] w-full flex-shrink-0 snap-start snap-always overflow-hidden bg-black md:my-4 md:h-[min(820px,calc(100dvh-2rem))] md:w-[min(460px,calc((100dvh-2rem)*0.5625))] md:min-w-[320px] md:rounded-[2rem] md:border md:border-white/10 md:shadow-[0_24px_90px_rgba(0,0,0,0.55)]">
       {post.mediaUrl ? (
         <video
           key={`${post.id}:${mediaRetry}`}
@@ -204,6 +207,17 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
         </div>
       )}
 
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1 bg-white/15"
+        role="progressbar"
+        aria-label="Reel playback progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={playbackProgress}
+      >
+        <div className="h-full bg-white/90 transition-[width] duration-150" style={{ width: `${playbackProgress}%` }} />
+      </div>
+
       {post.mediaUrl && mediaError && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/85 p-6 text-center text-white">
           <span className="text-4xl">🎬</span>
@@ -215,6 +229,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
               setMediaError(false);
               setIsMediaLoading(true);
               setIsBuffering(false);
+              setPlaybackProgress(0);
               setMediaRetry((value) => value + 1);
             }}
             className="rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black transition hover:bg-white/85"
@@ -236,14 +251,14 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/25" />
 
       {!isPlaying && isVisible && !mediaError && !isMediaLoading && !isBuffering && (
-        <button type="button" onClick={togglePlayback} className="absolute left-1/2 top-1/2 z-20 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur" aria-label="Play video">
-          <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <button type="button" onClick={togglePlayback} className="absolute left-1/2 top-1/2 z-20 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white shadow-xl backdrop-blur-md transition hover:scale-105" aria-label="Play video">
+          <Play size={28} fill="currentColor" strokeWidth={1.5} aria-hidden="true" />
         </button>
       )}
 
-      <div className="absolute bottom-0 left-0 right-0 flex items-end gap-3 p-4 pb-5 text-white sm:p-5">
+      <div className="absolute bottom-0 left-0 right-0 flex items-end gap-3 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-white md:p-5">
         <div className="min-w-0 flex-1">
-          <Link to={post.owner ? "/profile/" + encodeURIComponent(post.owner) : "/reels"} className="mb-3 inline-flex max-w-full items-center gap-2.5 rounded-full bg-black/35 pr-3 backdrop-blur transition hover:bg-black/55">
+          <Link to={post.owner ? "/profile/" + encodeURIComponent(post.owner) : "/reels"} className="mb-3 inline-flex max-w-full items-center gap-2.5 rounded-full border border-white/10 bg-black/40 pr-3 shadow-lg backdrop-blur-xl transition hover:bg-black/60">
             {profile.avatarUrl ? (
               <img src={profile.avatarUrl} alt="" className="h-10 w-10 rounded-full border border-white/30 object-cover" />
             ) : (
@@ -254,14 +269,26 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
               <span className="block max-w-[230px] truncate text-xs text-white/65">@{profile.username || truncateAddress(post.owner)}</span>
             </span>
           </Link>
-          {caption && <p className="mb-3 line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed drop-shadow">{caption}</p>}
-          <div className="flex items-center gap-4 text-xs text-white/75">
-            <span>▶ Video</span>
-            <Link to={"/post/" + encodeURIComponent(post.id)} className="underline decoration-white/40 underline-offset-2 hover:text-white">Open post & comments</Link>
+          {caption && (
+            <div className="mb-3 max-w-[min(100%,28rem)]">
+              <p className={"whitespace-pre-wrap text-sm leading-relaxed drop-shadow " + (captionExpanded ? "" : "line-clamp-3")}>{caption}</p>
+              {caption.length > 150 && (
+                <button type="button" onClick={() => setCaptionExpanded((value) => !value)} className="mt-1 text-xs font-bold text-white/80 underline decoration-white/40 underline-offset-2 hover:text-white">
+                  {captionExpanded ? "Show less" : "Show more"}
+                </button>
+              )}
+            </div>
+          )}
+          <div className="flex items-center gap-3 text-xs text-white/75">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/30 px-2.5 py-1 backdrop-blur">
+              <Clapperboard size={13} aria-hidden="true" />
+              Reel
+            </span>
+            <Link to={"/post/" + encodeURIComponent(post.id)} className="underline decoration-white/40 underline-offset-2 hover:text-white">View post</Link>
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col items-center gap-4 pb-1">
+        <div className="flex shrink-0 flex-col items-center gap-3 pb-1">
           <button
             type="button"
             onClick={() => setIsMuted((current) => !current)}
@@ -270,20 +297,20 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
             title={isMuted ? "Unmute video" : "Mute video"}
           >
             {isMuted ? (
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6m0-6-5 6"/></svg>
+              <VolumeX size={22} strokeWidth={1.9} aria-hidden="true" />
             ) : (
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7m3-10a9 9 0 0 1 0 13"/></svg>
+              <Volume2 size={22} strokeWidth={1.9} aria-hidden="true" />
             )}
           </button>
           <button type="button" onClick={handleLike} disabled={isLiking} className="flex flex-col items-center gap-1 text-white transition active:scale-90 disabled:opacity-60" aria-label={liked ? "Unlike Reel" : "Like Reel"}>
             <span className={"flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur " + (liked ? "text-rose-400" : "text-white")}>
-              <svg viewBox="0 0 24 24" width="25" height="25" fill={liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg>
+              <Heart size={25} fill={liked ? "currentColor" : "none"} strokeWidth={1.9} aria-hidden="true" />
             </span>
             <span className="text-xs font-bold">{likes}</span>
           </button>
           <button type="button" onClick={() => setShowComments(true)} className="flex flex-col items-center gap-1 text-white transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-xl" aria-label="View comments">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur">
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8A8.5 8.5 0 0 1 8.7 3.9a8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg>
+              <MessageCircle size={24} strokeWidth={1.9} aria-hidden="true" />
             </span>
             <span className="text-xs font-bold">{commentCount}</span>
           </button>
@@ -304,7 +331,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
             } catch {}
           }} className="flex flex-col items-center gap-1 text-white transition hover:scale-105" aria-label="Share Reel">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur">
-              <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.7 6.8-4.4m-6.8 9 6.8 4.1"/></svg>
+              <Share2 size={23} strokeWidth={1.9} aria-hidden="true" />
             </span>
             <span className="text-xs font-bold">Share</span>
           </button>
@@ -316,7 +343,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
               title="Analytics"
             >
               <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur">
-                <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 3 6-7"/></svg>
+                <BarChart3 size={23} strokeWidth={1.9} aria-hidden="true" />
               </span>
               <span className="text-[10px] font-bold">Analytics</span>
             </Link>
@@ -413,7 +440,11 @@ export default function ReelsPage() {
 
   return (
     <Layout immersive>
-      <section className="relative h-[100dvh] min-h-0 w-full overflow-hidden bg-black text-white">
+      <section className="relative isolate h-[100dvh] min-h-0 w-full overflow-hidden bg-[#05070b] text-white">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 hidden overflow-hidden md:block">
+          <div className="absolute left-[calc(50%-26rem)] top-1/2 h-[70vh] w-[28rem] -translate-y-1/2 rounded-full bg-cyan-500/[0.08] blur-[120px]" />
+          <div className="absolute right-[calc(50%-27rem)] top-[18%] h-72 w-72 rounded-full bg-violet-500/[0.07] blur-[110px]" />
+        </div>
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-40 bg-gradient-to-b from-black/85 via-black/35 to-transparent" />
         <header className="absolute inset-x-0 top-0 z-40 px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)] sm:px-5">
           <div className="mx-auto grid w-full max-w-[560px] grid-cols-[40px_minmax(0,1fr)_40px] items-center gap-2">
@@ -423,9 +454,7 @@ export default function ReelsPage() {
               title="Create"
               className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-md transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
-              <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
+              <Plus size={21} strokeWidth={2.3} aria-hidden="true" />
             </Link>
 
             <div className="mx-auto flex min-w-0 max-w-[300px] items-center gap-0.5 rounded-full border border-white/15 bg-black/50 p-1 backdrop-blur-md">
@@ -453,9 +482,7 @@ export default function ReelsPage() {
               title="Back"
               className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur-md transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
-              <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="m15 18-6-6 6-6M9 12h12" />
-              </svg>
+              <ArrowLeft size={21} strokeWidth={2} aria-hidden="true" />
             </button>
           </div>
         </header>
@@ -482,7 +509,7 @@ export default function ReelsPage() {
         ) : (
           <div
             ref={scrollRef}
-            className="absolute inset-0 flex h-full snap-y snap-mandatory flex-col overflow-y-auto overscroll-y-contain bg-black [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="absolute inset-0 flex h-full snap-y snap-mandatory flex-col overflow-y-auto overscroll-y-contain bg-transparent [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             aria-label="Reels video feed"
           >
             {reels.map((post, index) => (
