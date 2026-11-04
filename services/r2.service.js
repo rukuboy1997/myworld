@@ -187,6 +187,8 @@ export function matchesR2UploadSignature(expectedContentType, prefix) {
   // WebM is a shared EBML container: MediaRecorder may create audio-only WebM,
   // while the container signature itself is the same as video/webm.
   if (expected === "audio/webm") return detected === "video/webm";
+  // Audio-only MP4/M4A files may use a generic ISO-BMFF brand rather than M4A.
+  if (expected === "audio/mp4") return detected === "audio/mp4" || detected === "video/mp4";
   return detected === expected;
 }
 
