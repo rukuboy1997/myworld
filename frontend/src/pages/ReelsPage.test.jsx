@@ -77,7 +77,7 @@ describe("ReelsPage playback states", () => {
       </MemoryRouter>,
     );
 
-    const video = await screen.findByLabelText("A test Reel");
+    const video = await screen.findByLabelText(/A test Reel/);
     expect(video.tagName).toBe("VIDEO");
     expect(await screen.findByText("Loading video…")).toBeInTheDocument();
 
@@ -103,7 +103,7 @@ describe("ReelsPage playback states", () => {
       </MemoryRouter>,
     );
 
-    const firstVideo = await screen.findByLabelText("A test Reel");
+    const firstVideo = await screen.findByLabelText(/A test Reel/);
     fireEvent.error(firstVideo);
 
     expect(await screen.findByText("We couldn't load this Reel")).toBeInTheDocument();
