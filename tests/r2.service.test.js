@@ -77,6 +77,7 @@ test("audio signature validation accepts supported audio MIME types", () => {
   assert.equal(matchesR2UploadSignature("audio/mpeg", Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00])), true);
   assert.equal(matchesR2UploadSignature("audio/wav", Buffer.from("RIFFxxxxWAVE")), true);
   assert.equal(matchesR2UploadSignature("audio/mp4", Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20])), true);
+  assert.equal(matchesR2UploadSignature("audio/mp4", Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d])), true);
   assert.equal(matchesR2UploadSignature("audio/mpeg", Buffer.from("RIFFxxxxWEBP")), false);
 });
 
