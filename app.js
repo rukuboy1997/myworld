@@ -53,7 +53,9 @@ import {
   getAllProfiles,
   getProfileStats,
   getComments,
+  getCommentById,
   saveComment,
+  toggleCommentLike,
   getLikes,
   hasLiked,
   saveLike,
@@ -365,21 +367,28 @@ export function buildApp() {
       return res.status(503).json({ error: "Direct uploads are not enabled yet" });
     }
     try {
-      const { category, mediaType, contentType, sizeBytes } = req.body || {};
+      const { category, mediaType, sizeBytes } = req.body || {};
+      const contentType = typeof req.body?.contentType === "string"
+        ? req.body.contentType.trim().toLowerCase()
+        : "";
       const allowedContentTypes = {
         image: new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]),
         video: new Set(["video/mp4", "video/webm", "video/quicktime"]),
+        audio: new Set(["audio/webm", "audio/ogg", "audio/mpeg", "audio/wav", "audio/mp4"]),
       };
-      if (!["post", "status", "message", "avatar", "banner"].includes(category)) {
+      if (!["post", "status", "message", "comment", "avatar", "banner"].includes(category)) {
         return res.status(400).json({ error: "Invalid media category" });
       }
-      if (!["image", "video"].includes(mediaType) ||
+      if (!["image", "video", "audio"].includes(mediaType) ||
           !allowedContentTypes[mediaType].has(contentType) ||
           !Number.isSafeInteger(sizeBytes) || sizeBytes < 1) {
         return res.status(400).json({ error: "Invalid media type, content type, or size" });
       }
       if (["avatar", "banner"].includes(category) && mediaType !== "image") {
         return res.status(400).json({ error: "Profile media must be an image" });
+      }
+      if (mediaType === "audio" && category !== "comment") {
+        return res.status(400).json({ error: "Audio uploads are currently supported for comments only" });
       }
 
       const maxBytes = getMediaSizeLimit(req.membershipPlan.id, mediaType);
@@ -393,12 +402,13 @@ export function buildApp() {
 
       const folder = {
         post: "posts", status: "statuses", message: "messages",
-        avatar: "avatars", banner: "banners",
+        comment: "comments", avatar: "avatars", banner: "banners",
       }[category];
       const extension = {
         "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
         "image/gif": "gif", "video/mp4": "mp4", "video/webm": "webm",
-        "video/quicktime": "mov",
+        "video/quicktime": "mov", "audio/webm": "webm", "audio/ogg": "ogg",
+        "audio/mpeg": "mp3", "audio/wav": "wav", "audio/mp4": "m4a",
       }[contentType];
       const intentId = uuidv4();
       const objectKey = folder + "/" + req.userAddress.replace(/[^a-zA-Z0-9_-]/g, "_") +
@@ -1264,7 +1274,7 @@ export function buildApp() {
         const cleanedIds = [];
         for (const intent of abandoned) {
           // Object keys are server-generated under the direct-upload prefixes.
-          const allowedPrefixes = ["posts/", "statuses/", "messages/", "avatars/", "banners/"];
+          const allowedPrefixes = ["posts/", "statuses/", "messages/", "comments/", "avatars/", "banners/"];
           if (!allowedPrefixes.some((prefix) => intent.object_key.startsWith(prefix))) {
             uploadCleanupFailures += 1;
             console.warn("[upload-cleanup] skipped unexpected object key", intent.id);
@@ -1272,6 +1282,7 @@ export function buildApp() {
           }
           try {
             await deleteFromR2(intent.object_key);
+            await markMediaUsageDeleted(intent.object_key);
             cleanedIds.push(intent.id);
             uploadObjectsDeleted += 1;
           } catch (deleteError) {
@@ -1337,11 +1348,12 @@ export function buildApp() {
             post: "posts/",
             status: "statuses/",
             message: "messages/",
+            comment: "comments/",
             avatar: "avatars/",
             banner: "banners/",
           }[item.media_category];
           if (!allowedPrefix || !item.object_key.startsWith(allowedPrefix) ||
-              !/^(posts|statuses|messages|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(item.object_key) ||
+              !/^(posts|statuses|messages|comments|avatars|banners)\/[a-zA-Z0-9_./-]+$/.test(item.object_key) ||
               item.object_key.includes("..")) {
             queuedMediaFailures += 1;
             await failMediaDeletion(item.object_key, "Unexpected object key prefix");
@@ -1354,6 +1366,10 @@ export function buildApp() {
                 EXISTS (SELECT 1 FROM posts WHERE is_deleted = false AND (media_blob_id = $1 OR media_url LIKE '%' || $1))
                 OR EXISTS (SELECT 1 FROM statuses WHERE expires_at > NOW() AND (media_key = $1 OR media_url LIKE '%' || $1))
                 OR EXISTS (SELECT 1 FROM messages WHERE deleted_at IS NULL AND (attachment_key = $1 OR attachment_url LIKE '%' || $1))
+                OR EXISTS (
+                  SELECT 1 FROM comments c INNER JOIN posts p ON p.id = c.post_id
+                  WHERE c.media_blob_id = $1 AND p.is_deleted = false
+                )
                 OR EXISTS (SELECT 1 FROM profiles WHERE avatar_blob_id = $1 OR banner_blob_id = $1 OR avatar_url LIKE '%' || $1 OR banner_url LIKE '%' || $1)
                 AS in_use`,
               [item.object_key],
@@ -1927,7 +1943,55 @@ export function buildApp() {
           }
         }
       }
-      res.json({ success: true, mediaDeleted, mediaCleanupPending });
+      // Comment media belongs to the post's conversation. Once its post is
+      // deleted, detach those references and remove their R2 objects or queue
+      // failed deletions for the existing retry worker.
+      let commentMediaDeleted = 0;
+      let commentMediaCleanupPending = false;
+      const { rows: commentMedia } = await pool.query(
+        `SELECT id, owner, media_blob_id
+         FROM comments
+         WHERE post_id = $1 AND media_blob_id LIKE 'comments/%'`,
+        [req.params.id],
+      );
+      if (commentMedia.length) {
+        await pool.query(
+          `UPDATE comments
+           SET media_blob_id = NULL, media_type = NULL, media_mime = NULL, media_size_bytes = NULL
+           WHERE post_id = $1`,
+          [req.params.id],
+        );
+        for (const attachment of commentMedia) {
+          if (!/^comments\/[a-zA-Z0-9_./-]+$/.test(attachment.media_blob_id) || attachment.media_blob_id.includes("..")) {
+            commentMediaCleanupPending = true;
+            continue;
+          }
+          try {
+            await deleteFromR2(attachment.media_blob_id);
+            await markMediaUsageDeleted(attachment.media_blob_id);
+            commentMediaDeleted += 1;
+          } catch (cleanupError) {
+            commentMediaCleanupPending = true;
+            await enqueueMediaDeletion({
+              objectKey: attachment.media_blob_id,
+              userAddress: attachment.owner,
+              category: "comment",
+            }).catch((queueError) => {
+              console.error("[post-delete] comment media cleanup could not be queued:", queueError.message);
+            });
+            console.error("[post-delete] comment media cleanup failed:", {
+              commentId: attachment.id,
+              error: cleanupError.message,
+            });
+          }
+        }
+      }
+      res.json({
+        success: true,
+        mediaDeleted,
+        mediaCleanupPending: mediaCleanupPending || commentMediaCleanupPending,
+        commentMediaDeleted,
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1986,64 +2050,166 @@ export function buildApp() {
     }
   });
 
-  // ─── Comment ────────────────────────────────────────────────────────────
+  // ─── Comments ───────────────────────────────────────────────────────────
   app.post("/api/post/:id/comment", requireAuth, async (req, res) => {
+    let claimedIntentId = null;
+    let claimedCommentId = null;
+    let claimedMediaKey = null;
+    let commentSaved = false;
     try {
       const content = normalizeTextInput(req.body?.content);
-      if (!content) return res.status(400).json({ error: "content required" });
-      if (content.length > COMMENT_CONTENT_MAX_LENGTH)
-        return res
-          .status(400)
-          .json({ error: tooLongError("content", COMMENT_CONTENT_MAX_LENGTH) });
+      const parentCommentId = typeof req.body?.parentCommentId === "string"
+        ? req.body.parentCommentId.trim()
+        : "";
+      const mediaIntentId = typeof req.body?.mediaIntentId === "string"
+        ? req.body.mediaIntentId.trim()
+        : "";
+      if (!content && !mediaIntentId) {
+        return res.status(400).json({ error: "Write a comment or attach media" });
+      }
+      if (content.length > COMMENT_CONTENT_MAX_LENGTH) {
+        return res.status(400).json({ error: tooLongError("content", COMMENT_CONTENT_MAX_LENGTH) });
+      }
+      if (parentCommentId && parentCommentId.length > 128) {
+        return res.status(400).json({ error: "Invalid parent comment" });
+      }
+      if (mediaIntentId && !/^[0-9a-f-]{36}$/i.test(mediaIntentId)) {
+        return res.status(400).json({ error: "Invalid media upload intent ID" });
+      }
       const effectiveOwner = req.userAddress;
       const postId = req.params.id;
       const post = await getPostById(postId);
-      if (isPostUnavailable(post))
-        return res.status(404).json({ error: "Not found" });
-      if (await isBlockedEitherWay(effectiveOwner, post.owner))
+      if (isPostUnavailable(post)) return res.status(404).json({ error: "Not found" });
+      if (await isBlockedEitherWay(effectiveOwner, post.owner)) {
         return res.status(403).json({ error: "You cannot comment here because one of these users has blocked the other" });
+      }
+
+      let parentComment = null;
+      if (parentCommentId) {
+        parentComment = await getCommentById(parentCommentId);
+        if (!parentComment || parentComment.postId !== postId || parentComment.parentCommentId) {
+          return res.status(400).json({ error: "Replies must belong to a top-level comment on this post" });
+        }
+        if (await isBlockedEitherWay(effectiveOwner, parentComment.owner)) {
+          return res.status(403).json({ error: "You cannot reply to this comment because one of these users has blocked the other" });
+        }
+      }
+
+      const commentId = uuidv4();
+      let media = null;
+      if (mediaIntentId) {
+        if (process.env.ENABLE_DIRECT_R2_UPLOADS !== "true") {
+          return res.status(503).json({ error: "Comment media uploads are not enabled yet" });
+        }
+        media = await claimCompletedMediaUploadIntent({
+          id: mediaIntentId,
+          userAddress: effectiveOwner,
+          category: "comment",
+          attachmentId: commentId,
+        });
+        if (!media) {
+          return res.status(409).json({ error: "This verified comment upload is unavailable or has already been attached" });
+        }
+        claimedIntentId = mediaIntentId;
+        claimedCommentId = commentId;
+        claimedMediaKey = media.objectKey;
+      }
+
       const comment = await saveComment({
-        id: uuidv4(),
+        id: commentId,
         postId,
         owner: effectiveOwner,
         content,
+        parentCommentId: parentCommentId || null,
+        mediaBlobId: media?.objectKey || null,
+        mediaType: media?.mediaType || null,
+        mediaMime: media?.contentType || null,
+        mediaSizeBytes: media?.sizeBytes ?? null,
         createdAt: new Date().toISOString(),
       });
-      // Notify post owner (skip self-notification)
+      commentSaved = true;
+
+      // Keep notifications best-effort so provider/database issues never turn
+      // a successfully saved comment into an apparent failed submission.
       if (post.owner !== effectiveOwner) {
-        await createNotificationAndPush({
+        void createNotificationAndPush({
           recipient: post.owner,
           type: "comment",
           actorAddress: effectiveOwner,
           postId,
-          excerpt: content.slice(0, 80),
+          excerpt: (content || (media?.mediaType === "audio" ? "sent an audio comment" : "shared media in a comment")).slice(0, 80),
+        }).catch((notificationError) => {
+          console.warn("[comment] post-owner notification failed:", notificationError.message);
         });
       }
-      const profile =
-        (await getProfile(effectiveOwner)) || defaultProfile(effectiveOwner);
-      res.json({ ...comment, profile });
+      if (parentComment && parentComment.owner !== effectiveOwner && parentComment.owner !== post.owner) {
+        void createNotificationAndPush({
+          recipient: parentComment.owner,
+          type: "comment",
+          actorAddress: effectiveOwner,
+          postId,
+          excerpt: ("replied to your comment: " + content).slice(0, 80),
+        }).catch((notificationError) => {
+          console.warn("[comment] reply notification failed:", notificationError.message);
+        });
+      }
+      const profile = (await getProfile(effectiveOwner)) || defaultProfile(effectiveOwner);
+      res.status(201).json({ ...comment, profile });
     } catch (err) {
+      if (!commentSaved && claimedMediaKey) {
+        await cleanupAttachedMediaFailure({
+          objectKey: claimedMediaKey,
+          userAddress: req.userAddress,
+          category: "comment",
+        }).catch((cleanupError) => {
+          console.error("[comment] failed to clean unattached media:", cleanupError.message);
+        });
+      }
+      if (!commentSaved && claimedIntentId && claimedCommentId) {
+        await releaseMediaUploadIntentClaim({
+          id: claimedIntentId,
+          userAddress: req.userAddress,
+          attachmentId: claimedCommentId,
+        }).catch((releaseError) => {
+          console.error("[comment] failed to release upload claim:", releaseError.message);
+        });
+      }
       console.error("add_comment error:", err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Failed to post your comment" });
     }
   });
 
-  app.get("/api/post/:id/comments", async (req, res) => {
+  app.post("/api/comment/:id/like", requireAuth, async (req, res) => {
+    try {
+      const comment = await getCommentById(req.params.id);
+      if (!comment) return res.status(404).json({ error: "Comment not found" });
+      const post = await getPostById(comment.postId);
+      if (isPostUnavailable(post)) return res.status(404).json({ error: "Post not found" });
+      if (await isBlockedEitherWay(req.userAddress, comment.owner) ||
+          await isBlockedEitherWay(req.userAddress, post.owner)) {
+        return res.status(403).json({ error: "You cannot like this comment because one of these users has blocked the other" });
+      }
+      const summary = await toggleCommentLike(comment.id, req.userAddress);
+      res.json(summary);
+    } catch (err) {
+      console.error("like_comment error:", err);
+      res.status(500).json({ error: "Could not update comment like" });
+    }
+  });
+
+  app.get("/api/post/:id/comments", optionalAuth, async (req, res) => {
     try {
       const post = await getPostById(req.params.id);
-      if (isPostUnavailable(post))
-        return res.status(404).json({ error: "Not found" });
+      if (isPostUnavailable(post)) return res.status(404).json({ error: "Not found" });
       const profiles = await getAllProfiles();
-      const comments = await getComments(req.params.id);
-      res.json(
-        comments.map((c) => ({
-          ...c,
-          profile: profiles[c.owner] || defaultProfile(c.owner),
-        })),
-      );
+      const comments = await getComments(req.params.id, req.userAddress || null);
+      res.json(comments.map((comment) => ({
+        ...comment,
+        profile: profiles[comment.owner] || defaultProfile(comment.owner),
+      })));
     } catch (err) {
       console.error("get_comments error:", err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Failed to load comments" });
     }
   });
 
