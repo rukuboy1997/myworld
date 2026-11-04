@@ -12,12 +12,14 @@ vi.mock("../components/CommentSheet.jsx", () => ({
   default: () => null,
 }));
 
+const authMock = vi.hoisted(() => ({
+  address: "0xviewer",
+  isAuthenticated: true,
+  openAuthModal: vi.fn(),
+}));
+
 vi.mock("../lib/auth.jsx", () => ({
-  useAuth: () => ({
-    address: "0xviewer",
-    isAuthenticated: true,
-    openAuthModal: vi.fn(),
-  }),
+  useAuth: () => authMock,
 }));
 
 vi.mock("../lib/api.js", () => ({
@@ -60,6 +62,9 @@ describe("ReelsPage playback states", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    authMock.address = "0xviewer";
+    authMock.isAuthenticated = true;
+    authMock.openAuthModal.mockClear();
     vi.stubGlobal("IntersectionObserver", VisibleIntersectionObserver);
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
@@ -129,6 +134,26 @@ describe("ReelsPage playback states", () => {
         limit: 10,
         sort: "following",
       });
+    });
+  });
+
+  it("asks signed-out viewers to sign in before opening Following", async () => {
+    authMock.isAuthenticated = false;
+
+    render(
+      <MemoryRouter initialEntries={["/reels"]}>
+        <ReelsPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByLabelText(/A test Reel/);
+    fireEvent.click(screen.getByRole("button", { name: "Following" }));
+
+    expect(authMock.openAuthModal).toHaveBeenCalledWith("signin");
+    expect(getReels).toHaveBeenCalledTimes(1);
+    expect(getReels).not.toHaveBeenLastCalledWith({
+      limit: 10,
+      sort: "following",
     });
   });
 
