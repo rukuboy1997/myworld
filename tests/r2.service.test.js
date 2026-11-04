@@ -34,8 +34,8 @@ test("detects WebM video signatures", () => {
 
 test("detects common audio container signatures", () => {
   assert.equal(sniffMime(Buffer.from("RIFFxxxxWAVE")), "audio/wav");
-  assert.equal(sniffMime(Buffer.from("ID3\\u0004\\u0000\\u0000\\u0000")), "audio/mpeg");
-  assert.equal(sniffMime(Buffer.from("OggS\\u0000\\u0002")), "audio/ogg");
+  assert.equal(sniffMime(Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00])), "audio/mpeg");
+  assert.equal(sniffMime(Buffer.from([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02])), "audio/ogg");
   assert.equal(sniffMime(Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20])), "audio/mp4");
 });
 
@@ -73,8 +73,8 @@ test("R2 upload metadata must match the reserved byte size and content type", ()
 
 test("audio signature validation accepts supported audio MIME types", () => {
   assert.equal(matchesR2UploadSignature("audio/webm", Buffer.from([0x1a, 0x45, 0xdf, 0xa3])), true);
-  assert.equal(matchesR2UploadSignature("audio/ogg", Buffer.from("OggS\\u0000\\u0002")), true);
-  assert.equal(matchesR2UploadSignature("audio/mpeg", Buffer.from("ID3\\u0004\\u0000\\u0000\\u0000")), true);
+  assert.equal(matchesR2UploadSignature("audio/ogg", Buffer.from([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02])), true);
+  assert.equal(matchesR2UploadSignature("audio/mpeg", Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00])), true);
   assert.equal(matchesR2UploadSignature("audio/wav", Buffer.from("RIFFxxxxWAVE")), true);
   assert.equal(matchesR2UploadSignature("audio/mp4", Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20])), true);
   assert.equal(matchesR2UploadSignature("audio/mpeg", Buffer.from("RIFFxxxxWEBP")), false);
