@@ -25,6 +25,7 @@ import {
   getPosts,
   getPostsPage,
   getReelsPage,
+  getFollowingReelsPage,
   getRankedReelsPage,
   getTrendingReelsPage,
   getReelCreatorAnalytics,
@@ -1117,8 +1118,8 @@ export function buildApp() {
         return res.status(400).json({ error: "limit must be an integer between 1 and 20" });
       }
       const sort = req.query.sort === undefined ? "for-you" : String(req.query.sort);
-      if (sort !== "for-you" && sort !== "latest" && sort !== "trending") {
-        return res.status(400).json({ error: "sort must be for-you, latest, or trending" });
+      if (sort !== "for-you" && sort !== "latest" && sort !== "trending" && sort !== "following") {
+        return res.status(400).json({ error: "sort must be for-you, following, trending, or latest" });
       }
       let beforeCreatedAt = null;
       let beforeId = null;
@@ -1139,13 +1140,18 @@ export function buildApp() {
           return res.status(400).json({ error: "Invalid Reels cursor" });
         }
       }
-      // Never trust a client-supplied viewer ID for personal recommendations.
+      // Never trust a client-supplied viewer ID for personalized or following feeds.
       const viewer = req.userAddress || null;
+      if (sort === "following" && !viewer) {
+        return res.status(401).json({ error: "Sign in to view Reels from creators you follow" });
+      }
       const posts = sort === "for-you"
         ? await getRankedReelsPage({ viewer, limit: limit + 1, beforeScore, beforeCreatedAt, beforeId })
-        : sort === "trending"
-          ? await getTrendingReelsPage({ limit: limit + 1, beforeScore, beforeCreatedAt, beforeId, viewer })
-          : await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId, viewer });
+        : sort === "following"
+          ? await getFollowingReelsPage({ viewer, limit: limit + 1, beforeCreatedAt, beforeId })
+          : sort === "trending"
+            ? await getTrendingReelsPage({ limit: limit + 1, beforeScore, beforeCreatedAt, beforeId, viewer })
+            : await getReelsPage({ limit: limit + 1, beforeCreatedAt, beforeId, viewer });
       const hasMore = posts.length > limit;
       const page = hasMore ? posts.slice(0, limit) : posts;
       const [profiles, engagement] = await Promise.all([
