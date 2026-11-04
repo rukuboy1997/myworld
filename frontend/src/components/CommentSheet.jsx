@@ -12,7 +12,6 @@ import { uploadCommentMediaDirectly } from "../lib/mediaUpload.js";
 import { useAuth } from "../lib/auth.jsx";
 import {
   Heart,
-  ImagePlus,
   LoaderCircle,
   MessageCircle,
   Mic,
@@ -20,7 +19,6 @@ import {
   Paperclip,
   Send,
   Square,
-  Video,
   X,
 } from "./icons.jsx";
 
