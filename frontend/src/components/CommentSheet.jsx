@@ -232,12 +232,19 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
   }, [isOpen, post?.id, post?.commentCount]);
 
   useEffect(() => {
+    if (!isOpen && isRecording) {
+      stopRecording(true);
+      setRecordingSeconds(0);
+    }
+  }, [isOpen, isRecording, stopRecording]);
+
+  useEffect(() => {
     if (!isOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") onClose?.();
+      if (event.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handleKeyDown);
 
@@ -245,7 +252,7 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, isRecording, handleClose]);
 
   useEffect(() => {
     if (!isRecording) return undefined;
@@ -264,6 +271,11 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
 
   const openSignIn = () => openAuthModal("signin");
 
+  const handleClose = () => {
+    if (isRecording) stopRecording(true);
+    onClose?.();
+  };
+
   const handleLoadRetry = async () => {
     if (!post?.id) return;
     setIsLoading(true);
@@ -280,9 +292,9 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
     }
   };
 
-  const selectAttachment = (file) => {
+  const selectAttachment = (file, fromRecorder = false) => {
     if (!file) return;
-    if (isRecording) stopRecording(true);
+    if (isRecording && !fromRecorder) stopRecording(true);
     if (attachmentUrlRef.current) {
       URL.revokeObjectURL(attachmentUrlRef.current);
       attachmentUrlRef.current = null;
@@ -345,7 +357,7 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
         const blob = new Blob(chunks, { type: actualType });
         if (!blob.size) return;
         const voiceFile = new File([blob], `voice-note.${extension}`, { type: actualType });
-        selectAttachment(voiceFile);
+        selectAttachment(voiceFile, true);
         setAttachment((current) => current ? { ...current, isVoiceNote: true } : current);
       };
       recorder.start(250);
@@ -513,7 +525,7 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
   const previewType = attachment?.type;
   return createPortal(
     <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/60 backdrop-blur-[2px] sm:p-4" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose?.();
+      if (event.target === event.currentTarget) handleClose();
     }}>
       <section
         role="dialog"
@@ -529,7 +541,7 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
               <h2 id="myworld-comments-title" className="text-base font-bold text-foreground sm:text-lg">Comments</h2>
               <p className="text-xs text-muted-foreground">{commentCount.toLocaleString()} {commentCount === 1 ? "comment" : "comments"}</p>
             </div>
-            <button type="button" onClick={onClose} aria-label="Close comments" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-surface-soft hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+            <button type="button" onClick={handleClose} aria-label="Close comments" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-surface-soft hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
               <X size={20} aria-hidden="true" />
             </button>
           </div>
