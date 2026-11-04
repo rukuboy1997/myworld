@@ -104,7 +104,7 @@ export function parseVideoDurationSeconds(contentType, samples) {
  * follow the uploader's current membership plan.
  */
 export function getVideoDurationLimitSeconds(mediaCategory, membershipPlan) {
-  if (mediaCategory === "status") return 180;
+  if (mediaCategory === "status" || mediaCategory === "comment") return 180;
   const limit = membershipPlan?.reelDurationSeconds;
   return Number.isFinite(limit) && limit > 0 ? limit : null;
 }
