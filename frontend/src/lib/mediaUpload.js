@@ -56,7 +56,7 @@ export async function uploadCommentMediaDirectly(file, onUploadProgress) {
 }
 
 async function uploadMediaDirectly(file, category, onUploadProgress) {
-  const contentType = (file.type || "").toLowerCase();
+  const contentType = (file.type || "").toLowerCase().split(";")[0].trim();
   const mediaType = contentType.startsWith("image/")
     ? "image"
     : contentType.startsWith("video/")
