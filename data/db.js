@@ -2534,6 +2534,7 @@ export async function removeStatusLike(statusId, viewer) {
 export async function getStatusLikeSummary(statusId, viewer) {
   const { rows } = await pool.query(
     `SELECT
+       s.owner AS status_owner,
        COUNT(sl.owner)::int AS like_count,
        COALESCE(BOOL_OR(sl.owner = $2), FALSE) AS liked_by_me
      FROM statuses s
@@ -2556,6 +2557,7 @@ export async function getStatusLikeSummary(statusId, viewer) {
     [statusId, viewer],
   );
   return rows[0] ? {
+    statusOwner: rows[0].status_owner,
     likeCount: Number(rows[0].like_count || 0),
     liked: Boolean(rows[0].liked_by_me),
   } : null;
