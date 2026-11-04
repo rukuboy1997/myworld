@@ -58,6 +58,7 @@ class VisibleIntersectionObserver {
 
 describe("ReelsPage playback states", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     vi.stubGlobal("IntersectionObserver", VisibleIntersectionObserver);
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
