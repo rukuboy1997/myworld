@@ -208,7 +208,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
       )}
 
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1 bg-white/15"
+        className="pointer-events-none absolute inset-x-0 top-[calc(env(safe-area-inset-top)+3.25rem)] z-10 h-[3px] overflow-hidden bg-white/15"
         role="progressbar"
         aria-label="Reel playback progress"
         aria-valuemin={0}
@@ -303,13 +303,13 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
             )}
           </button>
           <button type="button" onClick={handleLike} disabled={isLiking} className="flex flex-col items-center gap-1 text-white transition active:scale-90 disabled:opacity-60" aria-label={liked ? "Unlike Reel" : "Like Reel"}>
-            <span className={"flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur " + (liked ? "text-rose-400" : "text-white")}>
+            <span className={"flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg backdrop-blur-xl " + (liked ? "text-rose-400" : "text-white")}>
               <Heart size={25} fill={liked ? "currentColor" : "none"} strokeWidth={1.9} aria-hidden="true" />
             </span>
             <span className="text-xs font-bold">{likes}</span>
           </button>
           <button type="button" onClick={() => setShowComments(true)} className="flex flex-col items-center gap-1 text-white transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-xl" aria-label="View comments">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg backdrop-blur-xl">
               <MessageCircle size={24} strokeWidth={1.9} aria-hidden="true" />
             </span>
             <span className="text-xs font-bold">{commentCount}</span>
@@ -330,7 +330,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
               }
             } catch {}
           }} className="flex flex-col items-center gap-1 text-white transition hover:scale-105" aria-label="Share Reel">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg backdrop-blur-xl">
               <Share2 size={23} strokeWidth={1.9} aria-hidden="true" />
             </span>
             <span className="text-xs font-bold">Share</span>
@@ -342,7 +342,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
               aria-label="Reels analytics"
               title="Analytics"
             >
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-lg backdrop-blur-xl">
                 <BarChart3 size={23} strokeWidth={1.9} aria-hidden="true" />
               </span>
               <span className="text-[10px] font-bold">Analytics</span>
