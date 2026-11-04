@@ -462,7 +462,7 @@ CREATE INDEX IF NOT EXISTS idx_media_usage_user_size
 CREATE TABLE IF NOT EXISTS media_deletion_queue (
   object_key TEXT PRIMARY KEY,
   user_address TEXT,
-  media_category TEXT NOT NULL CHECK (media_category IN ('message', 'avatar', 'banner', 'post', 'status', 'comment'));
+  media_category TEXT NOT NULL CHECK (media_category IN ('message', 'avatar', 'banner', 'post', 'status', 'comment')),
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -3106,9 +3106,9 @@ export async function createMediaUploadIntent({
 }
 
 /**
- * Expire timed-out reservations and return abandoned R2 objects that are safe
- * to remove. Completed intents are excluded, and objects already registered in
- * media_usage_events are never treated as abandoned.
+ * Expire timed-out reservations and return stale, unattached R2 objects
+ * that are safe to remove. Completed uploads are only abandoned after one hour
+ * without a successful attachment claim.
  */
 export async function getAbandonedMediaUploadIntents({ limit = 100 } = {}) {
   const safeLimit = Number.isInteger(limit) ? Math.min(250, Math.max(1, limit)) : 100;
