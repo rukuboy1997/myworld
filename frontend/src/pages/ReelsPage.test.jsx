@@ -114,6 +114,24 @@ describe("ReelsPage playback states", () => {
     ).toHaveAttribute("aria-valuenow", "35");
   });
 
+  it("loads the Following feed when an authenticated viewer selects it", async () => {
+    render(
+      <MemoryRouter initialEntries={["/reels"]}>
+        <ReelsPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByLabelText(/A test Reel/);
+    fireEvent.click(screen.getByRole("button", { name: "Following" }));
+
+    await waitFor(() => {
+      expect(getReels).toHaveBeenLastCalledWith({
+        limit: 10,
+        sort: "following",
+      });
+    });
+  });
+
   it("offers a retry when a Reel video fails to load", async () => {
     render(
       <MemoryRouter initialEntries={["/reels"]}>
