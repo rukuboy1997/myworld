@@ -344,6 +344,7 @@ export default function StatusTray() {
     let cancelled = false;
     setMediaSrc(null);
     setMediaError("");
+    setLikeError("");
     setMediaLoading(Boolean(currentStatus?.mediaType));
     if (!currentStatus?.mediaType) return undefined;
     getStatusMediaUrl(currentStatus.id)
