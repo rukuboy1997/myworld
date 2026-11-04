@@ -84,7 +84,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
     const watch = watchRef.current;
     if (Number.isFinite(video.duration) && video.duration > 0) {
       watch.durationMs = Math.min(video.duration * 1000, 4 * 60 * 60 * 1000);
-      setPlaybackProgress(Math.round((video.currentTime / video.duration) * 100));
+      setPlaybackProgress(Math.min(100, Math.max(0, Math.round((video.currentTime / video.duration) * 100))));
     }
     const now = performance.now();
     if (!video.paused && !video.seeking && watch.lastTickAt !== null) {
@@ -161,7 +161,7 @@ function ReelCard({ post, address, isAuthenticated, openAuthModal, shouldPreload
   const caption = [post.title, post.content].filter(Boolean).join(" — ");
 
   return (
-    <article ref={cardRef} className="reel-card relative h-[100dvh] min-h-[430px] w-full flex-shrink-0 snap-start snap-always overflow-hidden bg-black md:my-4 md:h-[min(820px,calc(100dvh-2rem))] md:w-[min(460px,calc((100dvh-2rem)*0.5625))] md:min-w-[320px] md:rounded-[2rem] md:border md:border-white/10 md:shadow-[0_24px_90px_rgba(0,0,0,0.55)]">
+    <article ref={cardRef} className="reel-card relative h-[100dvh] min-h-[430px] w-full flex-shrink-0 snap-start snap-always overflow-hidden bg-black md:mx-auto md:my-4 md:min-h-0 md:h-[min(820px,calc(100dvh-2rem))] md:w-[min(460px,calc((100dvh-2rem)*0.5625))] md:rounded-[2rem] md:border md:border-white/10 md:shadow-[0_24px_90px_rgba(0,0,0,0.55)]">
       {post.mediaUrl ? (
         <video
           key={`${post.id}:${mediaRetry}`}
