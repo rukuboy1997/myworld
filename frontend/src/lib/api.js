@@ -136,8 +136,14 @@ export const getPostLikes = (id) => request("GET", `/post/${id}/likes`);
 
 // ─── Comments ─────────────────────────────────────────────────────────────────
 export const getComments = (id) => request("GET", `/post/${id}/comments`);
-export const addComment = (id, owner, content) =>
-  request("POST", `/post/${id}/comment`, { owner, content });
+export const addComment = (id, content, options = {}) =>
+  request("POST", `/post/${id}/comment`, {
+    content,
+    ...(options.parentCommentId ? { parentCommentId: options.parentCommentId } : {}),
+    ...(options.mediaIntentId ? { mediaIntentId: options.mediaIntentId } : {}),
+  });
+export const likeComment = (id) =>
+  request("POST", `/comment/${encodeURIComponent(id)}/like`);
 
 // ─── Profiles ─────────────────────────────────────────────────────────────────
 export const getProfile = (address, viewer) =>
