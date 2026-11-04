@@ -244,6 +244,14 @@ export default function CommentSheet({ post, isOpen, onClose, onCommentAdded }) 
   }, [isOpen, isRecording, stopRecording]);
 
   useEffect(() => {
+    if (isOpen || (!attachment && !draft && !replyingTo)) return;
+    clearAttachment();
+    setDraft("");
+    setReplyingTo(null);
+    setExpandedReplies({});
+  }, [isOpen, attachment, draft, replyingTo, clearAttachment]);
+
+  useEffect(() => {
     if (!isOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
