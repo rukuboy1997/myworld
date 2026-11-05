@@ -29,13 +29,24 @@ import { ArrowLeft, MessageCircle, Mic, Paperclip, Pin, Plus, Search, Send } fro
 import { upsertConversationPreview } from "../lib/conversation-preview.js";
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+const MAX_FUTURE_CLOCK_SKEW_MS = 90 * 1000; // tolerate modest server/device clock differences
 const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
 function isOnline(lastSeenAt) {
   if (!lastSeenAt) return false;
   const ageMs = Date.now() - new Date(lastSeenAt).getTime();
-  // Allow a small clock-skew window, but never treat a far-future timestamp as online.
-  return Number.isFinite(ageMs) && ageMs >= -30_000 && ageMs < ONLINE_THRESHOLD_MS;
+  return Number.isFinite(ageMs) && ageMs >= -MAX_FUTURE_CLOCK_SKEW_MS && ageMs < ONLINE_THRESHOLD_MS;
+}
+
+function mergePresenceTimestamp(previous, address, incoming) {
+  if (!incoming) return previous;
+  const incomingTime = Date.parse(incoming);
+  if (!Number.isFinite(incomingTime)) return previous;
+
+  const currentTime = Date.parse(previous[address] || "");
+  if (Number.isFinite(currentTime) && currentTime >= incomingTime) return previous;
+
+  return { ...previous, [address]: incoming };
 }
 
 function PresenceDot({ online, size = "md" }) {
@@ -396,10 +407,9 @@ export default function MessagesPage() {
             (snapshot) => {
               if (!active) return;
               const data = snapshot.val();
-              setPresence((previous) => ({
-                ...previous,
-                [address]: data?.lastSeenAt || null,
-              }));
+              setPresence((previous) =>
+                mergePresenceTimestamp(previous, address, data?.lastSeenAt),
+              );
             },
             (error) => console.warn("[firebase] presence listener error:", error),
           ),
@@ -434,10 +444,9 @@ export default function MessagesPage() {
           (snapshot) => {
             if (!active) return;
             const data = snapshot.val();
-            setPresence((previous) => ({
-              ...previous,
-              [address]: data?.lastSeenAt || null,
-            }));
+            setPresence((previous) =>
+              mergePresenceTimestamp(previous, address, data?.lastSeenAt),
+            );
           },
           (error) => console.warn("[firebase] selected presence listener error:", error),
         );
@@ -482,19 +491,13 @@ export default function MessagesPage() {
         const result = await getPresenceBatch(typingTargetAddresses);
         if (!active) return;
         setPresence((previous) => {
-          let changed = false;
-          const next = { ...previous };
+          let next = previous;
           typingTargetAddresses.forEach((address) => {
-            const lastSeenAt = result?.[address] || null;
-            if (next[address] !== lastSeenAt) {
-              next[address] = lastSeenAt;
-              changed = true;
-            }
+            next = mergePresenceTimestamp(next, address, result?.[address]);
           });
-          // Re-render on each successful sample even when the timestamp is
-          // unchanged, so an online user naturally transitions to offline after
-          // the heartbeat becomes stale.
-          return changed ? next : { ...previous };
+          // Re-render on every successful sample, even when no newer timestamp
+          // arrived, so an online user naturally transitions to offline when stale.
+          return next === previous ? { ...previous } : next;
         });
       } catch {
         // Keep the last known Firebase/API presence during transient failures.
