@@ -8,6 +8,7 @@ import {
   getMessages,
   getUnreadMessageCounts,
   getPinnedConversations,
+  getMutedConversations,
   getAllProfiles,
   getConversationsTyping,
   getPresenceBatch,
@@ -32,6 +33,8 @@ vi.mock("../lib/api.js", () => ({
   getUnreadMessageCounts: vi.fn(),
   getPinnedConversations: vi.fn(),
   setConversationPinned: vi.fn(),
+  getMutedConversations: vi.fn(),
+  setConversationMuted: vi.fn(),
   sendMessage: vi.fn(),
   editMessage: vi.fn(),
   deleteMessage: vi.fn(),
@@ -107,6 +110,7 @@ describe("MessagesPage inbox", () => {
     getAllProfiles.mockResolvedValue(profiles);
     getMessages.mockResolvedValue(messages);
     getPinnedConversations.mockResolvedValue({ pinned: ["0xBOB"] });
+    getMutedConversations.mockResolvedValue({ muted: [] });
     getUnreadMessageCounts.mockResolvedValue({ conversations: {} });
     getConversationsTyping.mockResolvedValue({ statuses: {} });
     getPresenceBatch.mockResolvedValue({});
