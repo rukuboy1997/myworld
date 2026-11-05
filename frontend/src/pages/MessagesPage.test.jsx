@@ -263,7 +263,7 @@ describe("MessagesPage inbox", () => {
   it("keeps the chat keyboard closed on entry and exposes a multiline composer", async () => {
     renderMessagesPage("/messages?with=0xALICE");
 
-    const composer = await screen.findByRole("textbox", { name: "Message..." });
+    const composer = await screen.findByPlaceholderText("Message...");
     expect(composer.tagName).toBe("TEXTAREA");
     expect(composer).toHaveAttribute("enterkeyhint", "enter");
     expect(composer).not.toHaveFocus();
