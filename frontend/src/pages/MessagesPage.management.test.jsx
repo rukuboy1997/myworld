@@ -167,7 +167,9 @@ describe("MessagesPage message management", () => {
     fireEvent.change(search, { target: { value: "alice" } });
     expect(search).toHaveValue("alice");
 
-    fireEvent.click(await screen.findByRole("button", { name: "alice", exact: true }));
+    const searchPanel = search.parentElement.parentElement;
+    const aliceResult = await within(searchPanel).findByText("alice", { selector: "p", exact: true });
+    fireEvent.click(aliceResult.closest("button"));
     await waitFor(() => {
       expect(getConversation).toHaveBeenCalledWith("0xME", "0xALICE", { limit: 100 });
     });
