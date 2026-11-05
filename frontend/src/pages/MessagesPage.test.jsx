@@ -12,6 +12,8 @@ import {
   getConversationsTyping,
   getPresenceBatch,
   getConversation,
+  sendMessage,
+  markConversationRead,
 } from "../lib/api.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
 import { onValue } from "firebase/database";
@@ -267,6 +269,61 @@ describe("MessagesPage inbox", () => {
     expect(composer.tagName).toBe("TEXTAREA");
     expect(composer).toHaveAttribute("enterkeyhint", "enter");
     expect(composer).not.toHaveFocus();
+  });
+
+  it("completes a successful Android notification reply and dismisses its notification", async () => {
+    const postMessage = vi.fn();
+    window.ReactNativeWebView = { postMessage };
+    sendMessage.mockResolvedValue({ id: "sent-from-notification" });
+    markConversationRead.mockResolvedValue({});
+
+    renderMessagesPage(
+      "/messages?with=0xALICE&nativeAction=reply&nativeActionId=reply-123&nativeActionNotificationId=expo-notification-456&replyText=Hello%20Alice",
+    );
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        sender: "0xME",
+        receiver: "0xALICE",
+        content: "Hello Alice",
+      });
+    });
+    await waitFor(() => {
+      expect(postMessage).toHaveBeenCalledOnce();
+    });
+
+    expect(markConversationRead).toHaveBeenCalledWith("0xALICE");
+    expect(JSON.parse(postMessage.mock.calls[0][0])).toEqual({
+      type: "notification-action-complete",
+      payload: {
+        notificationId: "expo-notification-456",
+        success: true,
+      },
+    });
+    delete window.ReactNativeWebView;
+  });
+
+  it("does not report a failed Android notification reply as completed", async () => {
+    const postMessage = vi.fn();
+    window.ReactNativeWebView = { postMessage };
+    sendMessage.mockRejectedValue(new Error("Message delivery failed"));
+
+    renderMessagesPage(
+      "/messages?with=0xALICE&nativeAction=reply&nativeActionId=reply-456&nativeActionNotificationId=expo-notification-789&replyText=Try%20again",
+    );
+
+    await waitFor(() => {
+      expect(postMessage).toHaveBeenCalledOnce();
+    });
+
+    expect(JSON.parse(postMessage.mock.calls[0][0])).toEqual({
+      type: "notification-action-complete",
+      payload: {
+        notificationId: "expo-notification-789",
+        success: false,
+      },
+    });
+    delete window.ReactNativeWebView;
   });
 
   it("filters conversation previews by chat or message text", async () => {
