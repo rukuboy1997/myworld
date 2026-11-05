@@ -151,6 +151,27 @@ describe("MessagesPage message management", () => {
     });
   });
 
+  it("archives and restores a conversation without deleting its messages", async () => {
+    const { setConversationArchived } = await import("../lib/api.js");
+    renderMessagesPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Archive conversation" }));
+    await waitFor(() => {
+      expect(setConversationArchived).toHaveBeenCalledWith("0xBOB", true);
+      expect(screen.queryByRole("button", { name: "Archive conversation" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+    const archivedBob = await screen.findByRole("button", { name: /bob/i });
+    fireEvent.click(archivedBob);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Restore conversation" }));
+    await waitFor(() => {
+      expect(setConversationArchived).toHaveBeenLastCalledWith("0xBOB", false);
+      expect(screen.getByRole("button", { name: "Restore conversation" })).toBeInTheDocument();
+    });
+  });
+
   it("saves an edited message and updates the visible conversation", async () => {
     renderMessagesPage();
 
