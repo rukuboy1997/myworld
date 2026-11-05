@@ -166,10 +166,14 @@ describe("MessagesPage message management", () => {
     const archivedBob = await screen.findByRole("button", { name: /bob/i });
     fireEvent.click(archivedBob);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Restore conversation" }));
+    const restoreButton = await screen.findByRole("button", { name: "Restore conversation" });
+    await waitFor(() => expect(restoreButton).toBeEnabled());
+    fireEvent.click(restoreButton);
+
     await waitFor(() => {
-      expect(setConversationArchived).toHaveBeenLastCalledWith("0xBOB", false);
-      expect(screen.getByRole("button", { name: "Restore conversation" })).toBeInTheDocument();
+      expect(setConversationArchived).toHaveBeenNthCalledWith(2, "0xBOB", false);
+      expect(screen.getByRole("button", { name: "Archive conversation" })).toBeInTheDocument();
+      expect(screen.getByText("Original message")).toBeInTheDocument();
     });
   });
 
