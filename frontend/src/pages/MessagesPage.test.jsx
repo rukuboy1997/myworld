@@ -185,6 +185,18 @@ describe("MessagesPage inbox", () => {
     );
   });
 
+  it("does not treat a far-future heartbeat timestamp as online", async () => {
+    syncFirebaseAuth.mockResolvedValue(false);
+    getPresenceBatch.mockResolvedValue({
+      "0xALICE": new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    });
+
+    renderMessagesPage("/messages?with=0xALICE");
+
+    expect(await screen.findByText("Offline")).toBeInTheDocument();
+    expect(document.querySelector(".bg-green-500")).not.toBeInTheDocument();
+  });
+
   it("shows database history while the initial Firebase message snapshot is delayed", async () => {
     syncFirebaseAuth.mockResolvedValue(true);
     getConversation.mockResolvedValue({
