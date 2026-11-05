@@ -8,6 +8,8 @@ import {
   getUnreadMessageCounts,
   getPinnedConversations,
   setConversationPinned,
+  getMutedConversations,
+  setConversationMuted,
   sendMessage,
   editMessage,
   deleteMessage,
@@ -25,7 +27,7 @@ import {
 import { getAuthToken, useAuth } from "../lib/auth.jsx";
 import { firebaseDb, convId as fbConvId } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
-import { ArrowLeft, MessageCircle, Mic, Paperclip, Pin, Plus, Search, Send } from "../components/icons.jsx";
+import { ArrowLeft, MessageCircle, Mic, Paperclip, Pin, Plus, Search, Send, Volume2, VolumeX } from "../components/icons.jsx";
 import { upsertConversationPreview } from "../lib/conversation-preview.js";
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
@@ -155,6 +157,8 @@ export default function MessagesPage() {
   const [conversations, setConversations] = useState([]);
   const [pinnedConversations, setPinnedConversations] = useState({});
   const [isUpdatingPin, setIsUpdatingPin] = useState(false);
+  const [mutedConversations, setMutedConversations] = useState({});
+  const [isUpdatingMute, setIsUpdatingMute] = useState(false);
   const [profiles, setProfiles] = useState({});
   const [allProfiles, setAllProfiles] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -243,15 +247,17 @@ export default function MessagesPage() {
   const loadConversations = useCallback(async () => {
     if (!wallet) return;
     try {
-      const [profilesData, msgs, pinnedResult] = await Promise.all([
+      const [profilesData, msgs, pinnedResult, mutedResult] = await Promise.all([
         getAllProfiles(),
         getMessages(wallet),
         getPinnedConversations(),
+        getMutedConversations(),
       ]);
       const pinnedMap = Object.fromEntries(
         (pinnedResult?.pinned || []).map((address) => [address, true]),
       );
       setPinnedConversations(pinnedMap);
+      setMutedConversations(Object.fromEntries((mutedResult?.muted || []).map((address) => [address, true])));
       const profileMap = {};
       profilesData.forEach((p) => {
         profileMap[p.address] = p;
@@ -1240,6 +1246,21 @@ export default function MessagesPage() {
     }
   };
 
+  const toggleSelectedConversationMute = async () => {
+    const otherAddress = selectedUser?.address;
+    if (!otherAddress || isUpdatingMute) return;
+    const shouldMute = !mutedConversations[otherAddress];
+    setIsUpdatingMute(true);
+    try {
+      await setConversationMuted(otherAddress, shouldMute);
+      setMutedConversations((previous) => ({ ...previous, [otherAddress]: shouldMute }));
+    } catch (err) {
+      window.alert(err.message || "Could not update conversation mute setting.");
+    } finally {
+      setIsUpdatingMute(false);
+    }
+  };
+
   // Per-chat counts are derived from the persisted read_at status.
   const unreadCount = useCallback(
     (convAddress) => Number(unreadByConversation[convAddress]) || 0,
@@ -1518,6 +1539,9 @@ export default function MessagesPage() {
                           {pinnedConversations[conv.address] && (
                             <Pin size={13} className="text-primary flex-shrink-0" aria-label="Pinned conversation" title="Pinned" />
                           )}
+                          {mutedConversations[conv.address] && (
+                            <VolumeX size={13} className="text-muted-foreground flex-shrink-0" aria-label="Muted conversation" title="Muted" />
+                          )}
                           {lastMsg && (
                             <span
                               className={`text-[10px] flex-shrink-0 ${hasUnread ? "text-primary font-medium" : "text-muted-foreground"}`}
@@ -1642,11 +1666,22 @@ export default function MessagesPage() {
                   </div>
                   <button
                     type="button"
+                    onClick={toggleSelectedConversationMute}
+                    disabled={isUpdatingMute}
+                    aria-label={mutedConversations[selectedUser.address] ? "Unmute conversation" : "Mute conversation"}
+                    aria-pressed={!!mutedConversations[selectedUser.address]}
+                    title={mutedConversations[selectedUser.address] ? "Unmute conversation" : "Mute conversation"}
+                    className={`ml-auto flex-shrink-0 p-2 rounded-full transition-colors disabled:opacity-50 ${mutedConversations[selectedUser.address] ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-white/10"}`}
+                  >
+                    {mutedConversations[selectedUser.address] ? <VolumeX size={20} aria-hidden="true" /> : <Volume2 size={20} aria-hidden="true" />}
+                  </button>
+                  <button
+                    type="button"
                     onClick={toggleSelectedConversationPin}
                     disabled={isUpdatingPin}
                     aria-pressed={!!pinnedConversations[selectedUser.address]}
                     title={pinnedConversations[selectedUser.address] ? "Unpin conversation" : "Pin conversation"}
-                    className={`ml-auto flex-shrink-0 p-2 rounded-full transition-colors disabled:opacity-50 ${pinnedConversations[selectedUser.address] ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-white/10"}`}
+                    className={`flex-shrink-0 p-2 rounded-full transition-colors disabled:opacity-50 ${pinnedConversations[selectedUser.address] ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-white/10"}`}
                   >
                     <Pin size={20} aria-hidden="true" />
                   </button>

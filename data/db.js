@@ -152,12 +152,16 @@ CREATE TABLE IF NOT EXISTS conversation_preferences (
   owner_address TEXT NOT NULL,
   other_address TEXT NOT NULL,
   is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+  is_muted BOOLEAN NOT NULL DEFAULT FALSE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (owner_address, other_address),
   CHECK (owner_address <> other_address)
 );
+ALTER TABLE conversation_preferences ADD COLUMN IF NOT EXISTS is_muted BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_conversation_preferences_pinned
   ON conversation_preferences (owner_address, is_pinned);
+CREATE INDEX IF NOT EXISTS idx_conversation_preferences_muted
+  ON conversation_preferences (owner_address, other_address) WHERE is_muted = TRUE;
 
 CREATE TABLE IF NOT EXISTS message_typing (
   sender      TEXT NOT NULL,
@@ -1252,6 +1256,33 @@ export async function setConversationPinned(ownerAddress, otherAddress, pinned) 
     );
   }
   return { otherAddress, isPinned: pinned };
+}
+
+export async function getMutedConversations(ownerAddress) {
+  const { rows } = await pool.query(
+    "SELECT other_address FROM conversation_preferences WHERE owner_address = $1 AND is_muted = TRUE ORDER BY updated_at DESC",
+    [ownerAddress],
+  );
+  return rows.map((row) => row.other_address);
+}
+
+export async function isConversationMuted(ownerAddress, otherAddress) {
+  const { rowCount } = await pool.query(
+    "SELECT 1 FROM conversation_preferences WHERE owner_address = $1 AND other_address = $2 AND is_muted = TRUE LIMIT 1",
+    [ownerAddress, otherAddress],
+  );
+  return rowCount > 0;
+}
+
+export async function setConversationMuted(ownerAddress, otherAddress, muted) {
+  await pool.query(
+    `INSERT INTO conversation_preferences (owner_address, other_address, is_muted, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (owner_address, other_address)
+     DO UPDATE SET is_muted = EXCLUDED.is_muted, updated_at = NOW()`,
+    [ownerAddress, otherAddress, muted],
+  );
+  return { otherAddress, isMuted: muted };
 }
 
 // ─── Messages ────────────────────────────────────────────────────────────────

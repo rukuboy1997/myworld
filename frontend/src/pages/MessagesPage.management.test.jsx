@@ -7,6 +7,7 @@ import {
   getMessages,
   getUnreadMessageCounts,
   getPinnedConversations,
+  getMutedConversations,
   getAllProfiles,
   getConversationsTyping,
   getConversation,
@@ -30,6 +31,8 @@ vi.mock("../lib/api.js", () => ({
   getUnreadMessageCounts: vi.fn(),
   getPinnedConversations: vi.fn(),
   setConversationPinned: vi.fn(),
+  getMutedConversations: vi.fn(),
+  setConversationMuted: vi.fn(),
   sendMessage: vi.fn(),
   editMessage: vi.fn(),
   deleteMessage: vi.fn(),
@@ -105,6 +108,7 @@ describe("MessagesPage message management", () => {
       },
     ]);
     getPinnedConversations.mockResolvedValue({ pinned: [] });
+    getMutedConversations.mockResolvedValue({ muted: [] });
     getUnreadMessageCounts.mockResolvedValue({ conversations: {} });
     getConversationsTyping.mockResolvedValue({ statuses: {} });
     getConversation.mockImplementation(async (_wallet, address) => ({
@@ -123,6 +127,25 @@ describe("MessagesPage message management", () => {
     });
     markConversationRead.mockResolvedValue({ messages: [] });
     syncFirebaseAuth.mockResolvedValue(false);
+  });
+
+  it("mutes and unmutes only the selected conversation", async () => {
+    const { setConversationMuted } = await import("../lib/api.js");
+    renderMessagesPage();
+
+    const muteButton = await screen.findByRole("button", { name: "Mute conversation" });
+    fireEvent.click(muteButton);
+
+    await waitFor(() => {
+      expect(setConversationMuted).toHaveBeenCalledWith("0xBOB", true);
+      expect(screen.getByRole("button", { name: "Unmute conversation" })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Unmute conversation" }));
+    await waitFor(() => {
+      expect(setConversationMuted).toHaveBeenLastCalledWith("0xBOB", false);
+      expect(screen.getByRole("button", { name: "Mute conversation" })).toHaveAttribute("aria-pressed", "false");
+    });
   });
 
   it("saves an edited message and updates the visible conversation", async () => {
