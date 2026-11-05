@@ -177,6 +177,31 @@ describe("MessagesPage message management", () => {
     });
   });
 
+  it("closes the conversation options menu with Escape and restores focus", async () => {
+    renderMessagesPage();
+    const trigger = await screen.findByRole("button", { name: "Conversation options" });
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu", { name: "Conversation actions" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("menu", { name: "Conversation actions" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("closes the conversation options menu when the user taps outside it", async () => {
+    renderMessagesPage();
+    const trigger = await screen.findByRole("button", { name: "Conversation options" });
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu", { name: "Conversation actions" })).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+
+    expect(screen.queryByRole("menu", { name: "Conversation actions" })).not.toBeInTheDocument();
+  });
+
   it("offers inbox quick actions without opening the conversation", async () => {
     const { setConversationPinned } = await import("../lib/api.js");
     renderMessagesPage("/messages");
