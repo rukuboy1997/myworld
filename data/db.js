@@ -158,6 +158,9 @@ CREATE TABLE IF NOT EXISTS conversation_preferences (
   CHECK (owner_address <> other_address)
 );
 ALTER TABLE conversation_preferences ADD COLUMN IF NOT EXISTS is_muted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE conversation_preferences ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS idx_conversation_preferences_archived
+  ON conversation_preferences (owner_address, other_address) WHERE is_archived = TRUE;
 CREATE INDEX IF NOT EXISTS idx_conversation_preferences_pinned
   ON conversation_preferences (owner_address, is_pinned);
 CREATE INDEX IF NOT EXISTS idx_conversation_preferences_muted
@@ -1264,6 +1267,25 @@ export async function getMutedConversations(ownerAddress) {
     [ownerAddress],
   );
   return rows.map((row) => row.other_address);
+}
+
+export async function getArchivedConversations(ownerAddress) {
+  const { rows } = await pool.query(
+    "SELECT other_address FROM conversation_preferences WHERE owner_address = $1 AND is_archived = TRUE ORDER BY updated_at DESC",
+    [ownerAddress],
+  );
+  return rows.map((row) => row.other_address);
+}
+
+export async function setConversationArchived(ownerAddress, otherAddress, archived) {
+  await pool.query(
+    `INSERT INTO conversation_preferences (owner_address, other_address, is_archived, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (owner_address, other_address)
+     DO UPDATE SET is_archived = EXCLUDED.is_archived, updated_at = NOW()`,
+    [ownerAddress, otherAddress, archived],
+  );
+  return { otherAddress, isArchived: archived };
 }
 
 export async function isConversationMuted(ownerAddress, otherAddress) {
