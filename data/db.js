@@ -2323,12 +2323,19 @@ export async function getUnreadNotificationCount(recipient) {
 }
 
 // ─── Presence ─────────────────────────────────────────────────────────────────
-export async function upsertPresence(address) {
-  await pool.query(
-    `INSERT INTO presence (address, last_seen_at) VALUES ($1, NOW())
-     ON CONFLICT (address) DO UPDATE SET last_seen_at = NOW()`,
-    [address],
+export async function upsertPresence(address, lastSeenAt = new Date().toISOString()) {
+  const { rows } = await pool.query(
+    `INSERT INTO presence (address, last_seen_at) VALUES ($1, $2::timestamptz)
+     ON CONFLICT (address) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+     RETURNING last_seen_at`,
+    [address, lastSeenAt],
   );
+  const storedLastSeenAt = rows[0]?.last_seen_at;
+  return storedLastSeenAt instanceof Date
+    ? storedLastSeenAt.toISOString()
+    : storedLastSeenAt
+      ? new Date(storedLastSeenAt).toISOString()
+      : lastSeenAt;
 }
 
 export async function getBatchPresence(addresses) {

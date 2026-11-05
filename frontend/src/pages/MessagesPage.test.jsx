@@ -185,6 +185,62 @@ describe("MessagesPage inbox", () => {
     );
   });
 
+  it("does not let an older database poll overwrite newer Firebase presence", async () => {
+    syncFirebaseAuth.mockResolvedValue(true);
+    let resolvePresenceBatch;
+    getPresenceBatch.mockImplementation(() => new Promise((resolve) => {
+      resolvePresenceBatch = resolve;
+    }));
+
+    renderMessagesPage("/messages?with=0xALICE");
+
+    const firebaseListener = await waitFor(() => {
+      const listener = onValue.mock.calls.find(([target]) =>
+        target?.path === "presence/0xALICE",
+      );
+      expect(listener).toBeTruthy();
+      return listener;
+    });
+
+    const freshHeartbeat = new Date(Date.now() - 20_000).toISOString();
+    const staleHeartbeat = new Date(Date.now() - 3 * 60_000).toISOString();
+
+    act(() => {
+      firebaseListener[1]({ val: () => ({ lastSeenAt: freshHeartbeat }) });
+    });
+
+    await act(async () => {
+      resolvePresenceBatch({ "0xALICE": staleHeartbeat });
+    });
+
+    expect(await screen.findByText("Online", { selector: "p" })).toBeInTheDocument();
+    expect(document.querySelector(".bg-green-500")).toBeInTheDocument();
+  });
+
+  it("tolerates a one-minute server/device clock difference without showing a future last-seen label", async () => {
+    syncFirebaseAuth.mockResolvedValue(false);
+    getPresenceBatch.mockResolvedValue({
+      "0xALICE": new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    renderMessagesPage("/messages?with=0xALICE");
+
+    expect(await screen.findByText("Online")).toBeInTheDocument();
+    expect(screen.queryByText(/Last seen in/i)).not.toBeInTheDocument();
+  });
+
+  it("does not treat a far-future heartbeat timestamp as online", async () => {
+    syncFirebaseAuth.mockResolvedValue(false);
+    getPresenceBatch.mockResolvedValue({
+      "0xALICE": new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    });
+
+    renderMessagesPage("/messages?with=0xALICE");
+
+    expect(await screen.findByText("Offline")).toBeInTheDocument();
+    expect(document.querySelector(".bg-green-500")).not.toBeInTheDocument();
+  });
+
   it("shows database history while the initial Firebase message snapshot is delayed", async () => {
     syncFirebaseAuth.mockResolvedValue(true);
     getConversation.mockResolvedValue({

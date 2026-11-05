@@ -25,14 +25,28 @@ import {
 import { getAuthToken, useAuth } from "../lib/auth.jsx";
 import { firebaseDb, convId as fbConvId } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
+import { ArrowLeft, MessageCircle, Mic, Paperclip, Pin, Plus, Search, Send } from "../components/icons.jsx";
 import { upsertConversationPreview } from "../lib/conversation-preview.js";
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+const MAX_FUTURE_CLOCK_SKEW_MS = 90 * 1000; // tolerate modest server/device clock differences
 const MESSAGE_REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
 function isOnline(lastSeenAt) {
   if (!lastSeenAt) return false;
-  return Date.now() - new Date(lastSeenAt).getTime() < ONLINE_THRESHOLD_MS;
+  const ageMs = Date.now() - new Date(lastSeenAt).getTime();
+  return Number.isFinite(ageMs) && ageMs >= -MAX_FUTURE_CLOCK_SKEW_MS && ageMs < ONLINE_THRESHOLD_MS;
+}
+
+function mergePresenceTimestamp(previous, address, incoming) {
+  if (!incoming) return previous;
+  const incomingTime = Date.parse(incoming);
+  if (!Number.isFinite(incomingTime)) return previous;
+
+  const currentTime = Date.parse(previous[address] || "");
+  if (Number.isFinite(currentTime) && currentTime >= incomingTime) return previous;
+
+  return { ...previous, [address]: incoming };
 }
 
 function PresenceDot({ online, size = "md" }) {
@@ -393,10 +407,9 @@ export default function MessagesPage() {
             (snapshot) => {
               if (!active) return;
               const data = snapshot.val();
-              setPresence((previous) => ({
-                ...previous,
-                [address]: data?.lastSeenAt || null,
-              }));
+              setPresence((previous) =>
+                mergePresenceTimestamp(previous, address, data?.lastSeenAt),
+              );
             },
             (error) => console.warn("[firebase] presence listener error:", error),
           ),
@@ -431,10 +444,9 @@ export default function MessagesPage() {
           (snapshot) => {
             if (!active) return;
             const data = snapshot.val();
-            setPresence((previous) => ({
-              ...previous,
-              [address]: data?.lastSeenAt || null,
-            }));
+            setPresence((previous) =>
+              mergePresenceTimestamp(previous, address, data?.lastSeenAt),
+            );
           },
           (error) => console.warn("[firebase] selected presence listener error:", error),
         );
@@ -479,19 +491,13 @@ export default function MessagesPage() {
         const result = await getPresenceBatch(typingTargetAddresses);
         if (!active) return;
         setPresence((previous) => {
-          let changed = false;
-          const next = { ...previous };
+          let next = previous;
           typingTargetAddresses.forEach((address) => {
-            const lastSeenAt = result?.[address] || null;
-            if (next[address] !== lastSeenAt) {
-              next[address] = lastSeenAt;
-              changed = true;
-            }
+            next = mergePresenceTimestamp(next, address, result?.[address]);
           });
-          // Re-render on each successful sample even when the timestamp is
-          // unchanged, so an online user naturally transitions to offline after
-          // the heartbeat becomes stale.
-          return changed ? next : { ...previous };
+          // Re-render on every successful sample, even when no newer timestamp
+          // arrived, so an online user naturally transitions to offline when stale.
+          return next === previous ? { ...previous } : next;
         });
       } catch {
         // Keep the last known Firebase/API presence during transient failures.
@@ -1237,20 +1243,7 @@ export default function MessagesPage() {
       <Layout>
         <div className="max-w-md mx-auto w-full px-4 py-20 text-center flex flex-col items-center gap-4">
           <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center mb-2">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-muted-foreground"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
+            <MessageCircle size={32} className="text-muted-foreground" aria-hidden="true" />
           </div>
           <h2 className="text-xl md:text-2xl font-bold">
             Sign in to read messages
@@ -1357,41 +1350,13 @@ export default function MessagesPage() {
                 title="New conversation"
                 className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-colors"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M5 12h14" />
-                  <path d="M12 5v14" />
-                </svg>
+                <Plus size={15} strokeWidth={2.5} aria-hidden="true" />
               </button>
             </div>
 
             <div className="px-3 py-3 border-b border-white/5 flex-shrink-0">
               <div className="relative">
-                <svg
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.35-4.35" />
-                </svg>
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} aria-hidden="true" />
                 <input
                   type="search"
                   value={conversationSearch}
@@ -1489,20 +1454,7 @@ export default function MessagesPage() {
               ) : conversations.length === 0 ? (
                 <div className="p-6 text-center flex flex-col items-center gap-3">
                   <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="text-muted-foreground"
-                    >
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                    </svg>
+                    <MessageCircle size={20} className="text-muted-foreground" aria-hidden="true" />
                   </div>
                   <p className="text-sm text-muted-foreground">
                     No conversations yet.
@@ -1544,7 +1496,7 @@ export default function MessagesPage() {
                             {p?.username || truncateAddress(conv.address)}
                           </span>
                           {pinnedConversations[conv.address] && (
-                            <span className="text-primary text-xs flex-shrink-0" aria-label="Pinned conversation" title="Pinned">📌</span>
+                            <Pin size={13} className="text-primary flex-shrink-0" aria-label="Pinned conversation" title="Pinned" />
                           )}
                           {lastMsg && (
                             <span
@@ -1601,20 +1553,7 @@ export default function MessagesPage() {
             {!selectedUser ? (
               <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8 text-center gap-4">
                 <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="32"
-                    height="32"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="opacity-50"
-                  >
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  </svg>
+                  <MessageCircle size={32} className="opacity-50" aria-hidden="true" />
                 </div>
                 <div>
                   <p className="text-lg font-semibold text-foreground">
@@ -1633,19 +1572,7 @@ export default function MessagesPage() {
                     className="md:hidden p-2 -ml-1 rounded-full hover:bg-white/10 transition-colors"
                     onClick={() => setSelectedUser(null)}
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="m15 18-6-6 6-6" />
-                    </svg>
+                    <ArrowLeft size={20} aria-hidden="true" />
                   </button>
                   <div className="relative flex-shrink-0">
                     <Avatar profile={selectedProfile} />
@@ -1701,10 +1628,7 @@ export default function MessagesPage() {
                     title={pinnedConversations[selectedUser.address] ? "Unpin conversation" : "Pin conversation"}
                     className={`ml-auto flex-shrink-0 p-2 rounded-full transition-colors disabled:opacity-50 ${pinnedConversations[selectedUser.address] ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-white/10"}`}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="m16 3 5 5-4 1-4 4-1 5-2-2-4 4-1-1 4-4-2-2 5-1 4-4z" />
-                      <path d="m2 22 7-7" />
-                    </svg>
+                    <Pin size={20} aria-hidden="true" />
                   </button>
                 </div>
 
@@ -1931,7 +1855,7 @@ export default function MessagesPage() {
                 {isSendingMessage && selectedAttachment && <div className="px-4 py-1 text-[11px] text-muted-foreground" role="status">Uploading attachment… {uploadProgress}%</div>}
                 <form onSubmit={handleSend} className="px-3 md:px-4 py-3 border-t border-white/10 bg-background/40 flex gap-2 flex-shrink-0 items-center">
                   <input ref={attachmentInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,audio/webm,audio/mp4,audio/ogg,audio/mpeg,audio/wav,audio/aac,audio/3gpp" onChange={handleAttachmentSelect} className="hidden" aria-label="Choose an image, file, or audio" />
-                  <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={isSendingMessage || isRecordingVoice} aria-label="Attach image or file" title="Attach image or file" className="p-2.5 rounded-full hover:bg-white/10 disabled:opacity-40 text-lg">＋</button>
+                  <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={isSendingMessage || isRecordingVoice} aria-label="Attach image or file" title="Attach image or file" className="p-2.5 rounded-full hover:bg-white/10 disabled:opacity-40 text-lg"><Paperclip size={19} aria-hidden="true" /></button>
                   {isRecordingVoice ? (
                     <button type="button" onClick={stopVoiceRecording} className="flex-shrink-0 inline-flex items-center gap-2 rounded-full bg-red-600 text-white px-3 py-2.5 text-xs font-semibold animate-pulse" aria-label="Stop voice recording" title="Stop recording">
                       <span className="w-2 h-2 rounded-sm bg-white" />
@@ -1939,17 +1863,12 @@ export default function MessagesPage() {
                     </button>
                   ) : (
                     <button type="button" onClick={startVoiceRecording} disabled={isSendingMessage || !!selectedAttachment} className="p-2.5 rounded-full hover:bg-white/10 disabled:opacity-40" aria-label="Record a voice message" title="Record voice message">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" />
-                      </svg>
+                      <Mic size={19} aria-hidden="true" />
                     </button>
                   )}
                   <input ref={inputRef} type="text" value={newMessage} onChange={handleMessageChange} placeholder={isRecordingVoice ? "Recording voice message…" : "Message..."} disabled={isSendingMessage || isRecordingVoice} className="flex-1 min-w-0 bg-secondary/50 border border-white/10 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
                   <button type="submit" disabled={(!newMessage.trim() && !selectedAttachment) || isSendingMessage || isRecordingVoice} className="bg-primary text-primary-foreground p-2.5 rounded-full hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center aspect-square">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="22" y1="2" x2="11" y2="13" />
-                      <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                    </svg>
+                    <Send size={18} aria-hidden="true" />
                   </button>
                 </form>
               </>
