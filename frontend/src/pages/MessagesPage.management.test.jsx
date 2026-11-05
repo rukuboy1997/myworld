@@ -274,10 +274,10 @@ describe("MessagesPage message management", () => {
 
     renderMessagesPage("/messages");
 
-    fireEvent.click(await screen.findByRole("button", { name: /bob/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open conversation with bob" }));
     expect(await screen.findByText("Only in Bob chat")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /alice/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Open conversation with alice" }));
 
     expect(await screen.findByText("Only in Alice chat")).toBeInTheDocument();
     await waitFor(() => {
