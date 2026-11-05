@@ -22,9 +22,26 @@ export default function Layout({ children, immersive = false, fixedHeight = fals
   const [verifyBanner, setVerifyBanner] = useState(false);
   const [resendsent, setResendSent] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [toast, setToast] = useState(null);
   const location = useLocation();
 
   const isOnNotifications = location.pathname === "/notifications";
+
+  useEffect(() => {
+    let dismissTimer;
+    const handleToast = (event) => {
+      const detail = event.detail || {};
+      if (!detail.message) return;
+      setToast({ message: String(detail.message), type: detail.type || "error" });
+      window.clearTimeout(dismissTimer);
+      dismissTimer = window.setTimeout(() => setToast(null), 4500);
+    };
+    window.addEventListener("myworld:toast", handleToast);
+    return () => {
+      window.removeEventListener("myworld:toast", handleToast);
+      window.clearTimeout(dismissTimer);
+    };
+  }, []);
 
   // Base the Messages badge on persistent server read receipts, not page visits.
   useEffect(() => {
@@ -484,6 +501,15 @@ export default function Layout({ children, immersive = false, fixedHeight = fals
         {children}
       </main>
 
+      {toast && (
+        <div className="pointer-events-none fixed left-3 right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[15000] flex justify-center" aria-live="assertive">
+          <div role="alert" className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-medium shadow-2xl backdrop-blur-xl ${toast.type === "success" ? "border-emerald-400/30 bg-emerald-950/95 text-emerald-100" : "border-rose-400/30 bg-zinc-950/95 text-rose-100"}`}>
+            <span className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${toast.type === "success" ? "bg-emerald-400" : "bg-rose-400"}`} aria-hidden="true" />
+            <span className="min-w-0 flex-1 leading-relaxed">{toast.message}</span>
+            <button type="button" onClick={() => setToast(null)} aria-label="Dismiss notification" className="shrink-0 rounded-full px-1 text-current/70 hover:text-current">✕</button>
+          </div>
+        </div>
+      )}
       <AuthModal />
       {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}
     </div>
