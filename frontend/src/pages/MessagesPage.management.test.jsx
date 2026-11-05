@@ -154,6 +154,14 @@ describe("MessagesPage message management", () => {
 
   it("archives and restores a conversation without deleting its messages", async () => {
     const { setConversationArchived } = await import("../lib/api.js");
+    let bobIsArchived = false;
+    getArchivedConversations.mockImplementation(async () => ({
+      archived: bobIsArchived ? ["0xBOB"] : [],
+    }));
+    setConversationArchived.mockImplementation(async (_address, archived) => {
+      bobIsArchived = archived;
+      return { ok: true, otherAddress: "0xBOB", isArchived: archived };
+    });
     renderMessagesPage();
 
     fireEvent.click(await screen.findByRole("button", { name: "Archive conversation" }));
