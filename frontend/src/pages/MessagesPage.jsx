@@ -1577,6 +1577,7 @@ export default function MessagesPage() {
                     <button
                       type="button"
                       onClick={() => { setOpenConversationMenu(null); handleSelectUser(conv); }}
+                      aria-label={`Open conversation with ${p?.username || truncateAddress(conv.address)}`}
                       className={`flex min-w-0 flex-1 items-center gap-3 px-4 py-3 pr-2 text-left transition-all
                       ${isSelected ? "bg-primary/15" : hasUnread ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-white/5"}`}
                     >
