@@ -164,6 +164,8 @@ export default function MessagesPage() {
   const [archivedConversations, setArchivedConversations] = useState({});
   const [isUpdatingArchive, setIsUpdatingArchive] = useState(false);
   const [openConversationMenu, setOpenConversationMenu] = useState(null);
+  const conversationMenuRef = useRef(null);
+  const conversationMenuTriggerRef = useRef(null);
   const [profiles, setProfiles] = useState({});
   const [allProfiles, setAllProfiles] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -210,6 +212,36 @@ export default function MessagesPage() {
   const typingActiveRef = useRef(false);
   const typingLastSentAtRef = useRef(0);
   const processedNativeActionRef = useRef(null);
+
+  // Keep the overflow menu usable on touch, mouse, and keyboard.
+  useEffect(() => {
+    if (!openConversationMenu) return;
+
+    const handlePointerDown = (event) => {
+      if (
+        conversationMenuRef.current?.contains(event.target) ||
+        conversationMenuTriggerRef.current?.contains(event.target)
+      ) return;
+      setOpenConversationMenu(null);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpenConversationMenu(null);
+      conversationMenuTriggerRef.current?.focus();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openConversationMenu]);
+
+  useEffect(() => {
+    setOpenConversationMenu(null);
+  }, [selectedUser?.address]);
 
   useEffect(() => () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
@@ -1292,8 +1324,9 @@ export default function MessagesPage() {
 
   const renderConversationMenu = (address, align = "right") => (
     <div
+      ref={conversationMenuRef}
       className={`absolute ${align === "left" ? "left-2" : "right-2"} top-full z-50 mt-1 w-52 rounded-xl border border-white/10 bg-zinc-950/95 p-1.5 shadow-2xl backdrop-blur-xl`}
-      role="group"
+      role="menu"
       aria-label="Conversation actions"
       onClick={(event) => event.stopPropagation()}
     >
@@ -1644,7 +1677,7 @@ export default function MessagesPage() {
                       </div>
                     </button>
                     <div className="relative flex-shrink-0 pr-2">
-                      <button type="button" aria-label={`Options for ${p?.username || truncateAddress(conv.address)}`} aria-expanded={openConversationMenu === conv.address} onClick={() => setOpenConversationMenu((current) => current === conv.address ? null : conv.address)} className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                      <button type="button" aria-label={`Options for ${p?.username || truncateAddress(conv.address)}`} aria-haspopup="menu" aria-expanded={openConversationMenu === conv.address} onClick={(event) => { conversationMenuTriggerRef.current = event.currentTarget; setOpenConversationMenu((current) => current === conv.address ? null : conv.address); }} className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                         <MoreHorizontal size={19} aria-hidden="true" />
                       </button>
                       {openConversationMenu === conv.address && renderConversationMenu(conv.address)}
@@ -1731,7 +1764,7 @@ export default function MessagesPage() {
                     })()}
                   </div>
                   <div className="relative ml-auto flex-shrink-0">
-                    <button type="button" aria-label="Conversation options" aria-expanded={openConversationMenu === `header:${selectedUser.address}`} onClick={() => setOpenConversationMenu((current) => current === `header:${selectedUser.address}` ? null : `header:${selectedUser.address}`)} className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                    <button type="button" aria-label="Conversation options" aria-haspopup="menu" aria-expanded={openConversationMenu === `header:${selectedUser.address}`} onClick={(event) => { conversationMenuTriggerRef.current = event.currentTarget; setOpenConversationMenu((current) => current === `header:${selectedUser.address}` ? null : `header:${selectedUser.address}`); }} className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                       <MoreHorizontal size={21} aria-hidden="true" />
                     </button>
                     {openConversationMenu === `header:${selectedUser.address}` && renderConversationMenu(selectedUser.address)}
