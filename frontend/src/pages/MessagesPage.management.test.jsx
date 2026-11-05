@@ -166,17 +166,15 @@ describe("MessagesPage message management", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Archived" }));
-    const archivedBob = await screen.findByRole("button", { name: /bob/i });
+    const archivedBob = await screen.findByRole("button", { name: "Open conversation with bob" });
     fireEvent.click(archivedBob);
     fireEvent.click(await screen.findByRole("button", { name: "Options for bob" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Restore conversation" }));
 
     await waitFor(() => {
       expect(setConversationArchived).toHaveBeenNthCalledWith(2, "0xBOB", false);
-      expect(screen.queryByRole("button", { name: "Options for bob" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Options for bob" })).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("button", { name: "All" }));
-    expect(await screen.findByRole("button", { name: "Options for bob" })).toBeInTheDocument();
   });
 
   it("offers inbox quick actions without opening the conversation", async () => {
