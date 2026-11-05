@@ -9,6 +9,7 @@ import {
   getUnreadMessageCounts,
   getPinnedConversations,
   getMutedConversations,
+  getArchivedConversations,
   getAllProfiles,
   getConversationsTyping,
   getPresenceBatch,
