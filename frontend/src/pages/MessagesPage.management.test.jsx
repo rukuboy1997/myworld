@@ -133,6 +133,42 @@ describe("MessagesPage message management", () => {
     syncFirebaseAuth.mockResolvedValue(false);
   });
 
+  it("dismisses New Chat search on outside taps and Escape, while the plus button toggles it", async () => {
+    renderMessagesPage("/messages");
+    const plus = screen.getByTitle("New conversation");
+
+    fireEvent.click(plus);
+    expect(await screen.findByPlaceholderText("Search people…")).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByRole("heading", { name: "Chats" }));
+    expect(screen.queryByPlaceholderText("Search people…")).not.toBeInTheDocument();
+
+    fireEvent.click(plus);
+    expect(await screen.findByPlaceholderText("Search people…")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByPlaceholderText("Search people…")).not.toBeInTheDocument();
+
+    fireEvent.click(plus);
+    expect(await screen.findByPlaceholderText("Search people…")).toBeInTheDocument();
+    fireEvent.click(plus);
+    expect(screen.queryByPlaceholderText("Search people…")).not.toBeInTheDocument();
+  });
+
+  it("keeps New Chat search open while typing and opens the selected user's conversation", async () => {
+    renderMessagesPage("/messages");
+    fireEvent.click(screen.getByTitle("New conversation"));
+
+    const search = await screen.findByPlaceholderText("Search people…");
+    fireEvent.change(search, { target: { value: "alice" } });
+    expect(search).toHaveValue("alice");
+
+    fireEvent.click(await screen.findByRole("button", { name: /alice/i }));
+    await waitFor(() => {
+      expect(getConversation).toHaveBeenCalledWith("0xME", "0xALICE", { limit: 100 });
+    });
+    expect(screen.queryByPlaceholderText("Search people…")).not.toBeInTheDocument();
+  });
+
   it("mutes and unmutes only the selected conversation", async () => {
     const { setConversationMuted } = await import("../lib/api.js");
     renderMessagesPage();
@@ -233,31 +269,36 @@ describe("MessagesPage message management", () => {
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
   });
 
-  it("requires delete confirmation and shows the deleted-message state", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("requires in-app confirmation and shows the deleted-message state", async () => {
     renderMessagesPage();
 
     expect(await screen.findByText("Original message")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete message?" });
+    expect(dialog).toHaveTextContent(
+      "Delete this message for everyone in the conversation? This cannot be undone.",
+    );
+    expect(deleteMessage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
     await waitFor(() => {
-      expect(confirm).toHaveBeenCalledWith(
-        "Delete this message for everyone in the conversation? This cannot be undone.",
-      );
       expect(deleteMessage).toHaveBeenCalledWith("own-message");
       expect(screen.getByText("This message was deleted")).toBeInTheDocument();
     });
   });
 
-  it("does not delete a message when the user cancels confirmation", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("does not delete a message when the user cancels in-app confirmation", async () => {
     renderMessagesPage();
 
     expect(await screen.findByText("Original message")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(await screen.findByRole("alertdialog", { name: "Delete message?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(deleteMessage).not.toHaveBeenCalled();
     expect(screen.getByText("Original message")).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("marks incoming unread messages as read when their conversation is opened", async () => {

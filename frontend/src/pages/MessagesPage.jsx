@@ -171,6 +171,8 @@ export default function MessagesPage() {
   const [openConversationMenu, setOpenConversationMenu] = useState(null);
   const conversationMenuRef = useRef(null);
   const conversationMenuTriggerRef = useRef(null);
+  const newChatSearchPanelRef = useRef(null);
+  const newChatToggleRef = useRef(null);
   const [profiles, setProfiles] = useState({});
   const [allProfiles, setAllProfiles] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -199,6 +201,27 @@ export default function MessagesPage() {
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
+
+  useEffect(() => {
+    if (!showNewChat) return undefined;
+
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (newChatSearchPanelRef.current?.contains(target)) return;
+      if (newChatToggleRef.current?.contains(target)) return;
+      setShowNewChat(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setShowNewChat(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showNewChat]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationFilter, setConversationFilter] = useState("all");
   const [unreadByConversation, setUnreadByConversation] = useState({});
@@ -1515,6 +1538,8 @@ export default function MessagesPage() {
             <div className="px-4 md:px-5 py-4 border-b border-white/10 flex-shrink-0 flex items-center justify-between gap-3">
               <h2 className="text-lg md:text-xl font-bold tracking-tight">Chats</h2>
               <button
+                ref={newChatToggleRef}
+                type="button"
                 onClick={() => setShowNewChat((v) => !v)}
                 title="New conversation"
                 className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-colors"
@@ -1556,7 +1581,7 @@ export default function MessagesPage() {
 
             {/* New Chat Search Panel */}
             {showNewChat && (
-              <div className="border-b border-white/10 flex-shrink-0">
+              <div ref={newChatSearchPanelRef} className="border-b border-white/10 flex-shrink-0">
                 <div className="px-3 py-2">
                   <input
                     autoFocus
