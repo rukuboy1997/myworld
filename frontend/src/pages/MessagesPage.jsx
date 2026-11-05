@@ -326,6 +326,7 @@ export default function MessagesPage() {
     const nativeAction = searchParams.get("nativeAction");
     const actionId = searchParams.get("nativeActionId");
     const replyText = (searchParams.get("replyText") || "").trim();
+    const notificationId = searchParams.get("nativeActionNotificationId") || "";
 
     if (
       !isAuthenticated ||
@@ -345,12 +346,14 @@ export default function MessagesPage() {
         const next = new URLSearchParams(previous);
         next.delete("nativeAction");
         next.delete("nativeActionId");
+        next.delete("nativeActionNotificationId");
         next.delete("replyText");
         return next;
       }, { replace: true });
     };
 
     (async () => {
+      let actionSucceeded = false;
       try {
         if (nativeAction === "reply") {
           if (!replyText) return;
@@ -359,16 +362,34 @@ export default function MessagesPage() {
             receiver: requestedAddress,
             content: replyText.slice(0, 2000),
           });
-          await loadConversations();
+          // Sending is the primary action. Do not keep Android's notification
+          // action pending on inbox refresh or read-receipt synchronization.
+          actionSucceeded = true;
+          void loadConversations();
         }
 
-        // A quick reply is also an interaction with this conversation, so
-        // synchronize incoming read receipts through the same API as the chat.
-        await markConversationRead(requestedAddress);
-        window.dispatchEvent(new Event("myworld:unread-messages-changed"));
+        // A quick reply is also an interaction with this conversation. A
+        // read-receipt failure must not turn a successfully sent reply into a
+        // permanently spinning Android notification action.
+        try {
+          await markConversationRead(requestedAddress);
+          window.dispatchEvent(new Event("myworld:unread-messages-changed"));
+        } catch (error) {
+          console.warn("Unable to mark notification conversation as read:", error);
+          if (nativeAction === "mark-as-read") throw error;
+        }
+        if (nativeAction === "mark-as-read") actionSucceeded = true;
       } catch (error) {
         console.warn("Android notification action failed:", error);
       } finally {
+        // Tell the native wrapper when it is safe to dismiss this notification.
+        // On failure, leave it visible so the user can retry the action.
+        if (window.ReactNativeWebView?.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: "notification-action-complete",
+            payload: { notificationId, success: actionSucceeded },
+          }));
+        }
         clearActionFromUrl();
       }
     })();
