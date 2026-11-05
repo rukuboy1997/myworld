@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import { createPost, getMyMembership } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
+import { showToast } from "../lib/toast.js";
 
 const FREE_MEDIA_LIMITS = { maxImageBytes: 10 * 1024 * 1024, maxVideoBytes: 25 * 1024 * 1024, reelDurationSeconds: 180 };
 const BUFFERED_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024; // Existing backend Multer memory ceiling
@@ -42,6 +43,10 @@ export default function CreatePostPage() {
   const [membershipPlan, setMembershipPlan] = useState(FREE_MEDIA_LIMITS);
   const [membershipLoaded, setMembershipLoaded] = useState(false);
   const directUploadsEnabled = import.meta.env.VITE_ENABLE_DIRECT_R2_UPLOADS === "true";
+
+  useEffect(() => {
+    if (error) showToast(error, "error");
+  }, [error]);
 
   useEffect(() => {
     let active = true;
