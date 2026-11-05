@@ -31,6 +31,8 @@ vi.mock("../lib/api.js", () => ({
   getPinnedConversations: vi.fn(),
   getMutedConversations: vi.fn(),
   setConversationMuted: vi.fn(),
+  getArchivedConversations: vi.fn(),
+  setConversationArchived: vi.fn(),
   setConversationPinned: vi.fn(),
   sendMessage: vi.fn(),
   editMessage: vi.fn(),
@@ -93,6 +95,7 @@ describe("MessagesPage message sending", () => {
     getMessages.mockResolvedValue([]);
     getPinnedConversations.mockResolvedValue({ pinned: [] });
     getMutedConversations.mockResolvedValue({ muted: [] });
+    getArchivedConversations.mockResolvedValue({ archived: [] });
     getUnreadMessageCounts.mockResolvedValue({ conversations: {} });
     getConversationsTyping.mockResolvedValue({ statuses: {} });
     getConversation.mockResolvedValue({ messages: [], hasMore: false });
