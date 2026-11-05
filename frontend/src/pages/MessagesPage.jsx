@@ -31,7 +31,7 @@ import {
 import { getAuthToken, useAuth } from "../lib/auth.jsx";
 import { firebaseDb, convId as fbConvId } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
-import { Archive, ArrowLeft, MessageCircle, Mic, MoreHorizontal, Paperclip, Pin, Plus, Search, Send, Volume2, VolumeX } from "../components/icons.jsx";
+import { Archive, ArrowLeft, MessageCircle, Mic, MoreHorizontal, Paperclip, Pin, Plus, Search, Send, Volume2, VolumeX, X } from "../components/icons.jsx";
 import { upsertConversationPreview } from "../lib/conversation-preview.js";
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
@@ -159,6 +159,7 @@ export default function MessagesPage() {
   const navigate = useNavigate();
   const [statusGroupsByOwner, setStatusGroupsByOwner] = useState({});
   const [pendingDeleteMessage, setPendingDeleteMessage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
   const requestedAddress = searchParams.get("with") || "";
   const [allMessages, setAllMessages] = useState([]);
   const [conversations, setConversations] = useState([]);
@@ -224,6 +225,22 @@ export default function MessagesPage() {
   }, [showNewChat]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationFilter, setConversationFilter] = useState("all");
+
+  useEffect(() => {
+    if (!imagePreview) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setImagePreview(null);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [imagePreview]);
   const [unreadByConversation, setUnreadByConversation] = useState({});
   const [presence, setPresence] = useState({});
   const [typingByUser, setTypingByUser] = useState({});
@@ -1929,9 +1946,14 @@ export default function MessagesPage() {
                                     <audio controls preload="metadata" src={msg.attachmentUrl} className="w-full max-w-[280px] h-10" aria-label="Play voice message">Your browser does not support audio playback.</audio>
                                   </div>
                                 ) : msg.attachmentMime?.startsWith("image/") ? (
-                                  <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" className="block mb-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setImagePreview({ url: msg.attachmentUrl, name: msg.attachmentName || "Shared image" })}
+                                    aria-label={`Open image preview: ${msg.attachmentName || "Shared image"}`}
+                                    className="block mb-1 max-w-full cursor-zoom-in text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg"
+                                  >
                                     <img src={msg.attachmentUrl} alt={msg.attachmentName || "Shared image"} loading="lazy" className="max-w-full max-h-72 rounded-lg object-contain" />
-                                  </a>
+                                  </button>
                                 ) : (
                                   <a href={msg.attachmentUrl} target="_blank" rel="noreferrer" download={msg.attachmentName || true} className="mb-1 flex items-center gap-3 rounded-xl border border-current/15 bg-black/5 p-3 min-w-0 hover:opacity-80">
                                     <span className="text-xl" aria-hidden="true">📎</span>
@@ -2056,6 +2078,43 @@ export default function MessagesPage() {
           </div>
         </div>
       </div>
+      {imagePreview && (
+        <div
+          className="fixed inset-0 z-[13000] flex items-center justify-center bg-black/95 p-3 sm:p-6"
+          role="presentation"
+          onClick={() => setImagePreview(null)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Image preview"
+            className="relative flex h-full w-full max-w-6xl items-center justify-center"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              autoFocus
+              onClick={() => setImagePreview(null)}
+              aria-label="Close image preview"
+              title="Close image preview"
+              className="absolute right-0 top-0 z-10 rounded-full border border-white/20 bg-black/60 p-3 text-white shadow-lg transition hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              <X size={22} aria-hidden="true" />
+            </button>
+            <img
+              src={imagePreview.url}
+              alt={imagePreview.name}
+              className="max-h-[88vh] max-w-full select-none rounded-lg object-contain"
+              draggable="false"
+            />
+            {imagePreview.name && imagePreview.name !== "Shared image" && (
+              <p className="absolute bottom-0 left-0 right-0 truncate px-12 py-3 text-center text-xs text-white/75">
+                {imagePreview.name}
+              </p>
+            )}
+          </section>
+        </div>
+      )}
       {pendingDeleteMessage && (
         <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/75 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingDeleteMessage(null); }}>
           <section role="alertdialog" aria-modal="true" aria-labelledby="delete-message-title" aria-describedby="delete-message-description" className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-950 p-5 shadow-2xl">

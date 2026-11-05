@@ -276,6 +276,55 @@ describe("MessagesPage message management", () => {
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
   });
 
+  it("opens shared images in an in-chat preview and closes it with the close button", async () => {
+    getConversation.mockResolvedValue({
+      messages: [{
+        ...ownMessage,
+        attachmentUrl: "https://cdn.example.com/shared-photo.jpg",
+        attachmentMime: "image/jpeg",
+        attachmentName: "shared-photo.jpg",
+      }],
+      hasMore: false,
+    });
+
+    renderMessagesPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Open image preview: shared-photo.jpg" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Image preview" });
+    expect(within(dialog).getByRole("img", { name: "shared-photo.jpg" })).toHaveAttribute(
+      "src",
+      "https://cdn.example.com/shared-photo.jpg",
+    );
+    expect(screen.queryByRole("link", { name: /shared-photo/i })).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close image preview" }));
+    expect(screen.queryByRole("dialog", { name: "Image preview" })).not.toBeInTheDocument();
+  });
+
+  it("closes the in-chat image preview with Escape or by tapping the backdrop", async () => {
+    getConversation.mockResolvedValue({
+      messages: [{
+        ...ownMessage,
+        attachmentUrl: "https://cdn.example.com/shared-photo.jpg",
+        attachmentMime: "image/jpeg",
+        attachmentName: "shared-photo.jpg",
+      }],
+      hasMore: false,
+    });
+
+    renderMessagesPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Open image preview: shared-photo.jpg" }));
+    expect(await screen.findByRole("dialog", { name: "Image preview" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Image preview" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open image preview: shared-photo.jpg" }));
+    const dialog = await screen.findByRole("dialog", { name: "Image preview" });
+    fireEvent.click(dialog.parentElement);
+    expect(screen.queryByRole("dialog", { name: "Image preview" })).not.toBeInTheDocument();
+  });
+
   it("requires in-app confirmation and shows the deleted-message state", async () => {
     renderMessagesPage();
 
