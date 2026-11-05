@@ -64,6 +64,9 @@ import {
   getUnreadMessageCounts,
   getPinnedConversations,
   setConversationPinned,
+  getMutedConversations,
+  isConversationMuted,
+  setConversationMuted,
   getConversation,
   rowToMessage,
   saveMessage,
@@ -161,8 +164,11 @@ function fbConvId(a, b) {
 }
 
 // Fire-and-forget email notification — never blocks the HTTP response
-async function createNotificationAndPush(notification) {
+async function createNotificationAndPush(notification, { push = true } = {}) {
   await createNotification(notification);
+  // In-app notifications are always recorded. Conversation mute only suppresses
+  // the external push alert for that recipient; it never blocks message delivery.
+  if (!push) return;
   // Deliberately do not await provider delivery; social actions should stay responsive.
   // Expo delivery is best-effort; an outage must never fail the social action.
   void deliverExpoPush(notification, {
@@ -3168,7 +3174,9 @@ export function buildApp() {
   async function notifyMessageReceiver(receiver, sender, content) {
     if (receiver === sender) return;
     const preview = String(content || "Sent an attachment");
-    await createNotificationAndPush({ recipient: receiver, type: "message", actorAddress: sender, excerpt: preview.slice(0, 80) });
+    const notification = { recipient: receiver, type: "message", actorAddress: sender, excerpt: preview.slice(0, 80) };
+    const muted = await isConversationMuted(receiver, sender);
+    await createNotificationAndPush(notification, { push: !muted });
   }
 
   // Prepare realtime membership for inbox/chat listeners. The helper only
@@ -3237,6 +3245,39 @@ export function buildApp() {
     } catch (err) {
       console.error("set_conversation_pinned error:", err);
       res.status(500).json({ error: "Failed to update pinned conversation" });
+    }
+  });
+
+  app.get("/api/conversations/muted", requireAuth, async (req, res) => {
+    try {
+      const muted = await getMutedConversations(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ muted });
+    } catch (err) {
+      console.error("get_muted_conversations error:", err);
+      res.status(500).json({ error: "Failed to load muted conversations" });
+    }
+  });
+
+  app.put("/api/conversation/mute", requireAuth, async (req, res) => {
+    try {
+      const otherAddress = normalizeTextInput(req.body?.otherAddress);
+      if (!otherAddress || otherAddress === req.userAddress) {
+        return res.status(400).json({ error: "A valid conversation partner is required" });
+      }
+      if (await isBlockedEitherWay(req.userAddress, otherAddress)) {
+        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+      }
+      const muted = req.body?.muted;
+      if (typeof muted !== "boolean") {
+        return res.status(400).json({ error: "muted must be a boolean" });
+      }
+      const result = await setConversationMuted(req.userAddress, otherAddress, muted);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      console.error("set_conversation_muted error:", err);
+      res.status(500).json({ error: "Failed to update conversation mute setting" });
     }
   });
 
