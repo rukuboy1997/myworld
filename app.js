@@ -3269,13 +3269,16 @@ export function buildApp() {
   app.post("/api/presence/heartbeat", requireAuth, async (req, res) => {
     const lastSeenAt = new Date().toISOString();
     try {
-      await upsertPresence(req.userAddress);
+      // Store and publish the exact same server-generated timestamp so Firebase
+      // and PostgreSQL can never disagree because their clocks differ.
+      const canonicalLastSeenAt = await upsertPresence(req.userAddress, lastSeenAt);
       try {
-        await writeFirebasePresence(req.userAddress, lastSeenAt);
+        await writeFirebasePresence(req.userAddress, canonicalLastSeenAt || lastSeenAt);
       } catch (firebaseError) {
         console.warn("[presence] Firebase heartbeat failed:", firebaseError.message);
       }
-      res.json({ ok: true, lastSeenAt });
+      res.set("Cache-Control", "private, no-store");
+      res.json({ ok: true, lastSeenAt: canonicalLastSeenAt || lastSeenAt });
     } catch (err) {
       console.error("[presence] heartbeat failed:", err.message);
       res.status(500).json({ error: "Could not update presence" });
@@ -3290,6 +3293,7 @@ export function buildApp() {
           .map((address) => address.trim())
           .filter(Boolean),
       )].slice(0, 100);
+      res.set("Cache-Control", "private, no-store");
       res.json(await getBatchPresence(addresses));
     } catch (err) {
       console.error("[presence] batch lookup failed:", err.message);
