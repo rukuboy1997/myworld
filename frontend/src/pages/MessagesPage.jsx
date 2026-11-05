@@ -1411,20 +1411,20 @@ export default function MessagesPage() {
   const renderConversationMenu = (address, align = "right") => (
     <div
       ref={conversationMenuRef}
-      className={`absolute ${align === "left" ? "left-2" : "right-2"} top-full z-50 mt-1 w-52 rounded-xl border border-white/10 bg-zinc-950/95 p-1.5 shadow-2xl backdrop-blur-xl`}
+      className={`absolute ${align === "left" ? "left-2" : "right-2"} top-full z-50 mt-1 w-52 rounded-xl border border-border bg-card/95 p-1.5 text-card-foreground shadow-2xl backdrop-blur-xl`}
       role="menu"
       aria-label="Conversation actions"
       onClick={(event) => event.stopPropagation()}
     >
-      <button type="button" role="menuitem" disabled={isUpdatingPin} onClick={() => { setOpenConversationMenu(null); void toggleConversationPin(address); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-white/10 disabled:opacity-50">
+      <button type="button" role="menuitem" disabled={isUpdatingPin} onClick={() => { setOpenConversationMenu(null); void toggleConversationPin(address); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-card-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50">
         <Pin size={16} aria-hidden="true" />
         {pinnedConversations[address] ? "Unpin conversation" : "Pin conversation"}
       </button>
-      <button type="button" role="menuitem" disabled={isUpdatingMute} onClick={() => { setOpenConversationMenu(null); void toggleConversationMute(address); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-white/10 disabled:opacity-50">
+      <button type="button" role="menuitem" disabled={isUpdatingMute} onClick={() => { setOpenConversationMenu(null); void toggleConversationMute(address); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-card-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50">
         {mutedConversations[address] ? <Volume2 size={16} aria-hidden="true" /> : <VolumeX size={16} aria-hidden="true" />}
         {mutedConversations[address] ? "Unmute conversation" : "Mute conversation"}
       </button>
-      <button type="button" role="menuitem" disabled={isUpdatingArchive} onClick={() => { setOpenConversationMenu(null); void toggleConversationArchive(address); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-white/10 disabled:opacity-50">
+      <button type="button" role="menuitem" disabled={isUpdatingArchive} onClick={() => { setOpenConversationMenu(null); void toggleConversationArchive(address); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-card-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50">
         <Archive size={16} aria-hidden="true" />
         {archivedConversations[address] ? "Restore conversation" : "Archive conversation"}
       </button>

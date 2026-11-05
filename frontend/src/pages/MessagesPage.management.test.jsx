@@ -233,6 +233,18 @@ describe("MessagesPage message management", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("uses theme-aware colors for the conversation options menu", async () => {
+    renderMessagesPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Conversation options" }));
+
+    const menu = screen.getByRole("menu", { name: "Conversation actions" });
+    expect(menu).toHaveClass("bg-card/95", "border-border", "text-card-foreground");
+    expect(within(menu).getByRole("menuitem", { name: "Pin conversation" })).toHaveClass(
+      "hover:bg-muted",
+      "text-card-foreground",
+    );
+  });
+
   it("closes the conversation options menu when the user taps outside it", async () => {
     renderMessagesPage();
     const trigger = await screen.findByRole("button", { name: "Conversation options" });
