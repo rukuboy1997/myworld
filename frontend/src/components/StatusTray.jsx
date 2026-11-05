@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { showToast } from "../lib/toast.js";
 import { onValue, ref } from "firebase/database";
 import { useAuth, getAuthToken } from "../lib/auth.jsx";
 import { firebaseDb } from "../lib/firebase.js";
@@ -43,6 +45,7 @@ function timeLeft(expiresAt) {
 
 export default function StatusTray() {
   const { address, isAuthenticated, openAuthModal } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [statuses, setStatuses] = useState([]);
   const [loading, setLoading] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -235,7 +238,6 @@ export default function StatusTray() {
     setViewerIndex(start);
     setViewers(null);
     const status = group.statuses[start];
-    // Owners can open their own statuses, but never count themselves as viewers.
     if (status && group.owner !== address && !status.viewedByMe) {
       try {
         const result = await recordStatusView(status.id);
@@ -245,6 +247,19 @@ export default function StatusTray() {
       } catch {}
     }
   };
+
+  useEffect(() => {
+    const requestedOwner = searchParams.get("status");
+    if (!requestedOwner || !groups.length) return;
+    const targetGroup = groups.find((group) => group.owner === requestedOwner);
+    if (!targetGroup) return;
+    void openGroup(targetGroup);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.delete("status");
+      return next;
+    }, { replace: true });
+  }, [searchParams, groups]);
 
   const moveViewer = async (direction) => {
     if (!viewerGroup) return;
@@ -301,6 +316,7 @@ export default function StatusTray() {
       setAudience("followers");
       setError("");
       setComposerOpen(false);
+      window.dispatchEvent(new Event("myworld:status-updated"));
       await refresh();
     } catch (err) {
       setError(err.message || "Couldn't publish status");
@@ -311,6 +327,10 @@ export default function StatusTray() {
 
   const ownGroup = groups.find((group) => group.owner === address);
   const currentStatus = viewerGroup?.statuses?.[viewerIndex];
+
+  useEffect(() => {
+    if (error) showToast(error, "error");
+  }, [error]);
 
   const handleStatusLike = async () => {
     if (!currentStatus || likeSaving || currentStatus.owner === address) return;
