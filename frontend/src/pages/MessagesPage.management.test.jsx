@@ -137,19 +137,13 @@ describe("MessagesPage message management", () => {
     const { setConversationMuted } = await import("../lib/api.js");
     renderMessagesPage();
 
-    const muteButton = await screen.findByRole("button", { name: "Mute conversation" });
-    fireEvent.click(muteButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Conversation options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mute conversation" }));
+    await waitFor(() => expect(setConversationMuted).toHaveBeenCalledWith("0xBOB", true));
 
-    await waitFor(() => {
-      expect(setConversationMuted).toHaveBeenCalledWith("0xBOB", true);
-      expect(screen.getByRole("button", { name: "Unmute conversation" })).toHaveAttribute("aria-pressed", "true");
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Unmute conversation" }));
-    await waitFor(() => {
-      expect(setConversationMuted).toHaveBeenLastCalledWith("0xBOB", false);
-      expect(screen.getByRole("button", { name: "Mute conversation" })).toHaveAttribute("aria-pressed", "false");
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Conversation options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Unmute conversation" }));
+    await waitFor(() => expect(setConversationMuted).toHaveBeenLastCalledWith("0xBOB", false));
   });
 
   it("archives and restores a conversation without deleting its messages", async () => {
@@ -164,25 +158,39 @@ describe("MessagesPage message management", () => {
     });
     renderMessagesPage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Archive conversation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Conversation options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive conversation" }));
     await waitFor(() => {
       expect(setConversationArchived).toHaveBeenCalledWith("0xBOB", true);
-      expect(screen.queryByRole("button", { name: "Archive conversation" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Conversation options" })).not.toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Archived" }));
     const archivedBob = await screen.findByRole("button", { name: /bob/i });
     fireEvent.click(archivedBob);
-
-    const restoreButton = await screen.findByRole("button", { name: "Restore conversation" });
-    await waitFor(() => expect(restoreButton).toBeEnabled());
-    fireEvent.click(restoreButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Options for bob" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restore conversation" }));
 
     await waitFor(() => {
       expect(setConversationArchived).toHaveBeenNthCalledWith(2, "0xBOB", false);
-      expect(screen.getByRole("button", { name: "Archive conversation" })).toBeInTheDocument();
-      expect(screen.getByText("Original message")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Options for bob" })).not.toBeInTheDocument();
     });
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(await screen.findByRole("button", { name: "Options for bob" })).toBeInTheDocument();
+  });
+
+  it("offers inbox quick actions without opening the conversation", async () => {
+    const { setConversationPinned } = await import("../lib/api.js");
+    renderMessagesPage("/messages");
+
+    const options = await screen.findByRole("button", { name: "Options for alice" });
+    fireEvent.click(options);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pin conversation" }));
+
+    await waitFor(() => {
+      expect(setConversationPinned).toHaveBeenCalledWith("0xALICE", true);
+    });
+    expect(getConversation).not.toHaveBeenCalledWith("0xME", "0xALICE", { limit: 100 });
   });
 
   it("saves an edited message and updates the visible conversation", async () => {
