@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { showToast } from "../lib/toast.js";
 import { formatDistanceToNow, isToday, isYesterday, format } from "date-fns";
 import { ref, onValue, query, orderByChild, limitToLast } from "firebase/database";
 import Layout from "../components/Layout.jsx";
@@ -18,6 +19,7 @@ import {
   setMessageReaction,
   uploadMessageAttachment,
   getAllProfiles,
+  getStatuses,
   getConversation,
   markConversationRead,
   setConversationTyping,
@@ -154,6 +156,9 @@ function groupMessages(messages) {
 export default function MessagesPage() {
   const { address: wallet, isAuthenticated, openAuthModal } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [statusGroupsByOwner, setStatusGroupsByOwner] = useState({});
+  const [pendingDeleteMessage, setPendingDeleteMessage] = useState(null);
   const requestedAddress = searchParams.get("with") || "";
   const [allMessages, setAllMessages] = useState([]);
   const [conversations, setConversations] = useState([]);
@@ -166,6 +171,8 @@ export default function MessagesPage() {
   const [openConversationMenu, setOpenConversationMenu] = useState(null);
   const conversationMenuRef = useRef(null);
   const conversationMenuTriggerRef = useRef(null);
+  const newChatSearchPanelRef = useRef(null);
+  const newChatToggleRef = useRef(null);
   const [profiles, setProfiles] = useState({});
   const [allProfiles, setAllProfiles] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -194,6 +201,27 @@ export default function MessagesPage() {
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
+
+  useEffect(() => {
+    if (!showNewChat) return undefined;
+
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (newChatSearchPanelRef.current?.contains(target)) return;
+      if (newChatToggleRef.current?.contains(target)) return;
+      setShowNewChat(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setShowNewChat(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showNewChat]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [conversationFilter, setConversationFilter] = useState("all");
   const [unreadByConversation, setUnreadByConversation] = useState({});
@@ -346,6 +374,35 @@ export default function MessagesPage() {
     selectConversation(profile);
     setNewChatSearch("");
   };
+
+  useEffect(() => {
+    if (!isAuthenticated) { setStatusGroupsByOwner({}); return undefined; }
+    let active = true;
+    const refreshStatusOwners = async () => {
+      try {
+        const result = await getStatuses();
+        if (!active) return;
+        const owners = {};
+        (result?.items || []).forEach((status) => {
+          if (!owners[status.owner]) owners[status.owner] = { hasUnseen: false };
+          if (!status.viewedByMe) owners[status.owner].hasUnseen = true;
+        });
+        setStatusGroupsByOwner(owners);
+      } catch {
+        // Status rings are supplementary; messaging remains available if status loading fails.
+      }
+    };
+    refreshStatusOwners();
+    const handleStatusUpdate = () => refreshStatusOwners();
+    const handleVisibility = () => { if (document.visibilityState === "visible") refreshStatusOwners(); };
+    window.addEventListener("myworld:status-updated", handleStatusUpdate);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      active = false;
+      window.removeEventListener("myworld:status-updated", handleStatusUpdate);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (isAuthenticated) loadConversations();
@@ -1051,7 +1108,7 @@ export default function MessagesPage() {
   const startVoiceRecording = async () => {
     if (isRecordingVoice || isSendingMessage) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      window.alert("Voice recording is not supported in this browser. Please update your browser or use the file attachment option.");
+      showToast("Voice recording is not supported in this browser. Please update your browser or use the file attachment option.");
       return;
     }
     if (!isAuthenticated) {
@@ -1075,7 +1132,7 @@ export default function MessagesPage() {
         if (event.data?.size) voiceChunksRef.current.push(event.data);
       };
       recorder.onerror = () => {
-        window.alert("Voice recording failed. Please try again.");
+        showToast("Voice recording failed. Please try again.");
         setIsRecordingVoice(false);
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         if (recordingLimitTimerRef.current) clearTimeout(recordingLimitTimerRef.current);
@@ -1093,7 +1150,7 @@ export default function MessagesPage() {
         const blob = new Blob(voiceChunksRef.current, { type: rawType });
         voiceChunksRef.current = [];
         if (!blob.size) {
-          window.alert("No audio was captured. Please try recording again.");
+          showToast("No audio was captured. Please try recording again.");
           return;
         }
         const file = new File([blob], `voice-message-${Date.now()}.${extension}`, { type: mimeType });
@@ -1118,7 +1175,7 @@ export default function MessagesPage() {
     } catch (error) {
       voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
       voiceStreamRef.current = null;
-      window.alert(error?.name === "NotAllowedError" ? "Microphone permission was denied. Allow microphone access to record a voice message." : "Could not access the microphone. Please check your device settings and try again.");
+      showToast(error?.name === "NotAllowedError" ? "Microphone permission was denied. Allow microphone access to record a voice message." : "Could not access the microphone. Please check your device settings and try again.");
     }
   };
 
@@ -1135,13 +1192,13 @@ export default function MessagesPage() {
     const file = event.target.files?.[0] || null;
     if (!file) return;
     if (file.size > 25 * 1024 * 1024) {
-      window.alert("Files must be 25 MB or smaller.");
+      showToast("Files must be 25 MB or smaller.");
       event.target.value = "";
       return;
     }
     const allowed = ["image/jpeg","image/png","image/gif","image/webp","application/pdf","text/plain","text/csv","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","audio/webm","audio/mp4","audio/ogg","audio/mpeg","audio/wav","audio/aac","audio/3gpp"];
     if (!allowed.includes(file.type)) {
-      window.alert("Choose an image, document, or supported audio file.");
+      showToast("Choose an image, document, or supported audio file.");
       event.target.value = "";
       return;
     }
@@ -1160,7 +1217,7 @@ export default function MessagesPage() {
   const beginEditMessage = (message) => {
     if (!message || message.sender !== wallet || message.deletedAt || !message.content) return;
     if (Date.now() - new Date(message.createdAt).getTime() > 15 * 60 * 1000) {
-      window.alert("Messages can only be edited for 15 minutes after sending.");
+      showToast("Messages can only be edited for 15 minutes after sending.");
       return;
     }
     setEditingMessageId(message.id);
@@ -1184,7 +1241,7 @@ export default function MessagesPage() {
       cancelEditMessage();
       loadConversations();
     } catch (error) {
-      window.alert(error?.message || "Could not edit this message.");
+      showToast(error?.message || "Could not edit this message.");
     } finally {
       setIsUpdatingMessage(false);
     }
@@ -1200,15 +1257,21 @@ export default function MessagesPage() {
       setAllMessages(applyUpdate);
       setReactionPickerMessageId(null);
     } catch (error) {
-      window.alert(error?.message || "Could not update reaction.");
+      showToast(error?.message || "Could not update reaction.");
     } finally {
       setUpdatingReactionMessageId(null);
     }
   };
 
-  const handleDeleteMessage = async (message) => {
+  const handleDeleteMessage = (message) => {
     if (!message?.id || message.sender !== wallet || message.deletedAt) return;
-    if (!window.confirm("Delete this message for everyone in the conversation? This cannot be undone.")) return;
+    setPendingDeleteMessage(message);
+  };
+
+  const confirmDeleteMessage = async () => {
+    const message = pendingDeleteMessage;
+    if (!message?.id) return;
+    setPendingDeleteMessage(null);
     try {
       const updated = await deleteMessage(message.id);
       const applyUpdate = (items) => items.map((item) => item.id === updated.id ? { ...item, ...updated } : item);
@@ -1217,7 +1280,7 @@ export default function MessagesPage() {
       if (editingMessageId === message.id) cancelEditMessage();
       loadConversations();
     } catch (error) {
-      window.alert(error?.message || "Could not delete this message.");
+      showToast(error?.message || "Could not delete this message.");
     }
   };
 
@@ -1244,7 +1307,7 @@ export default function MessagesPage() {
     } catch (err) {
       console.error("Failed to send message", err);
       setNewMessage(text);
-      window.alert(err.message || "Message could not be sent. Please try again.");
+      showToast(err.message || "Message could not be sent. Please try again.");
     } finally {
       setIsSendingMessage(false);
       setUploadProgress(0);
@@ -1254,6 +1317,12 @@ export default function MessagesPage() {
   const handleSelectUser = (conv) => {
     const profile = profiles[conv.address] || { address: conv.address };
     selectConversation(profile);
+  };
+
+  const openContactStatusOrProfile = (address) => {
+    if (!address) return;
+    if (statusGroupsByOwner[address]) navigate(`/feed?status=${encodeURIComponent(address)}`);
+    else navigate(`/profile/${address}`);
   };
 
   const toggleConversationPin = async (otherAddress) => {
@@ -1275,7 +1344,7 @@ export default function MessagesPage() {
         }),
       );
     } catch (err) {
-      window.alert(err.message || "Could not update pinned conversation.");
+      showToast(err.message || "Could not update pinned conversation.");
     } finally {
       setIsUpdatingPin(false);
     }
@@ -1298,7 +1367,7 @@ export default function MessagesPage() {
         }, { replace: true });
       }
     } catch (err) {
-      window.alert(err.message || "Could not update conversation archive setting.");
+      showToast(err.message || "Could not update conversation archive setting.");
     } finally {
       setIsUpdatingArchive(false);
     }
@@ -1312,7 +1381,7 @@ export default function MessagesPage() {
       await setConversationMuted(otherAddress, shouldMute);
       setMutedConversations((previous) => ({ ...previous, [otherAddress]: shouldMute }));
     } catch (err) {
-      window.alert(err.message || "Could not update conversation mute setting.");
+      showToast(err.message || "Could not update conversation mute setting.");
     } finally {
       setIsUpdatingMute(false);
     }
@@ -1467,15 +1536,10 @@ export default function MessagesPage() {
             className={`w-full min-h-0 md:w-80 glass-panel rounded-2xl md:rounded-3xl flex flex-col overflow-hidden flex-shrink-0 ${selectedUser ? "hidden md:flex" : "flex"}`}
           >
             <div className="px-4 md:px-5 py-4 border-b border-white/10 flex-shrink-0 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-lg md:text-xl font-bold tracking-tight">
-                  Chats
-                </h2>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Conversations, without the noise.
-                </p>
-              </div>
+              <h2 className="text-lg md:text-xl font-bold tracking-tight">Chats</h2>
               <button
+                ref={newChatToggleRef}
+                type="button"
                 onClick={() => setShowNewChat((v) => !v)}
                 title="New conversation"
                 className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-colors"
@@ -1517,7 +1581,7 @@ export default function MessagesPage() {
 
             {/* New Chat Search Panel */}
             {showNewChat && (
-              <div className="border-b border-white/10 flex-shrink-0">
+              <div ref={newChatSearchPanelRef} className="border-b border-white/10 flex-shrink-0">
                 <div className="px-3 py-2">
                   <input
                     autoFocus
@@ -1606,54 +1670,40 @@ export default function MessagesPage() {
                   const hasUnread = unread > 0;
                   const isSelected = selectedUser?.address === conv.address;
                   return (
-                    <div key={conv.address} className="relative flex items-center border-b border-white/5 last:border-0">
+                    <div key={conv.address} className="relative flex min-h-[76px] items-center border-b border-white/5 last:border-0">
+                    <button
+                      type="button"
+                      onClick={() => openContactStatusOrProfile(conv.address)}
+                      aria-label={statusGroupsByOwner[conv.address] ? `View ${p?.username || "contact"}'s status` : `View ${p?.username || "contact"}'s profile`}
+                      className="relative ml-3 flex-shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <span className={`block rounded-full p-[2.5px] ${statusGroupsByOwner[conv.address] ? statusGroupsByOwner[conv.address].hasUnseen ? "bg-gradient-to-tr from-amber-400 via-fuchsia-500 to-cyan-400" : "bg-white/35" : ""}`}>
+                        <span className="block rounded-full bg-background p-[2px]"><Avatar profile={p} size="lg" /></span>
+                      </span>
+                      <PresenceDot online={isOnline(presence[conv.address])} size="sm" />
+                    </button>
                     <button
                       type="button"
                       onClick={() => { setOpenConversationMenu(null); handleSelectUser(conv); }}
                       aria-label={`Open conversation with ${p?.username || truncateAddress(conv.address)}`}
-                      className={`flex min-w-0 flex-1 items-center gap-3 px-4 py-3 pr-2 text-left transition-all
+                      className={`flex min-w-0 min-h-[76px] flex-1 items-center gap-3 px-3 py-3 pr-2 text-left transition-all
                       ${isSelected ? "bg-primary/15" : hasUnread ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-white/5"}`}
                     >
-                      <div className="relative flex-shrink-0">
-                        <Avatar profile={p} />
-                        <PresenceDot
-                          online={isOnline(presence[conv.address])}
-                          size="sm"
-                        />
-                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <span
-                            className={`text-sm truncate ${hasUnread ? "font-bold text-foreground" : "font-semibold"}`}
-                          >
+                          <span className={`text-sm truncate ${hasUnread ? "font-bold text-foreground" : "font-semibold"}`}>
                             {p?.username || truncateAddress(conv.address)}
                           </span>
-                          {pinnedConversations[conv.address] && (
-                            <Pin size={13} className="text-primary flex-shrink-0" aria-label="Pinned conversation" title="Pinned" />
-                          )}
-                          {mutedConversations[conv.address] && (
-                            <VolumeX size={13} className="text-muted-foreground flex-shrink-0" aria-label="Muted conversation" title="Muted" />
-                          )}
-                          {lastMsg && (
-                            <span
-                              className={`text-[10px] flex-shrink-0 ${hasUnread ? "text-primary font-medium" : "text-muted-foreground"}`}
-                            >
-                              {formatDistanceToNow(
-                                new Date(lastMsg.createdAt),
-                                { addSuffix: false },
-                              )}
-                            </span>
-                          )}
+                          <span className="flex flex-shrink-0 items-center gap-2">
+                            {pinnedConversations[conv.address] && <Pin size={13} className="text-primary" aria-label="Pinned conversation" title="Pinned" />}
+                            {mutedConversations[conv.address] && <VolumeX size={13} className="text-muted-foreground" aria-label="Muted conversation" title="Muted" />}
+                            {lastMsg && <span className={`text-[10px] ${hasUnread ? "text-primary font-medium" : "text-muted-foreground"}`}>{formatDistanceToNow(new Date(lastMsg.createdAt), { addSuffix: false })}</span>}
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between gap-2 mt-0.5">
-                          <p
-                            className={`text-xs truncate ${typingByUser[conv.address] ? "text-primary font-semibold" : hasUnread ? "text-foreground/80 font-medium" : "text-muted-foreground"}`}
-                          >
+                        <div className="mt-1 flex items-center justify-between gap-2">
+                          <p className={`text-xs truncate ${typingByUser[conv.address] ? "text-primary font-semibold" : hasUnread ? "text-foreground/80 font-medium" : "text-muted-foreground"}`}>
                             {typingByUser[conv.address] ? (
-                              <span className="inline-flex items-center gap-1.5">
-                                <TypingDots />
-                                <span>typing…</span>
-                              </span>
+                              <span className="inline-flex items-center gap-1.5"><TypingDots /><span>typing…</span></span>
                             ) : lastMsg ? (
                               lastMsg.deletedAt
                                 ? (lastMsg.sender === wallet ? "You: This message was deleted" : "This message was deleted")
@@ -1661,18 +1711,10 @@ export default function MessagesPage() {
                                   ? (lastMsg.sender === wallet ? "You: 🎤 Voice message" : "🎤 Voice message")
                                   : lastMsg.attachmentUrl && !lastMsg.content
                                     ? (lastMsg.sender === wallet ? `You: 📎 ${lastMsg.attachmentName || "Attachment"}` : `📎 ${lastMsg.attachmentName || "Attachment"}`)
-                                    : lastMsg.sender === wallet
-                                      ? `You: ${lastMsg.content}`
-                                      : lastMsg.content
-                            ) : (
-                              p?.bio || "Say hello!"
-                            )}
+                                    : lastMsg.sender === wallet ? `You: ${lastMsg.content}` : lastMsg.content
+                            ) : (p?.bio || "Say hello!")}
                           </p>
-                          {hasUnread && (
-                            <span className="flex-shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
-                              {unread > 9 ? "9+" : unread}
-                            </span>
-                          )}
+                          {hasUnread && <span className="flex-shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">{unread > 9 ? "9+" : unread}</span>}
                         </div>
                       </div>
                     </button>
@@ -1717,17 +1759,16 @@ export default function MessagesPage() {
                   >
                     <ArrowLeft size={20} aria-hidden="true" />
                   </button>
-                  <div className="relative flex-shrink-0">
-                    <Avatar profile={selectedProfile} />
-                    <PresenceDot
-                      online={isOnline(presence[selectedUser.address])}
-                    />
-                  </div>
+                  <button type="button" onClick={() => openContactStatusOrProfile(selectedUser.address)} aria-label={statusGroupsByOwner[selectedUser.address] ? "View contact status" : "View contact profile"} className="relative flex-shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                    <span className={`block rounded-full p-[2.5px] ${statusGroupsByOwner[selectedUser.address] ? statusGroupsByOwner[selectedUser.address].hasUnseen ? "bg-gradient-to-tr from-amber-400 via-fuchsia-500 to-cyan-400" : "bg-white/35" : ""}`}>
+                      <span className="block rounded-full bg-background p-[2px]"><Avatar profile={selectedProfile} size="lg" /></span>
+                    </span>
+                    <PresenceDot online={isOnline(presence[selectedUser.address])} />
+                  </button>
                   <div className="min-w-0">
-                    <h3 className="font-bold text-sm md:text-base truncate">
-                      {selectedProfile?.username ||
-                        truncateAddress(selectedUser.address)}
-                    </h3>
+                    <button type="button" onClick={() => navigate(`/profile/${selectedUser.address}`)} className="block max-w-full truncate text-left font-bold text-sm md:text-base hover:text-primary transition-colors">
+                      {selectedProfile?.username || truncateAddress(selectedUser.address)}
+                    </button>
                     {(() => {
                       const lastSeenAt = presence[selectedUser.address];
                       const online = isOnline(lastSeenAt);
@@ -2015,6 +2056,18 @@ export default function MessagesPage() {
           </div>
         </div>
       </div>
+      {pendingDeleteMessage && (
+        <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/75 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingDeleteMessage(null); }}>
+          <section role="alertdialog" aria-modal="true" aria-labelledby="delete-message-title" aria-describedby="delete-message-description" className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-950 p-5 shadow-2xl">
+            <h2 id="delete-message-title" className="text-base font-bold text-white">Delete message?</h2>
+            <p id="delete-message-description" className="mt-2 text-sm leading-relaxed text-white/65">Delete this message for everyone in the conversation? This cannot be undone.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" autoFocus onClick={() => setPendingDeleteMessage(null)} className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white/80 hover:bg-white/10">Cancel</button>
+              <button type="button" onClick={confirmDeleteMessage} className="rounded-full bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-500">Delete</button>
+            </div>
+          </section>
+        </div>
+      )}
     </Layout>
   );
 }

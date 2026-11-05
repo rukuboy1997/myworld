@@ -16,10 +16,13 @@ import {
   setConversationTyping,
 } from "../lib/api.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
+import { showToast } from "../lib/toast.js";
 
 vi.mock("../components/Layout.jsx", () => ({
   default: ({ children }) => <div data-testid="layout">{children}</div>,
 }));
+
+vi.mock("../lib/toast.js", () => ({ showToast: vi.fn() }));
 
 vi.mock("../lib/auth.jsx", () => ({
   useAuth: vi.fn(),
@@ -143,8 +146,8 @@ describe("MessagesPage message sending", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("restores the draft and alerts the user when sending fails", async () => {
-    const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+  it("restores the draft and shows an in-app toast when sending fails", async () => {
+    showToast.mockClear();
     vi.spyOn(console, "error").mockImplementation(() => {});
     sendMessage.mockRejectedValueOnce(new Error("Network unavailable"));
 
@@ -155,7 +158,7 @@ describe("MessagesPage message sending", () => {
     fireEvent.submit(getComposer());
 
     await waitFor(() => {
-      expect(alert).toHaveBeenCalledWith("Network unavailable");
+      expect(showToast).toHaveBeenCalledWith("Network unavailable");
       expect(input).toHaveValue("Please deliver this");
     });
     expect(sendMessage).toHaveBeenCalledOnce();
