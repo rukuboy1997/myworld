@@ -213,7 +213,7 @@ describe("MessagesPage inbox", () => {
       resolvePresenceBatch({ "0xALICE": staleHeartbeat });
     });
 
-    expect(await screen.findByText("Online")).toBeInTheDocument();
+    expect(await screen.findByText("Online", { selector: "p" })).toBeInTheDocument();
     expect(document.querySelector(".bg-green-500")).toBeInTheDocument();
   });
 
