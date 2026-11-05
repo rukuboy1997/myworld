@@ -21,7 +21,6 @@ const APP_URL = "https://myworld-app.vercel.app";
 // foreground unless a notification handler explicitly opts in.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldShowBanner: true,
     shouldShowList: true,
     shouldPlaySound: true,
@@ -189,13 +188,16 @@ export default function MyWebView({ setTheme }) {
         params.set("with", conversationAddress);
         params.set("nativeAction", action);
         params.set("nativeActionId", String(now));
+        if (requestId) params.set("nativeActionNotificationId", requestId);
         if (action === "reply") params.set("replyText", userText.trim());
         queueNotificationTarget("/messages?" + params.toString());
-        return;
+      } else {
+        queueNotificationTarget(getSafeNotificationTarget(data));
       }
 
-      queueNotificationTarget(getSafeNotificationTarget(data));
-      // Prevent a handled action from being replayed on the next app launch.
+      // Clear the cached response for every route, including message actions.
+      // The notification itself is dismissed only after the WebView confirms
+      // that the reply/read action completed successfully.
       if (typeof Notifications.clearLastNotificationResponseAsync === "function") {
         Notifications.clearLastNotificationResponseAsync().catch(() => {});
       }
@@ -307,6 +309,25 @@ export default function MyWebView({ setTheme }) {
       const { type, payload } = JSON.parse(event.nativeEvent.data);
 
       switch (type) {
+        case "notification-action-complete": {
+          (async () => {
+            try {
+              const notificationId = payload?.notificationId;
+              if (
+                payload?.success === true &&
+                typeof notificationId === "string" &&
+                notificationId &&
+                typeof Notifications.dismissNotificationAsync === "function"
+              ) {
+                await Notifications.dismissNotificationAsync(notificationId);
+              }
+            } catch (error) {
+              console.warn("Unable to dismiss handled message notification:", error);
+            }
+          })();
+          break;
+        }
+
         case "native-share": {
           const title = typeof payload?.title === "string" ? payload.title : "myWorld";
           const message = typeof payload?.text === "string" ? payload.text : "";
