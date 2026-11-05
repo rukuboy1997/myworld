@@ -260,6 +260,15 @@ describe("MessagesPage inbox", () => {
     expect(getConversation).toHaveBeenCalledWith("0xME", "0xALICE", { limit: 100 });
   });
 
+  it("keeps the chat keyboard closed on entry and exposes a multiline composer", async () => {
+    renderMessagesPage("/messages?with=0xALICE");
+
+    const composer = await screen.findByPlaceholderText("Message...");
+    expect(composer.tagName).toBe("TEXTAREA");
+    expect(composer).toHaveAttribute("enterkeyhint", "enter");
+    expect(composer).not.toHaveFocus();
+  });
+
   it("filters conversation previews by chat or message text", async () => {
     renderMessagesPage();
 
