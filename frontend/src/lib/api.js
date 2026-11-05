@@ -246,6 +246,9 @@ export const setConversationPinned = (otherAddress, pinned) =>
 export const getMutedConversations = () => request("GET", "/conversations/muted");
 export const setConversationMuted = (otherAddress, muted) =>
   request("PUT", "/conversation/mute", { otherAddress, muted });
+export const getArchivedConversations = () => request("GET", "/conversations/archived");
+export const setConversationArchived = (otherAddress, archived) =>
+  request("PUT", "/conversation/archive", { otherAddress, archived });
 export const sendMessage = (data) => request("POST", "/message", data);
 export const editMessage = (id, content) =>
   request("PUT", `/message/${encodeURIComponent(id)}`, { content });
