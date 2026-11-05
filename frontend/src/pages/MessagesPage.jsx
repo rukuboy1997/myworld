@@ -694,7 +694,6 @@ export default function MessagesPage() {
     setIsLoadingChat(true);
     setIsLoadingOlderMessages(false);
     setChatMessages([]);
-    inputRef.current?.focus();
 
     const cId = fbConvId(wallet, selectedUser.address);
     const msgsRef = ref(firebaseDb, `conversations/${cId}/messages`);
@@ -1866,7 +1865,7 @@ export default function MessagesPage() {
                       <Mic size={19} aria-hidden="true" />
                     </button>
                   )}
-                  <input ref={inputRef} type="text" value={newMessage} onChange={handleMessageChange} placeholder={isRecordingVoice ? "Recording voice message…" : "Message..."} disabled={isSendingMessage || isRecordingVoice} className="flex-1 min-w-0 bg-secondary/50 border border-white/10 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
+                  <textarea ref={inputRef} value={newMessage} onChange={handleMessageChange} rows={1} maxLength={2000} enterKeyHint="enter" placeholder={isRecordingVoice ? "Recording voice message…" : "Message..."} disabled={isSendingMessage || isRecordingVoice} onInput={(event) => { const field = event.currentTarget; field.style.height = "auto"; field.style.height = `${Math.min(field.scrollHeight, 128)}px`; }} className="flex-1 min-w-0 min-h-[42px] max-h-32 resize-none overflow-y-auto bg-secondary/50 border border-white/10 rounded-2xl px-4 py-2.5 text-sm leading-5 focus:outline-none focus:ring-2 focus:ring-primary transition-all" />
                   <button type="submit" disabled={(!newMessage.trim() && !selectedAttachment) || isSendingMessage || isRecordingVoice} className="bg-primary text-primary-foreground p-2.5 rounded-full hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center aspect-square">
                     <Send size={18} aria-hidden="true" />
                   </button>
