@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import MessagesPage from "./MessagesPage.jsx";
 import { useAuth, getAuthToken } from "../lib/auth.jsx";
@@ -145,6 +145,11 @@ describe("MessagesPage message management", () => {
 
     fireEvent.click(plus);
     expect(await screen.findByPlaceholderText("Search people…")).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("searchbox", { name: "Search chats or messages" }));
+    expect(screen.queryByPlaceholderText("Search people…")).not.toBeInTheDocument();
+
+    fireEvent.click(plus);
+    expect(await screen.findByPlaceholderText("Search people…")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByPlaceholderText("Search people…")).not.toBeInTheDocument();
 
@@ -162,7 +167,7 @@ describe("MessagesPage message management", () => {
     fireEvent.change(search, { target: { value: "alice" } });
     expect(search).toHaveValue("alice");
 
-    fireEvent.click(await screen.findByRole("button", { name: /alice/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "alice", exact: true }));
     await waitFor(() => {
       expect(getConversation).toHaveBeenCalledWith("0xME", "0xALICE", { limit: 100 });
     });
@@ -281,7 +286,7 @@ describe("MessagesPage message management", () => {
     );
     expect(deleteMessage).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete", exact: true }));
     await waitFor(() => {
       expect(deleteMessage).toHaveBeenCalledWith("own-message");
       expect(screen.getByText("This message was deleted")).toBeInTheDocument();
