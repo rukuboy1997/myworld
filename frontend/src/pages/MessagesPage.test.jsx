@@ -125,8 +125,8 @@ describe("MessagesPage inbox", () => {
   it("loads conversation previews and places pinned chats first", async () => {
     renderMessagesPage();
 
-    const bobChat = await screen.findByRole("button", { name: /bob/i });
-    const aliceChat = await screen.findByRole("button", { name: /alice/i });
+    const bobChat = await screen.findByRole("button", { name: "Open conversation with bob" });
+    const aliceChat = await screen.findByRole("button", { name: "Open conversation with alice" });
 
     expect(getMessages).toHaveBeenCalledWith("0xME");
     expect(getAllProfiles).toHaveBeenCalledOnce();
@@ -145,7 +145,7 @@ describe("MessagesPage inbox", () => {
     syncFirebaseAuth.mockResolvedValue(true);
     renderMessagesPage();
 
-    const aliceChat = await screen.findByRole("button", { name: /alice/i });
+    const aliceChat = await screen.findByRole("button", { name: "Open conversation with alice" });
     const presenceRegistration = await waitFor(() => {
       const index = onValue.mock.calls.findIndex(([target]) =>
         target?.path === "presence/0xALICE",
@@ -337,14 +337,14 @@ describe("MessagesPage inbox", () => {
   it("filters conversation previews by chat or message text", async () => {
     renderMessagesPage();
 
-    expect(await screen.findByRole("button", { name: /alice/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /bob/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open conversation with alice" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open conversation with bob" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search chats or messages" }), {
       target: { value: "earlier message" },
     });
 
-    expect(screen.getByRole("button", { name: /bob/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /alice/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open conversation with bob" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open conversation with alice" })).not.toBeInTheDocument();
   });
 });

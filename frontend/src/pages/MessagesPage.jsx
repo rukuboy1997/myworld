@@ -29,7 +29,7 @@ import {
 import { getAuthToken, useAuth } from "../lib/auth.jsx";
 import { firebaseDb, convId as fbConvId } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
-import { Archive, ArrowLeft, MessageCircle, Mic, Paperclip, Pin, Plus, Search, Send, Volume2, VolumeX } from "../components/icons.jsx";
+import { Archive, ArrowLeft, MessageCircle, Mic, MoreHorizontal, Paperclip, Pin, Plus, Search, Send, Volume2, VolumeX } from "../components/icons.jsx";
 import { upsertConversationPreview } from "../lib/conversation-preview.js";
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
@@ -163,6 +163,7 @@ export default function MessagesPage() {
   const [isUpdatingMute, setIsUpdatingMute] = useState(false);
   const [archivedConversations, setArchivedConversations] = useState({});
   const [isUpdatingArchive, setIsUpdatingArchive] = useState(false);
+  const [openConversationMenu, setOpenConversationMenu] = useState(null);
   const [profiles, setProfiles] = useState({});
   const [allProfiles, setAllProfiles] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -1223,17 +1224,13 @@ export default function MessagesPage() {
     selectConversation(profile);
   };
 
-  const toggleSelectedConversationPin = async () => {
-    const otherAddress = selectedUser?.address;
+  const toggleConversationPin = async (otherAddress) => {
     if (!otherAddress || isUpdatingPin) return;
     const shouldPin = !pinnedConversations[otherAddress];
     setIsUpdatingPin(true);
     try {
       await setConversationPinned(otherAddress, shouldPin);
-      setPinnedConversations((previous) => ({
-        ...previous,
-        [otherAddress]: shouldPin,
-      }));
+      setPinnedConversations((previous) => ({ ...previous, [otherAddress]: shouldPin }));
       setConversations((previous) =>
         [...previous].sort((a, b) => {
           const aPinned = a.address === otherAddress ? shouldPin : !!pinnedConversations[a.address];
@@ -1252,8 +1249,7 @@ export default function MessagesPage() {
     }
   };
 
-  const toggleSelectedConversationArchive = async () => {
-    const otherAddress = selectedUser?.address;
+  const toggleConversationArchive = async (otherAddress) => {
     if (!otherAddress || isUpdatingArchive) return;
     const shouldArchive = !archivedConversations[otherAddress];
     setIsUpdatingArchive(true);
@@ -1261,7 +1257,7 @@ export default function MessagesPage() {
       await setConversationArchived(otherAddress, shouldArchive);
       setArchivedConversations((previous) => ({ ...previous, [otherAddress]: shouldArchive }));
       setConversationFilter("all");
-      if (shouldArchive) {
+      if (shouldArchive && selectedUser?.address === otherAddress) {
         setSelectedUser(null);
         setSearchParams((previous) => {
           const next = new URLSearchParams(previous);
@@ -1276,8 +1272,7 @@ export default function MessagesPage() {
     }
   };
 
-  const toggleSelectedConversationMute = async () => {
-    const otherAddress = selectedUser?.address;
+  const toggleConversationMute = async (otherAddress) => {
     if (!otherAddress || isUpdatingMute) return;
     const shouldMute = !mutedConversations[otherAddress];
     setIsUpdatingMute(true);
@@ -1290,6 +1285,32 @@ export default function MessagesPage() {
       setIsUpdatingMute(false);
     }
   };
+
+  const toggleSelectedConversationPin = () => toggleConversationPin(selectedUser?.address);
+  const toggleSelectedConversationArchive = () => toggleConversationArchive(selectedUser?.address);
+  const toggleSelectedConversationMute = () => toggleConversationMute(selectedUser?.address);
+
+  const renderConversationMenu = (address, align = "right") => (
+    <div
+      className={`absolute ${align === "left" ? "left-2" : "right-2"} top-full z-50 mt-1 w-52 rounded-xl border border-white/10 bg-zinc-950/95 p-1.5 shadow-2xl backdrop-blur-xl`}
+      role="group"
+      aria-label="Conversation actions"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button type="button" role="menuitem" disabled={isUpdatingPin} onClick={() => { setOpenConversationMenu(null); void toggleConversationPin(address); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-white/10 disabled:opacity-50">
+        <Pin size={16} aria-hidden="true" />
+        {pinnedConversations[address] ? "Unpin conversation" : "Pin conversation"}
+      </button>
+      <button type="button" role="menuitem" disabled={isUpdatingMute} onClick={() => { setOpenConversationMenu(null); void toggleConversationMute(address); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-white/10 disabled:opacity-50">
+        {mutedConversations[address] ? <Volume2 size={16} aria-hidden="true" /> : <VolumeX size={16} aria-hidden="true" />}
+        {mutedConversations[address] ? "Unmute conversation" : "Mute conversation"}
+      </button>
+      <button type="button" role="menuitem" disabled={isUpdatingArchive} onClick={() => { setOpenConversationMenu(null); void toggleConversationArchive(address); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-white/10 disabled:opacity-50">
+        <Archive size={16} aria-hidden="true" />
+        {archivedConversations[address] ? "Restore conversation" : "Archive conversation"}
+      </button>
+    </div>
+  );
 
   // Per-chat counts are derived from the persisted read_at status.
   const unreadCount = useCallback(
@@ -1552,10 +1573,12 @@ export default function MessagesPage() {
                   const hasUnread = unread > 0;
                   const isSelected = selectedUser?.address === conv.address;
                   return (
+                    <div key={conv.address} className="relative flex items-center border-b border-white/5 last:border-0">
                     <button
-                      key={conv.address}
-                      onClick={() => handleSelectUser(conv)}
-                      className={`flex items-center gap-3 px-4 py-3 w-full text-left transition-all border-b border-white/5 last:border-0
+                      type="button"
+                      onClick={() => { setOpenConversationMenu(null); handleSelectUser(conv); }}
+                      aria-label={`Open conversation with ${p?.username || truncateAddress(conv.address)}`}
+                      className={`flex min-w-0 flex-1 items-center gap-3 px-4 py-3 pr-2 text-left transition-all
                       ${isSelected ? "bg-primary/15" : hasUnread ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-white/5"}`}
                     >
                       <div className="relative flex-shrink-0">
@@ -1620,6 +1643,13 @@ export default function MessagesPage() {
                         </div>
                       </div>
                     </button>
+                    <div className="relative flex-shrink-0 pr-2">
+                      <button type="button" aria-label={`Options for ${p?.username || truncateAddress(conv.address)}`} aria-expanded={openConversationMenu === conv.address} onClick={() => setOpenConversationMenu((current) => current === conv.address ? null : conv.address)} className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                        <MoreHorizontal size={19} aria-hidden="true" />
+                      </button>
+                      {openConversationMenu === conv.address && renderConversationMenu(conv.address)}
+                    </div>
+                    </div>
                   );
                 })
               )}
@@ -1700,37 +1730,12 @@ export default function MessagesPage() {
                       );
                     })()}
                   </div>
-                  <button
-                    type="button"
-                    onClick={toggleSelectedConversationArchive}
-                    disabled={isUpdatingArchive}
-                    aria-label={archivedConversations[selectedUser.address] ? "Restore conversation" : "Archive conversation"}
-                    title={archivedConversations[selectedUser.address] ? "Restore conversation" : "Archive conversation"}
-                    className={`flex-shrink-0 p-2 rounded-full transition-colors disabled:opacity-50 ${archivedConversations[selectedUser.address] ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-white/10"}`}
-                  >
-                    <Archive size={20} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={toggleSelectedConversationMute}
-                    disabled={isUpdatingMute}
-                    aria-label={mutedConversations[selectedUser.address] ? "Unmute conversation" : "Mute conversation"}
-                    aria-pressed={!!mutedConversations[selectedUser.address]}
-                    title={mutedConversations[selectedUser.address] ? "Unmute conversation" : "Mute conversation"}
-                    className={`ml-auto flex-shrink-0 p-2 rounded-full transition-colors disabled:opacity-50 ${mutedConversations[selectedUser.address] ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-white/10"}`}
-                  >
-                    {mutedConversations[selectedUser.address] ? <VolumeX size={20} aria-hidden="true" /> : <Volume2 size={20} aria-hidden="true" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={toggleSelectedConversationPin}
-                    disabled={isUpdatingPin}
-                    aria-pressed={!!pinnedConversations[selectedUser.address]}
-                    title={pinnedConversations[selectedUser.address] ? "Unpin conversation" : "Pin conversation"}
-                    className={`flex-shrink-0 p-2 rounded-full transition-colors disabled:opacity-50 ${pinnedConversations[selectedUser.address] ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-white/10"}`}
-                  >
-                    <Pin size={20} aria-hidden="true" />
-                  </button>
+                  <div className="relative ml-auto flex-shrink-0">
+                    <button type="button" aria-label="Conversation options" aria-expanded={openConversationMenu === `header:${selectedUser.address}`} onClick={() => setOpenConversationMenu((current) => current === `header:${selectedUser.address}` ? null : `header:${selectedUser.address}`)} className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                      <MoreHorizontal size={21} aria-hidden="true" />
+                    </button>
+                    {openConversationMenu === `header:${selectedUser.address}` && renderConversationMenu(selectedUser.address)}
+                  </div>
                 </div>
 
                 {/* Messages */}
