@@ -8,6 +8,7 @@ import {
   getUnreadMessageCounts,
   getPinnedConversations,
   getMutedConversations,
+  getArchivedConversations,
   getAllProfiles,
   getConversationsTyping,
   getConversation,
@@ -33,6 +34,8 @@ vi.mock("../lib/api.js", () => ({
   setConversationPinned: vi.fn(),
   getMutedConversations: vi.fn(),
   setConversationMuted: vi.fn(),
+  getArchivedConversations: vi.fn(),
+  setConversationArchived: vi.fn(),
   sendMessage: vi.fn(),
   editMessage: vi.fn(),
   deleteMessage: vi.fn(),
@@ -109,6 +112,7 @@ describe("MessagesPage message management", () => {
     ]);
     getPinnedConversations.mockResolvedValue({ pinned: [] });
     getMutedConversations.mockResolvedValue({ muted: [] });
+    getArchivedConversations.mockResolvedValue({ archived: [] });
     getUnreadMessageCounts.mockResolvedValue({ conversations: {} });
     getConversationsTyping.mockResolvedValue({ statuses: {} });
     getConversation.mockImplementation(async (_wallet, address) => ({
@@ -145,6 +149,39 @@ describe("MessagesPage message management", () => {
     await waitFor(() => {
       expect(setConversationMuted).toHaveBeenLastCalledWith("0xBOB", false);
       expect(screen.getByRole("button", { name: "Mute conversation" })).toHaveAttribute("aria-pressed", "false");
+    });
+  });
+
+  it("archives and restores a conversation without deleting its messages", async () => {
+    const { setConversationArchived } = await import("../lib/api.js");
+    let bobIsArchived = false;
+    getArchivedConversations.mockImplementation(async () => ({
+      archived: bobIsArchived ? ["0xBOB"] : [],
+    }));
+    setConversationArchived.mockImplementation(async (_address, archived) => {
+      bobIsArchived = archived;
+      return { ok: true, otherAddress: "0xBOB", isArchived: archived };
+    });
+    renderMessagesPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Archive conversation" }));
+    await waitFor(() => {
+      expect(setConversationArchived).toHaveBeenCalledWith("0xBOB", true);
+      expect(screen.queryByRole("button", { name: "Archive conversation" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+    const archivedBob = await screen.findByRole("button", { name: /bob/i });
+    fireEvent.click(archivedBob);
+
+    const restoreButton = await screen.findByRole("button", { name: "Restore conversation" });
+    await waitFor(() => expect(restoreButton).toBeEnabled());
+    fireEvent.click(restoreButton);
+
+    await waitFor(() => {
+      expect(setConversationArchived).toHaveBeenNthCalledWith(2, "0xBOB", false);
+      expect(screen.getByRole("button", { name: "Archive conversation" })).toBeInTheDocument();
+      expect(screen.getByText("Original message")).toBeInTheDocument();
     });
   });
 

@@ -67,6 +67,8 @@ import {
   getMutedConversations,
   isConversationMuted,
   setConversationMuted,
+  getArchivedConversations,
+  setConversationArchived,
   getConversation,
   rowToMessage,
   saveMessage,
@@ -3278,6 +3280,38 @@ export function buildApp() {
     } catch (err) {
       console.error("set_conversation_muted error:", err);
       res.status(500).json({ error: "Failed to update conversation mute setting" });
+    }
+  });
+  app.get("/api/conversations/archived", requireAuth, async (req, res) => {
+    try {
+      const archived = await getArchivedConversations(req.userAddress);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ archived });
+    } catch (err) {
+      console.error("get_archived_conversations error:", err);
+      res.status(500).json({ error: "Failed to load archived conversations" });
+    }
+  });
+
+  app.put("/api/conversation/archive", requireAuth, async (req, res) => {
+    try {
+      const otherAddress = normalizeTextInput(req.body?.otherAddress);
+      if (!otherAddress || otherAddress === req.userAddress) {
+        return res.status(400).json({ error: "A valid conversation partner is required" });
+      }
+      if (await isBlockedEitherWay(req.userAddress, otherAddress)) {
+        return res.status(403).json({ error: "This conversation is unavailable because one of these users has blocked the other" });
+      }
+      const archived = req.body?.archived;
+      if (typeof archived !== "boolean") {
+        return res.status(400).json({ error: "archived must be a boolean" });
+      }
+      const result = await setConversationArchived(req.userAddress, otherAddress, archived);
+      res.set("Cache-Control", "private, no-store");
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      console.error("set_conversation_archived error:", err);
+      res.status(500).json({ error: "Failed to update conversation archive setting" });
     }
   });
 

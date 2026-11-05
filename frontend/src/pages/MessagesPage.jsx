@@ -10,6 +10,8 @@ import {
   setConversationPinned,
   getMutedConversations,
   setConversationMuted,
+  getArchivedConversations,
+  setConversationArchived,
   sendMessage,
   editMessage,
   deleteMessage,
@@ -27,7 +29,7 @@ import {
 import { getAuthToken, useAuth } from "../lib/auth.jsx";
 import { firebaseDb, convId as fbConvId } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
-import { ArrowLeft, MessageCircle, Mic, Paperclip, Pin, Plus, Search, Send, Volume2, VolumeX } from "../components/icons.jsx";
+import { Archive, ArrowLeft, MessageCircle, Mic, Paperclip, Pin, Plus, Search, Send, Volume2, VolumeX } from "../components/icons.jsx";
 import { upsertConversationPreview } from "../lib/conversation-preview.js";
 
 const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
@@ -159,6 +161,8 @@ export default function MessagesPage() {
   const [isUpdatingPin, setIsUpdatingPin] = useState(false);
   const [mutedConversations, setMutedConversations] = useState({});
   const [isUpdatingMute, setIsUpdatingMute] = useState(false);
+  const [archivedConversations, setArchivedConversations] = useState({});
+  const [isUpdatingArchive, setIsUpdatingArchive] = useState(false);
   const [profiles, setProfiles] = useState({});
   const [allProfiles, setAllProfiles] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -247,17 +251,19 @@ export default function MessagesPage() {
   const loadConversations = useCallback(async () => {
     if (!wallet) return;
     try {
-      const [profilesData, msgs, pinnedResult, mutedResult] = await Promise.all([
+      const [profilesData, msgs, pinnedResult, mutedResult, archivedResult] = await Promise.all([
         getAllProfiles(),
         getMessages(wallet),
         getPinnedConversations(),
         getMutedConversations(),
+        getArchivedConversations(),
       ]);
       const pinnedMap = Object.fromEntries(
         (pinnedResult?.pinned || []).map((address) => [address, true]),
       );
       setPinnedConversations(pinnedMap);
       setMutedConversations(Object.fromEntries((mutedResult?.muted || []).map((address) => [address, true])));
+      setArchivedConversations(Object.fromEntries((archivedResult?.archived || []).map((address) => [address, true])));
       const profileMap = {};
       profilesData.forEach((p) => {
         profileMap[p.address] = p;
@@ -1246,6 +1252,30 @@ export default function MessagesPage() {
     }
   };
 
+  const toggleSelectedConversationArchive = async () => {
+    const otherAddress = selectedUser?.address;
+    if (!otherAddress || isUpdatingArchive) return;
+    const shouldArchive = !archivedConversations[otherAddress];
+    setIsUpdatingArchive(true);
+    try {
+      await setConversationArchived(otherAddress, shouldArchive);
+      setArchivedConversations((previous) => ({ ...previous, [otherAddress]: shouldArchive }));
+      setConversationFilter("all");
+      if (shouldArchive) {
+        setSelectedUser(null);
+        setSearchParams((previous) => {
+          const next = new URLSearchParams(previous);
+          next.delete("with");
+          return next;
+        }, { replace: true });
+      }
+    } catch (err) {
+      window.alert(err.message || "Could not update conversation archive setting.");
+    } finally {
+      setIsUpdatingArchive(false);
+    }
+  };
+
   const toggleSelectedConversationMute = async () => {
     const otherAddress = selectedUser?.address;
     if (!otherAddress || isUpdatingMute) return;
@@ -1350,10 +1380,15 @@ export default function MessagesPage() {
       .join(" ")
       .toLowerCase();
     const matchesSearch = !query || searchableText.includes(query);
+    const isArchived = !!archivedConversations[conv.address];
     const matchesFilter =
-      conversationFilter === "all" ||
-      (conversationFilter === "unread" && unreadCount(conv.address) > 0) ||
-      (conversationFilter === "online" && isOnline(presence[conv.address]));
+      conversationFilter === "archived"
+        ? isArchived
+        : !isArchived && (
+            conversationFilter === "all" ||
+            (conversationFilter === "unread" && unreadCount(conv.address) > 0) ||
+            (conversationFilter === "online" && isOnline(presence[conv.address]))
+          );
     return matchesSearch && matchesFilter;
   }).sort((a, b) => {
     const pinOrder = Number(!!pinnedConversations[b.address]) - Number(!!pinnedConversations[a.address]);
@@ -1412,6 +1447,7 @@ export default function MessagesPage() {
                   { id: "all", label: "All" },
                   { id: "unread", label: "Unread" },
                   { id: "online", label: "Online" },
+                  { id: "archived", label: "Archived" },
                 ].map((filter) => (
                   <button
                     key={filter.id}
@@ -1664,6 +1700,16 @@ export default function MessagesPage() {
                       );
                     })()}
                   </div>
+                  <button
+                    type="button"
+                    onClick={toggleSelectedConversationArchive}
+                    disabled={isUpdatingArchive}
+                    aria-label={archivedConversations[selectedUser.address] ? "Restore conversation" : "Archive conversation"}
+                    title={archivedConversations[selectedUser.address] ? "Restore conversation" : "Archive conversation"}
+                    className={`flex-shrink-0 p-2 rounded-full transition-colors disabled:opacity-50 ${archivedConversations[selectedUser.address] ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-white/10"}`}
+                  >
+                    <Archive size={20} aria-hidden="true" />
+                  </button>
                   <button
                     type="button"
                     onClick={toggleSelectedConversationMute}
