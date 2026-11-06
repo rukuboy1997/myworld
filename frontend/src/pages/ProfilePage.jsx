@@ -3,9 +3,12 @@ import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import PostCard from "../components/PostCard.jsx";
+import MediaEditor from "../components/MediaEditor.jsx";
+import { Settings, Users, UserPlus, Heart, Briefcase, MapPin, Globe, Link2, AtSign } from "../components/icons.jsx";
 import {
   getProfile,
   getMyProfileContact,
+  getMyMembership,
   createProfile,
   followUser,
   unfollowUser,
@@ -146,6 +149,7 @@ export default function ProfilePage() {
   const [bannerPreview, setBannerPreview] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [profileMediaMaxBytes, setProfileMediaMaxBytes] = useState(10 * 1024 * 1024);
 
   // Follow state
   const [isFollowing, setIsFollowing] = useState(false);
@@ -209,6 +213,30 @@ export default function ProfilePage() {
   useEffect(() => {
     fetchFollowStatus();
   }, [address, isAuthenticated, currentWallet, isOwnProfile]);
+
+  useEffect(() => {
+    let active = true;
+    if (!isOwnProfile || !isAuthenticated) return undefined;
+    getMyMembership()
+      .then((result) => {
+        const limit = result?.plan?.maxImageBytes;
+        if (active && Number.isSafeInteger(limit) && limit > 0) {
+          setProfileMediaMaxBytes(limit);
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [isOwnProfile, isAuthenticated]);
+
+  useEffect(() => {
+    return () => {
+      [avatarPreview, bannerPreview].forEach((preview) => {
+        if (typeof preview === "string" && preview.startsWith("blob:")) {
+          URL.revokeObjectURL(preview);
+        }
+      });
+    };
+  }, [avatarPreview, bannerPreview]);
 
   useEffect(() => {
     let active = true;
@@ -314,25 +342,24 @@ export default function ProfilePage() {
     }
   };
 
-  const handleFile = (kind) => (e) => {
-    const file = e.target.files?.[0];
+  const handleFile = (kind) => (event) => {
+    const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      setError("Please pick an image");
+      setError("Please choose an image file.");
+      event.target.value = "";
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setError("Image must be under 10 MB");
-      return;
-    }
+    // The shared MediaEditor now handles crop and compression before upload.
+    // Let the user select a large image and reduce it to their plan limit.
     setError(null);
-    const url = URL.createObjectURL(file);
+    const preview = URL.createObjectURL(file);
     if (kind === "avatar") {
       setAvatarFile(file);
-      setAvatarPreview(url);
+      setAvatarPreview(preview);
     } else {
       setBannerFile(file);
-      setBannerPreview(url);
+      setBannerPreview(preview);
     }
   };
 
@@ -511,12 +538,23 @@ export default function ProfilePage() {
                       </>
                     )}
                     {isOwnProfile && (
-                      <button
-                        onClick={() => setIsEditing(true)}
-                        className="bg-secondary text-secondary-foreground px-3 py-2 md:px-5 md:py-2.5 rounded-full font-semibold hover:bg-secondary/80 transition-colors border border-white/10 text-xs md:text-sm whitespace-nowrap"
-                      >
-                        Edit Profile
-                      </button>
+                      <>
+                        <button
+                          onClick={() => setIsEditing(true)}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary px-3 py-2 text-xs font-semibold text-secondary-foreground transition hover:bg-secondary/80 md:px-4 md:py-2.5 md:text-sm"
+                        >
+                          Edit Profile
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate("/settings")}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/15 md:px-4 md:py-2.5 md:text-sm"
+                          aria-label="Settings and privacy"
+                        >
+                          <Settings size={15} aria-hidden="true" />
+                          Settings
+                        </button>
+                      </>
                     )}
                     {!isOwnProfile && isAuthenticated && (
                       <div className="relative">
@@ -574,15 +612,28 @@ export default function ProfilePage() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-x-5 gap-y-2 mt-5">
-                  <div><span className="font-bold text-sm">{profile?.followerCount ?? 0}</span><span className="text-xs text-muted-foreground ml-1">Followers</span></div>
-                  <div><span className="font-bold text-sm">{profile?.followingCount ?? 0}</span><span className="text-xs text-muted-foreground ml-1">Following</span></div>
-                  {profile?.totalLikes > 0 && (
-                    <div className="flex items-center gap-1 text-teal-400 text-xs font-medium leading-none">
-                      <span aria-hidden="true" className="inline-flex leading-none">♥</span>
-                      <span>{profile.totalLikes} likes</span>
-                    </div>
-                  )}
+                <div className="mt-5 grid grid-cols-3 gap-2 sm:max-w-lg sm:gap-3" aria-label="Profile statistics">
+                  <div className="rounded-2xl border border-border bg-secondary/45 px-2.5 py-3 text-center sm:px-4">
+                    <span className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <Users size={17} strokeWidth={1.9} aria-hidden="true" />
+                    </span>
+                    <span className="block text-base font-bold tabular-nums sm:text-lg">{profile?.followerCount ?? 0}</span>
+                    <span className="mt-0.5 block text-[10px] font-semibold text-muted-foreground sm:text-xs">Followers</span>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-secondary/45 px-2.5 py-3 text-center sm:px-4">
+                    <span className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-xl bg-sky-500/10 text-sky-500">
+                      <UserPlus size={17} strokeWidth={1.9} aria-hidden="true" />
+                    </span>
+                    <span className="block text-base font-bold tabular-nums sm:text-lg">{profile?.followingCount ?? 0}</span>
+                    <span className="mt-0.5 block text-[10px] font-semibold text-muted-foreground sm:text-xs">Following</span>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-secondary/45 px-2.5 py-3 text-center sm:px-4">
+                    <span className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500">
+                      <Heart size={17} strokeWidth={1.9} aria-hidden="true" />
+                    </span>
+                    <span className="block text-base font-bold tabular-nums sm:text-lg">{profile?.totalLikes ?? 0}</span>
+                    <span className="mt-0.5 block text-[10px] font-semibold text-muted-foreground sm:text-xs">Likes</span>
+                  </div>
                 </div>
 
 
