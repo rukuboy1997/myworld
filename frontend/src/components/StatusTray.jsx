@@ -6,11 +6,11 @@ import { useAuth, getAuthToken } from "../lib/auth.jsx";
 import { firebaseDb } from "../lib/firebase.js";
 import { syncFirebaseAuth } from "../lib/firebase-auth.js";
 import { Clapperboard, Heart, ImagePlus, LoaderCircle, Plus } from "./icons.jsx";
-import { createStatus, getStatuses, getStatusMediaUrl, getStatusViewers, likeStatus, unlikeStatus, recordStatusView } from "../lib/api.js";
+import { createStatus, getStatuses, getStatusMediaUrl, getStatusViewers, getMyMembership, likeStatus, unlikeStatus, recordStatusView } from "../lib/api.js";
+import MediaEditor from "./MediaEditor.jsx";
 
 const STATUS_VIDEO_MAX_SECONDS = 180;
-const STATUS_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
-const STATUS_IMAGE_MAX_BYTES = 25 * 1024 * 1024;
+const FREE_STATUS_LIMITS = { maxImageBytes: 10 * 1024 * 1024, maxVideoBytes: 25 * 1024 * 1024 };
 
 function readVideoDuration(file) {
   return new Promise((resolve) => {
@@ -64,6 +64,26 @@ export default function StatusTray() {
   const [likeSaving, setLikeSaving] = useState(false);
   const [likeError, setLikeError] = useState("");
   const [filePreview, setFilePreview] = useState(null);
+  const [membershipPlan, setMembershipPlan] = useState(FREE_STATUS_LIMITS);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setMembershipPlan(FREE_STATUS_LIMITS);
+      return undefined;
+    }
+    let active = true;
+    getMyMembership()
+      .then((data) => {
+        const plan = data?.plan;
+        if (!active || !plan) return;
+        setMembershipPlan({
+          maxImageBytes: Number.isSafeInteger(plan.maxImageBytes) && plan.maxImageBytes > 0 ? plan.maxImageBytes : FREE_STATUS_LIMITS.maxImageBytes,
+          maxVideoBytes: Number.isSafeInteger(plan.maxVideoBytes) && plan.maxVideoBytes > 0 ? plan.maxVideoBytes : FREE_STATUS_LIMITS.maxVideoBytes,
+        });
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const handleNativeMedia = (event) => {
@@ -74,9 +94,6 @@ export default function StatusTray() {
         const bytes = new Uint8Array(binary.length);
         for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
         const selected = new File([bytes], fileName, { type: mimeType });
-        const isVideo = mimeType.startsWith("video/");
-        const maxBytes = isVideo ? STATUS_VIDEO_MAX_BYTES : STATUS_IMAGE_MAX_BYTES;
-        if (selected.size > maxBytes) { setError(isVideo ? "Status videos cannot exceed 500 MiB." : "Status images cannot exceed 25 MiB."); return; }
         setError(""); setFile(selected);
       } catch (err) { setError(err.message || "Could not use the selected media."); }
     };
@@ -109,13 +126,6 @@ export default function StatusTray() {
       /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(selected.name);
     if (!isImage && !isVideo) {
       setError("Choose an image or a video (MP4/WebM recommended).");
-      event.target.value = "";
-      setFile(null);
-      return;
-    }
-    const maxBytes = isVideo ? STATUS_VIDEO_MAX_BYTES : STATUS_IMAGE_MAX_BYTES;
-    if (selected.size > maxBytes) {
-      setError(isVideo ? "Status videos cannot exceed 500 MiB." : "Status images cannot exceed 25 MiB.");
       event.target.value = "";
       setFile(null);
       return;
@@ -291,6 +301,12 @@ export default function StatusTray() {
     setSaving(true);
     try {
       const isVideo = file && (file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(file.name));
+      if (file) {
+        const maxBytes = isVideo ? membershipPlan.maxVideoBytes : membershipPlan.maxImageBytes;
+        if (file.size > maxBytes) {
+          throw new Error(`Edited status media is still too large. Your plan allows ${Math.round(maxBytes / (1024 * 1024))} MiB.`);
+        }
+      }
       if (isVideo) {
         const duration = await readVideoDuration(file);
         if (!Number.isFinite(duration)) {
@@ -502,6 +518,15 @@ export default function StatusTray() {
                   )}
                   <button type="button" onClick={() => setFile(null)} className="absolute right-2 top-2 rounded-full bg-black/75 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/20">Remove media</button>
                 </div>
+              )}
+              {file && (
+                <MediaEditor
+                  file={file}
+                  maxBytes={file.type.startsWith("video/") ? membershipPlan.maxVideoBytes : membershipPlan.maxImageBytes}
+                  maxDurationSeconds={STATUS_VIDEO_MAX_SECONDS}
+                  disabled={saving}
+                  onChange={setFile}
+                />
               )}
             </div>
             <label className="mt-4 block text-sm"><span className="mb-2 block font-semibold">Who can see this?</span>
