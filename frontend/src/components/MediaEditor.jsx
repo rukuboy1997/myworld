@@ -78,6 +78,7 @@ async function compressImage(file, maxBytes, quality) {
     image.src = url;
     await image.decode();
 
+    const targetBytes = Math.min(maxBytes, Math.max(1, Math.floor(file.size * 0.92)));
     let scale = Math.min(1, 1920 / Math.max(image.naturalWidth, image.naturalHeight));
     let outputQuality = quality / 100;
     const canvas = document.createElement("canvas");
@@ -90,7 +91,7 @@ async function compressImage(file, maxBytes, quality) {
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       const blob = await canvasBlob(canvas, "image/webp", outputQuality);
-      if (blob.size <= maxBytes) return makeFile(blob, file, "image/webp");
+      if (blob.size <= targetBytes) return makeFile(blob, file, blob.type || "image/png");
 
       if (outputQuality > 0.35) {
         outputQuality = Math.max(0.35, outputQuality - 0.08);
@@ -99,10 +100,51 @@ async function compressImage(file, maxBytes, quality) {
         outputQuality = quality / 100;
       }
     }
-    throw new Error(`The compressed image is still larger than ${formatBytes(maxBytes)}. Lower the quality and try again.`);
+    throw new Error(`The compressed image is still larger than ${formatBytes(targetBytes)}. Lower the quality and try again.`);
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+
+async function estimateImageCompression(file, maxBytes, quality) {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+
+    const targetBytes = Math.min(maxBytes, Math.max(1, Math.floor(file.size * 0.92)));
+    let scale = Math.min(1, 1920 / Math.max(image.naturalWidth, image.naturalHeight));
+    let outputQuality = quality / 100;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Image estimation is unavailable on this device.");
+
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const blob = await canvasBlob(canvas, "image/webp", outputQuality);
+      if (blob.size <= targetBytes) return blob.size;
+      if (outputQuality > 0.35) outputQuality = Math.max(0.35, outputQuality - 0.08);
+      else {
+        scale *= 0.82;
+        outputQuality = quality / 100;
+      }
+    }
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function estimateVideoCompressionBytes(maxBytes, duration, quality) {
+  if (!duration || !maxBytes) return null;
+  const targetBytes = Math.max(180 * 1024, Math.floor(maxBytes * (quality / 100)));
+  const totalBitrate = Math.max(220000, Math.min(8000000, Math.floor((targetBytes * 8 / duration) * 0.86)));
+  return Math.ceil((totalBitrate * duration / 8) * 1.08);
 }
 
 async function recordVideo(file, start, end, videoBitrate, onProgress) {
