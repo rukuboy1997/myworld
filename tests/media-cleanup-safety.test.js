@@ -47,3 +47,27 @@ test("status cleanup protects unexpired status media", () => {
   assert.match(cleanupSource, /s\.media_key = i\.object_key/);
   assert.match(cleanupSource, /s\.media_url LIKE/);
 });
+
+test("cron repeats live-reference checks immediately before R2 deletion", async () => {
+  const appSource = await readFile(
+    new URL("../app.js", import.meta.url),
+    "utf8",
+  );
+  const cleanupStart = appSource.indexOf("const abandoned = await getAbandonedMediaUploadIntents");
+  const cleanupEnd = appSource.indexOf("if (cleanedIds.length)", cleanupStart);
+  const cronCleanup = appSource.slice(cleanupStart, cleanupEnd);
+
+  assert.notEqual(cleanupStart, -1);
+  assert.notEqual(cleanupEnd, -1);
+  assert.match(cronCleanup, /const liveReference = await pool\\.query/);
+  assert.match(cronCleanup, /if \\(liveReference\\.rows\\[0\\]\\?\\.referenced\\)/);
+  assert.match(cronCleanup, /await deleteFromR2\\(intent\\.object_key\\)/);
+
+  for (const liveTable of ["posts", "statuses", "messages", "comments", "profiles"]) {
+    assert.match(
+      cronCleanup,
+      new RegExp(`EXISTS \\\\(SELECT 1 FROM ${liveTable}\\\\b`),
+      `the cron must protect media referenced by ${liveTable} before deletion`,
+    );
+  }
+});
