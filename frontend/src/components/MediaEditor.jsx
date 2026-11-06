@@ -518,25 +518,27 @@ export default function MediaEditor({
             <button type="button" onClick={() => selectAspect("free")} className="text-xs font-semibold text-primary">Reset crop</button>
           </div>
 
-          {imageSize.width > 0 && (
-            <div
-              ref={stageRef}
-              className="mw-crop-stage relative mx-auto w-full overflow-hidden rounded-lg bg-black"
-              style={{ aspectRatio: `${imageSize.width} / ${imageSize.height}`, maxWidth: `${stageWidth}px` }}
-              onPointerMove={moveCropPointer}
-              onPointerUp={endCropPointer}
-              onPointerCancel={endCropPointer}
-            >
-              <img
-                src={preview}
-                alt="Crop preview"
-                draggable="false"
-                onLoad={(event) => {
-                  const { naturalWidth, naturalHeight } = event.currentTarget;
-                  setImageSize({ width: naturalWidth, height: naturalHeight });
-                }}
-                className="pointer-events-none absolute inset-0 h-full w-full object-fill"
-              />
+          <div
+            ref={stageRef}
+            className="mw-crop-stage relative mx-auto w-full overflow-hidden rounded-lg bg-black"
+            style={{
+              aspectRatio: imageSize.width ? `${imageSize.width} / ${imageSize.height}` : "4 / 3",
+              maxWidth: `${stageWidth}px`,
+            }}
+            onPointerMove={moveCropPointer}
+            onPointerUp={endCropPointer}
+            onPointerCancel={endCropPointer}
+          >
+            <img
+              src={preview}
+              alt="Crop preview"
+              draggable="false"
+              onLoad={(event) => {
+                const { naturalWidth, naturalHeight } = event.currentTarget;
+                setImageSize({ width: naturalWidth, height: naturalHeight });
+              }}
+              className="pointer-events-none absolute inset-0 h-full w-full object-fill"
+            />
               <div
                 className="absolute border-2 border-white shadow-[0_0_0_999px_rgba(0,0,0,0.58)]"
                 style={{
