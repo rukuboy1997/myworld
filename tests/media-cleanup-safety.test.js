@@ -64,9 +64,8 @@ test("cron repeats live-reference checks immediately before R2 deletion", async 
   assert.match(cronCleanup, /await deleteFromR2\(intent\.object_key\)/);
 
   for (const liveTable of ["posts", "statuses", "messages", "comments", "profiles"]) {
-    assert.match(
-      cronCleanup,
-      new RegExp(`EXISTS \\\\(SELECT 1 FROM ${liveTable}\\\\b`),
+    assert.ok(
+      cronCleanup.includes(`EXISTS (SELECT 1 FROM ${liveTable}`),
       `the cron must protect media referenced by ${liveTable} before deletion`,
     );
   }
