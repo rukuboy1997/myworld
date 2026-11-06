@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const VIDEO_TYPES = ["video/mp4;codecs=avc1", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
 
 function formatBytes(bytes) {
