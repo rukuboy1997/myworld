@@ -6,6 +6,7 @@ import { useAuth } from "../lib/auth.jsx";
 import {
   getProfile,
   getMyProfileContact,
+  getMyMembership,
   createProfile,
   getFollowStatus,
   getBlockStatus,
@@ -27,7 +28,7 @@ vi.mock("../lib/auth.jsx", () => ({
 
 vi.mock("../lib/api.js", () => ({
   getProfile: vi.fn(),
-  getMyMembership: vi.fn().mockResolvedValue({ plan: { maxImageBytes: 10 * 1024 * 1024 } }),
+  getMyMembership: vi.fn(),
   getMyProfileContact: vi.fn(),
   createProfile: vi.fn(),
   followUser: vi.fn(),
@@ -72,6 +73,7 @@ describe("ProfilePage", () => {
       isAuthenticated: true,
     });
     getProfile.mockResolvedValue({ ...profile });
+    getMyMembership.mockResolvedValue({ plan: { maxImageBytes: 10 * 1024 * 1024 } });
     getMyProfileContact.mockResolvedValue({ phoneNumber: "" });
     createProfile.mockResolvedValue({});
     getFollowStatus.mockResolvedValue({ following: false });
