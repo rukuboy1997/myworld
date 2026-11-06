@@ -48,7 +48,7 @@ async function processImage(file, crop, maxBytes, quality) {
     const outputType = file.type === "image/jpeg" ? "image/jpeg" : "image/webp";
     let outputQuality = quality;
     let blob = await canvasBlob(canvas, outputType, outputQuality);
-    while (blob.size > maxBytes && outputQuality > 0.4 && outputType !== "image/png") {
+    while (blob.size > maxBytes && outputQuality > 0.4) {
       outputQuality = Math.max(0.4, outputQuality - 0.1);
       blob = await canvasBlob(canvas, outputType, outputQuality);
     }
