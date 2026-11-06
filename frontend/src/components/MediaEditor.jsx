@@ -489,6 +489,7 @@ export default function MediaEditor({
   const canUndoCompression = lastEditType === "compress";
   const hasEdits = historyVersion > 0 && editHistoryRef.current.length > 0;
   const oversized = Boolean(file && maxBytes && file.size > maxBytes);
+  const compressionWouldIncreaseSize = Boolean(estimatedBytes && estimatedBytes >= file.size);
   const trimNeeded = Boolean(isVideo && duration && (start > 0.05 || end < duration - 0.05));
   const cropChanged = crop.x > 0.002 || crop.y > 0.002 || crop.w < 0.998 || crop.h < 0.998;
   const imageAspect = imageSize.width && imageSize.height
@@ -835,7 +836,13 @@ export default function MediaEditor({
         <div className="flex items-start justify-between gap-2">
           <div>
             <p className="text-sm font-semibold">Compression <span className="font-normal text-muted-foreground">(optional)</span></p>
-            <p className="text-xs text-muted-foreground">{oversized ? "This file needs to be smaller before upload." : "Compression is optional. Your original stays untouched until you apply it."}</p>
+            <p className="text-xs text-muted-foreground">
+              {oversized
+                ? "This file needs to be smaller before upload."
+                : compressionWouldIncreaseSize
+                  ? "Your original is already smaller than the estimated compressed output."
+                  : "Compression is optional. Your original stays untouched until you apply it."}
+            </p>
           </div>
           {oversized && <span className="shrink-0 rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-semibold text-destructive">Over limit</span>}
         </div>
@@ -875,7 +882,7 @@ export default function MediaEditor({
           <button
             type="button"
             onClick={compress}
-            disabled={disabled || Boolean(processing) || !maxBytes || (isVideo && !duration)}
+            disabled={disabled || Boolean(processing) || !maxBytes || (isVideo && !duration) || compressionWouldIncreaseSize}
             className="flex-1 rounded-full bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground transition hover:brightness-95 disabled:opacity-45"
           >
             {processing === "compress" ? (isVideo ? `Compressing video · ${Math.round(progress * 100)}%` : "Compressing image…") : `Apply compression`}
