@@ -88,7 +88,7 @@ export default function CreatePostPage() {
   const fileRef = useRef(null);
   const navigate = useNavigate();
 
-  const handleFileChange = async (e) => {
+  const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
