@@ -504,7 +504,7 @@ export default function StatusTray() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block font-semibold">{file ? "Media selected" : "Add a photo or video"}</span>
-                  <span className="mt-1 block truncate text-xs text-muted-foreground">{file ? file.name : "Photos up to 25 MiB · Videos up to 500 MiB, maximum 3 minutes"}</span>
+                  <span className="mt-1 block truncate text-xs text-muted-foreground">{file ? file.name : `Photos up to ${Math.round(membershipPlan.maxImageBytes / (1024 * 1024))} MiB · Videos up to ${Math.round(membershipPlan.maxVideoBytes / (1024 * 1024))} MiB, maximum 3 minutes`}</span>
                 </span>
                 <span className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground">{file ? "Change" : "Browse"}</span>
                 <input key={file?.name || "status-media-input"} type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.heif,.bmp,.mp4,.m4v,.mov,.webm,.3gp,.mkv" className="sr-only" onChange={handleFileChange} />
