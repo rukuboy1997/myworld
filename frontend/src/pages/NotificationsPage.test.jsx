@@ -85,8 +85,8 @@ describe("NotificationsPage", () => {
     expect(screen.getByText(/2 activities/i)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Today" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Yesterday" })).toBeInTheDocument();
-    expect(screen.getAllByRole("link")).toHaveLength(2);
-    expect(screen.getByTestId("email-preferences")).toBeInTheDocument();
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+    expect(screen.getByRole("link", { name: /email preferences/i })).toHaveAttribute("href", "/settings#email-preferences");
   });
 
   it("does not mark notifications as read merely because the page was opened", async () => {
