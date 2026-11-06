@@ -33,10 +33,10 @@ function SettingsLink({ to, icon: Icon, title, description, tone = "primary" }) 
   );
 }
 
-function SectionTitle({ children, description }) {
+function SectionTitle({ children, description, id }) {
   return (
     <div className="mb-3">
-      <h2 className="text-sm font-bold tracking-wide text-foreground">{children}</h2>
+      <h2 id={id} className="text-sm font-bold tracking-wide text-foreground">{children}</h2>
       {description && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>}
     </div>
   );
@@ -83,7 +83,7 @@ export default function SettingsPage() {
         ) : (
           <div className="space-y-8">
             <section aria-labelledby="settings-email-title" id="email-preferences" className="scroll-mt-6">
-              <SectionTitle description="Choose which optional emails you'd like to receive. You can change these choices at any time.">Email preferences</SectionTitle>
+              <SectionTitle id="settings-email-title" description="Choose which optional emails you'd like to receive. You can change these choices at any time.">Email preferences</SectionTitle>
               <EmailPreferencesPanel />
             </section>
 
