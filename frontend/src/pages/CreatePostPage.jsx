@@ -101,7 +101,6 @@ export default function CreatePostPage() {
       return;
     }
 
-    const selectedMediaType = isVid ? "video" : "image";
     setError(null);
     setMedia(file);
     setMediaType(isImg ? "image" : "video");
