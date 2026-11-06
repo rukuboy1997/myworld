@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
+import MediaEditor from "../components/MediaEditor.jsx";
 import { createPost, getMyMembership } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import { showToast } from "../lib/toast.js";
@@ -87,7 +88,7 @@ export default function CreatePostPage() {
   const fileRef = useRef(null);
   const navigate = useNavigate();
 
-  const handleFileChange = async (e) => {
+  const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -98,37 +99,6 @@ export default function CreatePostPage() {
       setError("Only images or videos are allowed.");
       if (fileRef.current) fileRef.current.value = "";
       return;
-    }
-
-    const selectedMediaType = isVid ? "video" : "image";
-    const maxFileSizeBytes = getMaxBytesFor(selectedMediaType);
-    if (file.size > maxFileSizeBytes) {
-      setError(
-        `File too large for your ${membershipPlan.name || "Free"} plan. Maximum ${selectedMediaType} size is ${formatBytes(maxFileSizeBytes)} (your file is ${formatBytes(file.size)}).`,
-      );
-      if (fileRef.current) fileRef.current.value = "";
-      return;
-    }
-
-    if (isVid) {
-      try {
-        const duration = await checkVideoDuration(file);
-        if (duration > membershipPlan.reelDurationSeconds) {
-          const mins = Math.floor(duration / 60);
-          const secs = Math.floor(duration % 60);
-          setError(
-            `Video too long (${mins}m ${secs}s). Your ${membershipPlan.name || "Free"} plan allows videos up to ${formatDuration(membershipPlan.reelDurationSeconds)}. Please trim your video and try again.`,
-          );
-          if (fileRef.current) fileRef.current.value = "";
-          return;
-        }
-      } catch {
-        setError(
-          "Could not verify video duration. Please try a different file.",
-        );
-        if (fileRef.current) fileRef.current.value = "";
-        return;
-      }
     }
 
     setError(null);
@@ -152,6 +122,15 @@ export default function CreatePostPage() {
     setError(null);
     setUploadPct(media ? 0 : null);
     try {
+      if (media && media.size > getMaxBytesFor(mediaType)) {
+        throw new Error(`Your edited media is still too large. Your ${membershipPlan.name || "Free"} plan allows ${formatBytes(getMaxBytesFor(mediaType))} for this file.`);
+      }
+      if (mediaType === "video" && media) {
+        const duration = await checkVideoDuration(media);
+        if (!Number.isFinite(duration) || duration > membershipPlan.reelDurationSeconds) {
+          throw new Error(`Trim this video to ${formatDuration(membershipPlan.reelDurationSeconds)} or less before publishing.`);
+        }
+      }
       await createPost({
         title: title.trim(),
         content: content.trim(),
@@ -311,43 +290,18 @@ export default function CreatePostPage() {
                 </div>
               </button>
             ) : (
-              <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/20">
-                {mediaType === "image" ? (
-                  <img
-                    src={mediaPreview}
-                    alt="preview"
-                    className="w-full max-h-96 object-contain"
-                  />
-                ) : (
-                  <video
-                    src={mediaPreview}
-                    controls
-                    className="w-full max-h-96"
-                  />
-                )}
-                <button
-                  type="button"
-                  onClick={clearMedia}
-                  disabled={isSubmitting}
-                  className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/70 hover:bg-black text-white flex items-center justify-center backdrop-blur"
-                  title="Remove media"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M18 6 6 18" />
-                    <path d="m6 6 12 12" />
-                  </svg>
-                </button>
-              </div>
+              <MediaEditor
+                file={media}
+                maxBytes={getMaxBytesFor(mediaType)}
+                maxDurationSeconds={membershipPlan.reelDurationSeconds}
+                disabled={isSubmitting}
+                onRemove={clearMedia}
+                onChange={(edited) => {
+                  setMedia(edited);
+                  setMediaType(edited.type.startsWith("video/") ? "video" : "image");
+                  setMediaPreview(URL.createObjectURL(edited));
+                }}
+              />
             )}
 
             <input

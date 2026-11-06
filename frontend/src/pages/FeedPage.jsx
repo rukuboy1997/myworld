@@ -107,16 +107,16 @@ export default function FeedPage() {
 
         {/* Updates feed */}
         <section aria-labelledby="updates-heading">
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:items-end">
             <div>
               <div className="mb-1 flex items-center gap-2 text-primary">
-                <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
-                <span className="text-[11px] font-bold uppercase tracking-[0.16em]">Your community</span>
+                <Sparkles size={18} strokeWidth={1.9} aria-hidden="true" className="text-primary" />
+                <span className="hidden text-[11px] font-bold uppercase tracking-[0.16em] sm:inline">Your community</span>
               </div>
-              <h1 id="updates-heading" className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
+              <h1 id="updates-heading" className="hidden font-display text-2xl font-bold tracking-tight sm:block sm:text-3xl">
                 Updates
               </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
                 The latest moments from people in your world.
               </p>
             </div>
