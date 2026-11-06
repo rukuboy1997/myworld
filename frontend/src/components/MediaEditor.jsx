@@ -135,7 +135,7 @@ async function processVideo(file, start, end, maxBytes, quality, onProgress) {
   }
 }
 
-export default function MediaEditor({ file, onChange, maxBytes, maxDurationSeconds, disabled = false }) {
+export default function MediaEditor({ file, onChange, onRemove, maxBytes, maxDurationSeconds, disabled = false }) {
   const isVideo = file?.type?.startsWith("video/");
   const [preview, setPreview] = useState("");
   const [ratio, setRatio] = useState("free");
@@ -204,8 +204,9 @@ export default function MediaEditor({ file, onChange, maxBytes, maxDurationSecon
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">Edit your {isVideo ? "video" : "photo"}</p>
           <p className="text-xs text-muted-foreground">{formatBytes(file.size)} · Limit {formatBytes(maxBytes)}</p>
+          {oversized && <span className="mt-1 inline-block rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-semibold text-destructive">Needs compression</span>}
         </div>
-        {oversized && <span className="rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-semibold text-destructive">Needs compression</span>}
+        {onRemove && <button type="button" onClick={onRemove} disabled={disabled || processing} className="shrink-0 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-secondary">Remove</button>}
       </div>
       <div className="overflow-hidden rounded-xl bg-black">
         {isVideo ? (
