@@ -1298,6 +1298,31 @@ export function buildApp() {
             continue;
           }
           try {
+            // A final live-reference check closes the gap between selecting an
+            // abandoned intent and deleting its R2 object. Never let cleanup
+            // remove media that is currently attached to a user-visible record.
+            const liveReference = await pool.query(
+              `SELECT
+                EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = false
+                  AND (p.media_blob_id = $1 OR p.media_url LIKE '%' || $1))
+                OR EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at > NOW()
+                  AND (s.media_key = $1 OR s.media_url LIKE '%' || $1))
+                OR EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NULL
+                  AND (m.attachment_key = $1 OR m.attachment_url LIKE '%' || $1))
+                OR EXISTS (SELECT 1 FROM comments c INNER JOIN posts p ON p.id = c.post_id
+                  WHERE c.media_blob_id = $1 AND p.is_deleted = false)
+                OR EXISTS (SELECT 1 FROM profiles pr
+                  WHERE pr.avatar_blob_id = $1 OR pr.banner_blob_id = $1
+                    OR pr.avatar_url LIKE '%' || $1 OR pr.banner_url LIKE '%' || $1)
+                AS referenced`,
+              [intent.object_key],
+            );
+            if (liveReference.rows[0]?.referenced) {
+              cleanedIds.push(intent.id);
+              console.info("[upload-cleanup] preserved an object with a live database reference", intent.id);
+              continue;
+            }
+
             await deleteFromR2(intent.object_key);
             await markMediaUsageDeleted(intent.object_key);
             cleanedIds.push(intent.id);
