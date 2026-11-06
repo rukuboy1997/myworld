@@ -106,7 +106,7 @@ export default function SettingsPage() {
             </section>
 
             <section aria-labelledby="settings-support-title">
-              <SectionTitle description="Need help or have a question? Our contact details are here.">Help &amp; support</SectionTitle>
+              <SectionTitle id="settings-support-title" description="Need help or have a question? Our contact details are here.">Help &amp; support</SectionTitle>
               <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
                 <div className="flex items-start gap-3">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
