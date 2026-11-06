@@ -46,7 +46,7 @@ async function processImage(file, crop, maxBytes, quality) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Image editing is unavailable on this device.");
     context.drawImage(image, sx, sy, width, height, 0, 0, canvas.width, canvas.height);
-    const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
+    const outputType = file.type === "image/jpeg" ? "image/jpeg" : "image/webp";
     let outputQuality = quality;
     let blob = await canvasBlob(canvas, outputType, outputQuality);
     while (blob.size > maxBytes && outputQuality > 0.4 && outputType !== "image/png") {
@@ -107,8 +107,9 @@ async function processVideo(file, start, end, maxBytes, quality, onProgress) {
         resolve(blob);
       };
     });
-    video.currentTime = start;
-    await new Promise((resolve) => { video.onseeked = resolve; });
+    if (start > 0.05) {
+      await new Promise((resolve) => { video.onseeked = resolve; video.currentTime = start; });
+    }
     await video.play();
     recorder.start(500);
     let frameId;
