@@ -651,69 +651,77 @@ export default function ProfilePage() {
                 </h3>
                 {error && <p className="text-sm text-red-400">{error}</p>}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-muted-foreground uppercase mb-2 block">
-                      Profile Picture
-                    </label>
-                    <div className="flex items-center gap-3">
-                      {avatarSrc ? (
-                        <img
-                          src={avatarSrc}
-                          alt=""
-                          className="w-14 h-14 rounded-full object-cover border-2 border-white/10"
-                        />
-                      ) : (
-                        <div className="w-14 h-14 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-xl">
-                          {initial}
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => avatarRef.current?.click()}
-                        className="bg-secondary px-3 py-1.5 rounded-full text-xs hover:bg-secondary/80 border border-white/10"
-                      >
-                        Change
-                      </button>
-                      <input
-                        ref={avatarRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFile("avatar")}
-                        className="hidden"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-muted-foreground uppercase mb-2 block">
-                      Banner
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <div className="w-20 h-10 rounded-lg bg-gradient-brand overflow-hidden border-2 border-white/10 flex-shrink-0">
-                        {bannerSrc && (
-                          <img
-                            src={bannerSrc}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
+                <div className="grid grid-cols-1 gap-4">
+                  <section className="rounded-2xl border border-border bg-secondary/30 p-3 sm:p-4" aria-label="Profile picture editor">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        {avatarSrc ? (
+                          <img src={avatarSrc} alt="" className="h-12 w-12 shrink-0 rounded-full border-2 border-border object-cover" />
+                        ) : (
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-lg font-bold text-white">{initial}</div>
                         )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">Profile picture</p>
+                          <p className="text-xs text-muted-foreground">Crop and resize how people see you.</p>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => bannerRef.current?.click()}
-                        className="bg-secondary px-3 py-1.5 rounded-full text-xs hover:bg-secondary/80 border border-white/10"
-                      >
-                        Change
+                      <button type="button" onClick={() => avatarRef.current?.click()} disabled={isSaving} className="shrink-0 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold transition hover:bg-secondary disabled:opacity-50">
+                        {avatarFile ? "Change" : "Choose image"}
                       </button>
-                      <input
-                        ref={bannerRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFile("banner")}
-                        className="hidden"
-                      />
+                      <input ref={avatarRef} type="file" accept="image/*" onChange={handleFile("avatar")} className="hidden" />
                     </div>
-                  </div>
+                    {avatarFile && (
+                      <MediaEditor
+                        file={avatarFile}
+                        maxBytes={profileMediaMaxBytes}
+                        disabled={isSaving}
+                        onChange={(edited) => {
+                          setAvatarFile(edited);
+                          setAvatarPreview(URL.createObjectURL(edited));
+                        }}
+                        onRemove={() => {
+                          setAvatarFile(null);
+                          setAvatarPreview(null);
+                          if (avatarRef.current) avatarRef.current.value = "";
+                        }}
+                      />
+                    )}
+                  </section>
+
+                  <section className="rounded-2xl border border-border bg-secondary/30 p-3 sm:p-4" aria-label="Profile banner editor">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="h-12 w-16 shrink-0 overflow-hidden rounded-xl border border-border bg-gradient-brand">
+                          {bannerSrc && <img src={bannerSrc} alt="" className="h-full w-full object-cover" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">Profile banner</p>
+                          <p className="text-xs text-muted-foreground">Set the cover image at the top of your profile.</p>
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => bannerRef.current?.click()} disabled={isSaving} className="shrink-0 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold transition hover:bg-secondary disabled:opacity-50">
+                        {bannerFile ? "Change" : "Choose image"}
+                      </button>
+                      <input ref={bannerRef} type="file" accept="image/*" onChange={handleFile("banner")} className="hidden" />
+                    </div>
+                    {bannerFile && (
+                      <MediaEditor
+                        file={bannerFile}
+                        maxBytes={profileMediaMaxBytes}
+                        disabled={isSaving}
+                        onChange={(edited) => {
+                          setBannerFile(edited);
+                          setBannerPreview(URL.createObjectURL(edited));
+                        }}
+                        onRemove={() => {
+                          setBannerFile(null);
+                          setBannerPreview(null);
+                          if (bannerRef.current) bannerRef.current.value = "";
+                        }}
+                      />
+                    )}
+                  </section>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">Images may be cropped or compressed before upload. The upload limit for your current membership is {Math.round(profileMediaMaxBytes / (1024 * 1024))} MiB per image.</p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
