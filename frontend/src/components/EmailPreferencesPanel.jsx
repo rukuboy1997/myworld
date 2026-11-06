@@ -6,9 +6,9 @@ import {
 
 const DEFAULT_PREFERENCES = {
   emailEnabled: true,
-  unreadMessageReminders: false,
-  activityDigest: false,
-  reengagementEmails: false,
+  unreadMessageReminders: true,
+  activityDigest: true,
+  reengagementEmails: true,
 };
 
 const PREFERENCE_FIELDS = Object.keys(DEFAULT_PREFERENCES);
