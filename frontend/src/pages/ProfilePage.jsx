@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import PostCard from "../components/PostCard.jsx";
 import MediaEditor from "../components/MediaEditor.jsx";
-import { Settings, Users, UserPlus, Heart, Briefcase, MapPin, Globe, Link2, AtSign } from "../components/icons.jsx";
+import { Settings, Users, UserPlus, Heart, Briefcase, MapPin, Globe, Link2, AtSign, FileText, UserRound } from "../components/icons.jsx";
 import {
   getProfile,
   getMyProfileContact,
