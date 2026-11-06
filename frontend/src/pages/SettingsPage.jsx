@@ -98,7 +98,7 @@ export default function SettingsPage() {
             </section>
 
             <section aria-labelledby="settings-legal-title">
-              <SectionTitle description="Important information about using myWorld.">Legal</SectionTitle>
+              <SectionTitle id="settings-legal-title" description="Important information about using myWorld.">Legal</SectionTitle>
               <div className="grid gap-3 sm:grid-cols-2">
                 <SettingsLink to="/terms" icon={FileText} title="Terms of use" description="Read the rules and conditions for using myWorld." />
                 <SettingsLink to="/privacy-policy" icon={Shield} title="Privacy policy" description="Understand your privacy rights and our data practices." />
