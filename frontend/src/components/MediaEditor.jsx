@@ -19,10 +19,12 @@ function formatTime(seconds) {
 }
 
 function makeFile(blob, original, mimeType) {
-  const extension = mimeType.includes("webm") ? "webm"
-    : mimeType.includes("png") ? "png"
-      : mimeType.includes("gif") ? "gif"
-        : mimeType.includes("jpeg") ? "jpg" : "webp";
+  const extension = mimeType.includes("video/webm") ? "webm"
+    : mimeType.includes("video/mp4") ? "mp4"
+      : mimeType.includes("video/quicktime") ? "mov"
+        : mimeType.includes("png") ? "png"
+          : mimeType.includes("gif") ? "gif"
+            : mimeType.includes("jpeg") ? "jpg" : "webp";
   const base = original.name.replace(/\.[^.]+$/, "");
   return new File([blob], `${base}-edited.${extension}`, {
     type: mimeType,
@@ -570,7 +572,7 @@ export default function MediaEditor({
                     type="button"
                     aria-label={`Resize crop ${handle}`}
                     onPointerDown={(event) => beginCropDrag(event, handle)}
-                    className={`absolute z-10 block rounded-full border-2 border-primary bg-white shadow-md ${handle.length === 2 ? "h-3.5 w-3.5" : "h-2 w-5"} `}
+                    className={`absolute z-10 block rounded-full border-2 border-primary bg-white shadow-md ${handle.length === 2 ? "h-3.5 w-3.5" : handle === "e" || handle === "w" ? "h-5 w-2" : "h-2 w-5"} `}
                     style={{
                       ...(handle.includes("n") ? { top: 0 } : handle.includes("s") ? { bottom: 0 } : { top: "50%", transform: "translateY(-50%)" }),
                       ...(handle.includes("w") ? { left: 0 } : handle.includes("e") ? { right: 0 } : { left: "50%", transform: "translateX(-50%)" }),
