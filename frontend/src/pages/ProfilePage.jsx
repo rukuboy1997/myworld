@@ -982,36 +982,102 @@ export default function ProfilePage() {
                 )}
 
                 {activeTab === "about" && (
-                  <div className="glass-panel rounded-3xl p-5 md:p-7">
-                    <h2 className="text-lg font-bold mb-4">About</h2>
-                    {profile?.bio ? (
-                      <p className="text-sm md:text-base leading-relaxed text-foreground/90 whitespace-pre-wrap">{profile.bio}</p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground italic">No bio added yet.</p>
-                    )}
+                  <div className="space-y-4">
+                    <section className="overflow-hidden rounded-3xl border border-border bg-card">
+                      <div className="border-b border-border bg-gradient-to-br from-primary/10 via-card to-secondary/50 p-5 sm:p-7">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Get to know</p>
+                        <h2 className="mt-1 text-xl font-bold tracking-tight">{profile?.displayName || profile?.username || "About this profile"}</h2>
+                        {profile?.username && <p className="mt-1 text-sm text-muted-foreground">@{profile.username}</p>}
+                      </div>
+                      <div className="p-5 sm:p-7">
+                        <div className="mb-3 flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <FileText size={16} aria-hidden="true" />
+                          </span>
+                          <h3 className="text-sm font-bold">About me</h3>
+                        </div>
+                        {profile?.bio ? (
+                          <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90 sm:text-base">{profile.bio}</p>
+                        ) : (
+                          <p className="text-sm italic text-muted-foreground">No bio added yet.</p>
+                        )}
+                      </div>
+                    </section>
 
-                    <div className="mt-5 flex flex-wrap gap-x-5 gap-y-3 text-sm text-muted-foreground">
-                      {profile?.profession && <span>Profession: {profile.profession}</span>}
-                      {profile?.location && <span>📍 {profile.location}</span>}
-                      {profile?.stateProvince && <span>{profile.stateProvince}</span>}
-                      {profile?.country && <span>🌍 {profile.country}</span>}
-                      {profile?.website && (
-                        <a href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary break-all">
-                          ↗ {profile.website.replace(/^https?:\/\//, "")}
-                        </a>
-                      )}
-                      {profile?.twitter && (
-                        <a href={`https://x.com/${profile.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
-                          @{profile.twitter.replace("@", "")}
-                        </a>
-                      )}
-                    </div>
+                    <section className="rounded-3xl border border-border bg-card p-5 sm:p-6">
+                      <div className="mb-4 flex items-center gap-2">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                          <UserRound size={16} aria-hidden="true" />
+                        </span>
+                        <div>
+                          <h3 className="text-sm font-bold">Personal details</h3>
+                          <p className="text-xs text-muted-foreground">A little more about this member.</p>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {profile?.profession && (
+                          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-border bg-secondary/35 p-3">
+                            <Briefcase size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+                            <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Profession</p><p className="mt-1 break-words text-sm font-semibold text-foreground">{profile.profession}</p></div>
+                          </div>
+                        )}
+                        {profile?.location && (
+                          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-border bg-secondary/35 p-3">
+                            <MapPin size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+                            <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Location</p><p className="mt-1 break-words text-sm font-semibold text-foreground">{profile.location}</p></div>
+                          </div>
+                        )}
+                        {profile?.stateProvince && (
+                          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-border bg-secondary/35 p-3">
+                            <MapPin size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+                            <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">State / Province</p><p className="mt-1 break-words text-sm font-semibold text-foreground">{profile.stateProvince}</p></div>
+                          </div>
+                        )}
+                        {profile?.country && (
+                          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-border bg-secondary/35 p-3">
+                            <Globe size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+                            <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Country</p><p className="mt-1 break-words text-sm font-semibold text-foreground">{profile.country}</p></div>
+                          </div>
+                        )}
+                        {!profile?.profession && !profile?.location && !profile?.stateProvince && !profile?.country && (
+                          <p className="col-span-full rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">No personal details have been added yet.</p>
+                        )}
+                      </div>
+                    </section>
+
+                    {(profile?.website || profile?.twitter) && (
+                      <section className="rounded-3xl border border-border bg-card p-5 sm:p-6">
+                        <div className="mb-4 flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <Link2 size={16} aria-hidden="true" />
+                          </span>
+                          <div><h3 className="text-sm font-bold">Around the web</h3><p className="text-xs text-muted-foreground">Other places to find this person.</p></div>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {profile?.website && (
+                            <a href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-3 rounded-2xl border border-border bg-secondary/35 p-3 transition hover:border-primary/40">
+                              <Globe size={18} className="shrink-0 text-primary" aria-hidden="true" />
+                              <span className="min-w-0"><span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Website</span><span className="mt-1 block break-all text-sm font-semibold text-foreground">{profile.website.replace(/^https?:\/\//, "")}</span></span>
+                              <Link2 size={14} className="ml-auto shrink-0 text-muted-foreground" aria-hidden="true" />
+                            </a>
+                          )}
+                          {profile?.twitter && (
+                            <a href={`https://x.com/${profile.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-3 rounded-2xl border border-border bg-secondary/35 p-3 transition hover:border-primary/40">
+                              <AtSign size={18} className="shrink-0 text-primary" aria-hidden="true" />
+                              <span className="min-w-0"><span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">X / Twitter</span><span className="mt-1 block truncate text-sm font-semibold text-foreground">@{profile.twitter.replace("@", "")}</span></span>
+                              <Link2 size={14} className="ml-auto shrink-0 text-muted-foreground" aria-hidden="true" />
+                            </a>
+                          )}
+                        </div>
+                      </section>
+                    )}
 
                     {!profile?.bio && !profile?.profession && !profile?.location && !profile?.stateProvince && !profile?.country && !profile?.website && !profile?.twitter && (
-                      <p className="mt-5 text-xs text-muted-foreground">No additional profile information is available.</p>
+                      <p className="rounded-2xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">No additional profile information is available.</p>
                     )}
                     {isOwnProfile && (
-                      <button type="button" onClick={() => setIsEditing(true)} className="mt-6 rounded-full border border-white/10 bg-secondary px-4 py-2 text-sm font-semibold hover:bg-secondary/80">
+                      <button type="button" onClick={() => setIsEditing(true)} className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary px-4 py-2.5 text-sm font-semibold transition hover:bg-secondary/80">
+                        <Settings size={15} aria-hidden="true" />
                         Edit profile details
                       </button>
                     )}
