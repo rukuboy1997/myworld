@@ -140,10 +140,14 @@ async function estimateImageCompression(file, maxBytes, quality) {
   }
 }
 
-function estimateVideoCompressionBytes(maxBytes, duration, quality) {
-  if (!duration || !maxBytes) return null;
-  const targetBytes = Math.max(180 * 1024, Math.floor(maxBytes * (quality / 100)));
-  const totalBitrate = Math.max(220000, Math.min(8000000, Math.floor((targetBytes * 8 / duration) * 0.86)));
+function estimateVideoCompressionBytes(file, maxBytes, duration, quality) {
+  if (!duration || !maxBytes || !file?.size) return null;
+  const targetBytes = Math.min(
+    Math.floor(maxBytes * (quality / 100)),
+    Math.floor(file.size * 0.92),
+  );
+  const boundedTarget = Math.max(180 * 1024, targetBytes);
+  const totalBitrate = Math.max(220000, Math.min(8000000, Math.floor((boundedTarget * 8 / duration) * 0.86)));
   return Math.ceil((totalBitrate * duration / 8) * 1.08);
 }
 
@@ -463,7 +467,7 @@ export default function MediaEditor({
     const timer = window.setTimeout(async () => {
       try {
         const estimate = isVideo
-          ? estimateVideoCompressionBytes(maxBytes, duration, quality)
+          ? estimateVideoCompressionBytes(file, maxBytes, duration, quality)
           : await estimateImageCompression(file, maxBytes, quality);
         if (!cancelled) setEstimatedBytes(estimate);
       } catch {
@@ -573,7 +577,10 @@ export default function MediaEditor({
       let edited;
       if (isVideo) {
         const length = Math.max(0.25, duration || end);
-        const targetBytes = Math.max(180 * 1024, Math.floor(maxBytes * (quality / 100)));
+        const targetBytes = Math.max(180 * 1024, Math.min(
+          Math.floor(maxBytes * (quality / 100)),
+          Math.floor(file.size * 0.92),
+        ));
         const totalBitrate = Math.max(220000, Math.min(8000000, Math.floor((targetBytes * 8 / length) * 0.86)));
         let videoBitrate = Math.max(140000, totalBitrate - 128000);
         for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -606,6 +613,7 @@ export default function MediaEditor({
     setProgress(0);
     setError("");
     try {
+      stopTrimPreview();
       const edited = await recordVideo(file, start, end, 6500000, setProgress);
       pushEditedFile(edited, "trim");
     } catch (err) {
@@ -649,13 +657,28 @@ export default function MediaEditor({
       {isVideo ? (
         <div className="space-y-3">
           <div className="overflow-hidden rounded-xl bg-black">
-            <video src={preview} controls playsInline className="max-h-64 w-full object-contain" />
+            <video
+              ref={videoPreviewRef}
+              src={preview}
+              controls
+              playsInline
+              preload="metadata"
+              onTimeUpdate={(event) => {
+                if (isPreviewingTrim && event.currentTarget.currentTime >= end) {
+                  event.currentTarget.pause();
+                  event.currentTarget.currentTime = start;
+                  setIsPreviewingTrim(false);
+                }
+              }}
+              onPause={() => setIsPreviewingTrim(false)}
+              className="max-h-64 w-full object-contain"
+            />
           </div>
           <div className="rounded-xl border border-border bg-secondary/40 p-3">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold">Trim video</p>
-                <p className="text-xs text-muted-foreground">Drag either handle to choose the part to keep.</p>
+                <p className="text-xs text-muted-foreground">Choose the section to keep, then preview it before applying.</p>
               </div>
               <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">{formatTime(end - start)}</span>
             </div>
@@ -679,7 +702,7 @@ export default function MediaEditor({
                 max={Math.max(0.1, endRangeMax)}
                 step="0.1"
                 value={end}
-                onChange={(event) => setEnd(clamp(Number(event.target.value), start + 0.25, endRangeMax))}
+                onChange={(event) => changeTrimEnd(event.target.value)}
                 style={{ zIndex: 2 }}
               />
             </div>
@@ -689,6 +712,14 @@ export default function MediaEditor({
             {duration > maxDurationSeconds && (
               <p className="mt-2 text-xs text-amber-600">Your plan allows up to {formatTime(maxDurationSeconds)}. The selected section must fit this limit.</p>
             )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => isPreviewingTrim ? stopTrimPreview() : previewTrim()} disabled={disabled || Boolean(processing) || !duration} className="flex-1 rounded-full border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-45">
+                {isPreviewingTrim ? "Stop preview" : "Preview selection"}
+              </button>
+              <button type="button" onClick={() => hasAppliedTrim ? undoEdit("trim") : resetTrimSelection()} disabled={disabled || Boolean(processing)} className="rounded-full border border-border px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-secondary disabled:opacity-45">
+                {hasAppliedTrim ? "Undo trim" : "Reset trim"}
+              </button>
+            </div>
             <button type="button" onClick={applyTrim} disabled={disabled || Boolean(processing) || !trimNeeded} className="mt-3 w-full rounded-full border border-primary/40 bg-primary/10 px-4 py-2.5 text-sm font-bold text-primary transition hover:bg-primary/15 disabled:opacity-45">
               {processing === "trim" ? `Trimming video · ${Math.round(progress * 100)}%` : "Apply trim"}
             </button>
