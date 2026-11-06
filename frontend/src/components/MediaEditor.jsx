@@ -342,6 +342,14 @@ export default function MediaEditor({
   const stageWidth = Math.min(560, 340 * imageAspect);
   const startPercent = duration ? (start / duration) * 100 : 0;
   const endPercent = duration ? (end / duration) * 100 : 100;
+  const endRangeMax = maxDurationSeconds ? Math.min(duration, start + maxDurationSeconds) : duration;
+
+  const changeTrimStart = (value) => {
+    const next = clamp(Number(value), 0, Math.max(0, duration - 0.25));
+    setStart(next);
+    if (end < next + 0.25) setEnd(Math.min(duration, next + 0.25));
+    else if (maxDurationSeconds && end - next > maxDurationSeconds) setEnd(Math.min(duration, next + maxDurationSeconds));
+  };
 
   const beginCropDrag = (event, mode) => {
     if (disabled || processing || !stageRef.current) return;
@@ -483,17 +491,17 @@ export default function MediaEditor({
                 max={Math.max(0.1, duration)}
                 step="0.1"
                 value={start}
-                onChange={(event) => setStart(Math.min(Number(event.target.value), end - 0.25))}
+                onChange={(event) => changeTrimStart(event.target.value)}
                 style={{ zIndex: start > duration * 0.85 ? 3 : 2 }}
               />
               <input
                 aria-label="Trim end"
                 type="range"
                 min="0"
-                max={Math.max(0.1, duration)}
+                max={Math.max(0.1, endRangeMax)}
                 step="0.1"
                 value={end}
-                onChange={(event) => setEnd(Math.max(Number(event.target.value), start + 0.25))}
+                onChange={(event) => setEnd(clamp(Number(event.target.value), start + 0.25, endRangeMax))}
                 style={{ zIndex: 2 }}
               />
             </div>
@@ -551,7 +559,10 @@ export default function MediaEditor({
                 onPointerDown={(event) => beginCropDrag(event, "move")}
               >
                 <div className="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3">
-                  {[0, 1, 2].map((item) => <span key={item} className="border-r border-white/45 last:border-r-0" />)}
+                  <span className="absolute inset-y-0 left-1/3 border-l border-white/45" />
+                  <span className="absolute inset-y-0 left-2/3 border-l border-white/45" />
+                  <span className="absolute inset-x-0 top-1/3 border-t border-white/45" />
+                  <span className="absolute inset-x-0 top-2/3 border-t border-white/45" />
                 </div>
                 {["nw", "n", "ne", "e", "se", "s", "sw", "w"].map((handle) => (
                   <button
@@ -625,7 +636,7 @@ export default function MediaEditor({
           disabled={disabled || Boolean(processing) || !maxBytes}
           className="mt-3 w-full rounded-full border border-border bg-card px-4 py-2.5 text-sm font-bold text-foreground transition hover:bg-secondary disabled:opacity-45"
         >
-          {processing === "compress" ? `Compressing · ${Math.round(progress * 100)}%` : `Compress ${isVideo ? "video" : "image"} · Apply separately`}
+          {processing === "compress" ? (isVideo ? `Compressing video · ${Math.round(progress * 100)}%` : "Compressing image…") : `Compress ${isVideo ? "video" : "image"}`}
         </button>
       </div>
 
