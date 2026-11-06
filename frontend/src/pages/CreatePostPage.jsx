@@ -290,51 +290,12 @@ export default function CreatePostPage() {
                 </div>
               </button>
             ) : (
-              <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/20">
-                {mediaType === "image" ? (
-                  <img
-                    src={mediaPreview}
-                    alt="preview"
-                    className="w-full max-h-96 object-contain"
-                  />
-                ) : (
-                  <video
-                    src={mediaPreview}
-                    controls
-                    className="w-full max-h-96"
-                  />
-                )}
-                <button
-                  type="button"
-                  onClick={clearMedia}
-                  disabled={isSubmitting}
-                  className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/70 hover:bg-black text-white flex items-center justify-center backdrop-blur"
-                  title="Remove media"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M18 6 6 18" />
-                    <path d="m6 6 12 12" />
-                  </svg>
-                </button>
-              </div>
-            )}
-
-            {media && (
               <MediaEditor
                 file={media}
                 maxBytes={getMaxBytesFor(mediaType)}
                 maxDurationSeconds={membershipPlan.reelDurationSeconds}
                 disabled={isSubmitting}
+                onRemove={clearMedia}
                 onChange={(edited) => {
                   setMedia(edited);
                   setMediaType(edited.type.startsWith("video/") ? "video" : "image");
