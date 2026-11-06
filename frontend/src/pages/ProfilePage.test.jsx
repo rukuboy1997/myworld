@@ -153,6 +153,13 @@ describe("ProfilePage", () => {
     expect(await screen.findByRole("button", { name: "Message" })).toBeInTheDocument();
   });
 
+  it("offers Settings and Privacy on the owner's profile", async () => {
+    useAuth.mockReturnValue({ address: "0xTARGET", isAuthenticated: true });
+    renderProfile("0xTARGET");
+
+    expect(await screen.findByRole("button", { name: "Settings and privacy" })).toBeInTheDocument();
+  });
+
   it("follows a profile and increments the follower count", async () => {
     renderProfile();
 
