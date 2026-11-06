@@ -107,8 +107,8 @@ export default function FeedPage() {
 
         {/* Updates feed */}
         <section aria-labelledby="updates-heading">
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <div>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:items-end">
+            <div className="hidden sm:block">
               <div className="mb-1 flex items-center gap-2 text-primary">
                 <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
                 <span className="text-[11px] font-bold uppercase tracking-[0.16em]">Your community</span>
