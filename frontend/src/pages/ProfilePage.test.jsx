@@ -101,7 +101,7 @@ describe("ProfilePage", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /About/ }));
     expect(await screen.findByText(/Nigeria/)).toBeInTheDocument();
     expect(screen.getByText("FCT")).toBeInTheDocument();
-    expect(screen.getByText("Software Engineer")).toBeInTheDocument();
+    expect(screen.getAllByText("Software Engineer")).toHaveLength(2);
     expect(screen.getByText(/Premium/)).toBeInTheDocument();
     expect(screen.queryByText(/phone/i)).not.toBeInTheDocument();
   });
