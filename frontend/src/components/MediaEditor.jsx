@@ -435,7 +435,12 @@ export default function MediaEditor({
   }, [file]);
 
   useEffect(() => {
-    if (!isVideo || !preview) return undefined;
+    if (!isVideo || !preview) {
+      setDuration(0);
+      setStart(0);
+      setEnd(0);
+      return undefined;
+    }
     const video = document.createElement("video");
     video.preload = "metadata";
     video.src = preview;
@@ -451,6 +456,32 @@ export default function MediaEditor({
     };
   }, [isVideo, preview, maxDurationSeconds]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setEstimatedBytes(null);
+    setIsEstimating(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const estimate = isVideo
+          ? estimateVideoCompressionBytes(maxBytes, duration, quality)
+          : await estimateImageCompression(file, maxBytes, quality);
+        if (!cancelled) setEstimatedBytes(estimate);
+      } catch {
+        if (!cancelled) setEstimatedBytes(null);
+      } finally {
+        if (!cancelled) setIsEstimating(false);
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [file, isVideo, maxBytes, duration, quality]);
+
+  const hasAppliedCrop = editHistoryRef.current.some((item) => item.type === "crop");
+  const hasAppliedTrim = editHistoryRef.current.some((item) => item.type === "trim");
+  const hasAppliedCompression = editHistoryRef.current.some((item) => item.type === "compress");
+  const hasEdits = historyVersion > 0 && editHistoryRef.current.length > 0;
   const oversized = Boolean(file && maxBytes && file.size > maxBytes);
   const trimNeeded = Boolean(isVideo && duration && (start > 0.05 || end < duration - 0.05));
   const cropChanged = crop.x > 0.002 || crop.y > 0.002 || crop.w < 0.998 || crop.h < 0.998;
@@ -458,16 +489,35 @@ export default function MediaEditor({
     ? imageSize.width / imageSize.height
     : 1;
   const normalizedCropAspect = cropAspect === "free" ? null : Number(cropAspect) / imageAspect;
-  const stageWidth = Math.min(560, 340 * imageAspect);
+  const stageWidth = Math.min(560, 420 * imageAspect);
   const startPercent = duration ? (start / duration) * 100 : 0;
   const endPercent = duration ? (end / duration) * 100 : 100;
   const endRangeMax = maxDurationSeconds ? Math.min(duration, start + maxDurationSeconds) : duration;
 
   const changeTrimStart = (value) => {
+    stopTrimPreview();
     const next = clamp(Number(value), 0, Math.max(0, duration - 0.25));
     setStart(next);
     if (end < next + 0.25) setEnd(Math.min(duration, next + 0.25));
     else if (maxDurationSeconds && end - next > maxDurationSeconds) setEnd(Math.min(duration, next + maxDurationSeconds));
+  };
+
+  const changeTrimEnd = (value) => {
+    stopTrimPreview();
+    setEnd(clamp(Number(value), start + 0.25, endRangeMax));
+  };
+
+  const resetCropSelection = () => {
+    setCropAspect("free");
+    setCrop({ x: 0, y: 0, w: 1, h: 1 });
+    setError("");
+  };
+
+  const resetTrimSelection = () => {
+    stopTrimPreview();
+    setStart(0);
+    setEnd(Math.min(duration, maxDurationSeconds || duration));
+    setError("");
   };
 
   const beginCropDrag = (event, mode) => {
@@ -506,7 +556,7 @@ export default function MediaEditor({
     setError("");
     try {
       const edited = await cropImage(file, crop, imageSize);
-      onChange(edited);
+      pushEditedFile(edited, "crop");
     } catch (err) {
       setError(err.message || "Could not crop this image.");
     } finally {
@@ -522,17 +572,26 @@ export default function MediaEditor({
     try {
       let edited;
       if (isVideo) {
-        const length = Math.max(0.25, end - start);
+        const length = Math.max(0.25, duration || end);
         const targetBytes = Math.max(180 * 1024, Math.floor(maxBytes * (quality / 100)));
         const totalBitrate = Math.max(220000, Math.min(8000000, Math.floor((targetBytes * 8 / length) * 0.86)));
-        edited = await recordVideo(file, 0, duration || end, Math.max(140000, totalBitrate - 128000), setProgress);
+        let videoBitrate = Math.max(140000, totalBitrate - 128000);
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          edited = await recordVideo(file, 0, length, videoBitrate, setProgress);
+          if (edited.size <= Math.min(maxBytes, file.size - 1)) break;
+          const target = Math.min(maxBytes, file.size - 1);
+          videoBitrate = Math.max(90000, Math.floor(videoBitrate * (target / edited.size) * 0.88));
+        }
       } else {
         edited = await compressImage(file, maxBytes, quality);
       }
       if (edited.size > maxBytes) {
         throw new Error(`The result is ${formatBytes(edited.size)}. Lower the quality and compress again to fit ${formatBytes(maxBytes)}.`);
       }
-      onChange(edited);
+      if (edited.size >= file.size) {
+        throw new Error("Compression did not reduce the file size. Reset the quality or try a different setting.");
+      }
+      pushEditedFile(edited, "compress");
     } catch (err) {
       setError(err.message || "Could not compress this media.");
     } finally {
@@ -548,7 +607,7 @@ export default function MediaEditor({
     setError("");
     try {
       const edited = await recordVideo(file, start, end, 6500000, setProgress);
-      onChange(edited);
+      pushEditedFile(edited, "trim");
     } catch (err) {
       setError(err.message || "Could not trim this video.");
     } finally {
