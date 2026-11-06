@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
+import MediaEditor from "../components/MediaEditor.jsx";
 import { createPost, getMyMembership } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import { showToast } from "../lib/toast.js";
@@ -101,36 +102,6 @@ export default function CreatePostPage() {
     }
 
     const selectedMediaType = isVid ? "video" : "image";
-    const maxFileSizeBytes = getMaxBytesFor(selectedMediaType);
-    if (file.size > maxFileSizeBytes) {
-      setError(
-        `File too large for your ${membershipPlan.name || "Free"} plan. Maximum ${selectedMediaType} size is ${formatBytes(maxFileSizeBytes)} (your file is ${formatBytes(file.size)}).`,
-      );
-      if (fileRef.current) fileRef.current.value = "";
-      return;
-    }
-
-    if (isVid) {
-      try {
-        const duration = await checkVideoDuration(file);
-        if (duration > membershipPlan.reelDurationSeconds) {
-          const mins = Math.floor(duration / 60);
-          const secs = Math.floor(duration % 60);
-          setError(
-            `Video too long (${mins}m ${secs}s). Your ${membershipPlan.name || "Free"} plan allows videos up to ${formatDuration(membershipPlan.reelDurationSeconds)}. Please trim your video and try again.`,
-          );
-          if (fileRef.current) fileRef.current.value = "";
-          return;
-        }
-      } catch {
-        setError(
-          "Could not verify video duration. Please try a different file.",
-        );
-        if (fileRef.current) fileRef.current.value = "";
-        return;
-      }
-    }
-
     setError(null);
     setMedia(file);
     setMediaType(isImg ? "image" : "video");
@@ -152,6 +123,15 @@ export default function CreatePostPage() {
     setError(null);
     setUploadPct(media ? 0 : null);
     try {
+      if (media && media.size > getMaxBytesFor(mediaType)) {
+        throw new Error(`Your edited media is still too large. Your ${membershipPlan.name || "Free"} plan allows ${formatBytes(getMaxBytesFor(mediaType))} for this file.`);
+      }
+      if (mediaType === "video" && media) {
+        const duration = await checkVideoDuration(media);
+        if (!Number.isFinite(duration) || duration > membershipPlan.reelDurationSeconds) {
+          throw new Error(`Trim this video to ${formatDuration(membershipPlan.reelDurationSeconds)} or less before publishing.`);
+        }
+      }
       await createPost({
         title: title.trim(),
         content: content.trim(),
@@ -348,6 +328,20 @@ export default function CreatePostPage() {
                   </svg>
                 </button>
               </div>
+            )}
+
+            {media && (
+              <MediaEditor
+                file={media}
+                maxBytes={getMaxBytesFor(mediaType)}
+                maxDurationSeconds={membershipPlan.reelDurationSeconds}
+                disabled={isSubmitting}
+                onChange={(edited) => {
+                  setMedia(edited);
+                  setMediaType(edited.type.startsWith("video/") ? "video" : "image");
+                  setMediaPreview(URL.createObjectURL(edited));
+                }}
+              />
             )}
 
             <input
