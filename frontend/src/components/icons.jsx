@@ -41,6 +41,7 @@ export {
   Scale,
   Trash2,
   UserPlus,
+  UserRound,
   Users,
   AtSign,
   Send,
