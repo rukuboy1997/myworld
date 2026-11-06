@@ -13,9 +13,9 @@ vi.mock("../lib/api.js", () => ({
 
 const preferences = {
   emailEnabled: true,
-  unreadMessageReminders: false,
-  activityDigest: false,
-  reengagementEmails: false,
+  unreadMessageReminders: true,
+  activityDigest: true,
+  reengagementEmails: true,
 };
 
 describe("EmailPreferencesPanel", () => {
