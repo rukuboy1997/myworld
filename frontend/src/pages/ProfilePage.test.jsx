@@ -27,6 +27,7 @@ vi.mock("../lib/auth.jsx", () => ({
 
 vi.mock("../lib/api.js", () => ({
   getProfile: vi.fn(),
+  getMyMembership: vi.fn().mockResolvedValue({ plan: { maxImageBytes: 10 * 1024 * 1024 } }),
   getMyProfileContact: vi.fn(),
   createProfile: vi.fn(),
   followUser: vi.fn(),
