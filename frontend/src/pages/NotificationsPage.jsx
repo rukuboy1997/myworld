@@ -15,7 +15,7 @@ import {
   truncateAddress,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
-import EmailPreferencesPanel from "../components/EmailPreferencesPanel.jsx";
+import { Mail } from "../components/icons.jsx";
 
 function NotificationIcon({ type }) {
   const styles = {
@@ -280,7 +280,19 @@ export default function NotificationsPage() {
           )}
         </div>
 
-        <EmailPreferencesPanel />
+        <Link
+          to="/settings#email-preferences"
+          className="mb-5 flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 transition-colors hover:border-primary/35 hover:bg-secondary/40"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Mail size={19} aria-hidden="true" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-foreground">Email preferences</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">Manage email updates in Settings &amp; Privacy.</span>
+          </span>
+          <span className="text-xs font-semibold text-primary">Manage</span>
+        </Link>
 
         <div className="flex items-center gap-2 border-b border-border mb-4" aria-label="Notification filters">
           <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")} className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${filter === "all" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
