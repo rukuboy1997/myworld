@@ -5,7 +5,6 @@ import EmailPreferencesPanel from "../components/EmailPreferencesPanel.jsx";
 import { useAuth } from "../lib/auth.jsx";
 import {
   ArrowLeft,
-  Bell,
   ChevronRight,
   FileText,
   LifeBuoy,
