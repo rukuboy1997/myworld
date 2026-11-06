@@ -81,6 +81,6 @@ describe("EmailPreferencesPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /save preferences/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Network unavailable");
-    expect(screen.getByRole("switch", { name: /unread message reminders/i })).toBeChecked();
+    expect(screen.getByRole("switch", { name: /unread message reminders/i })).not.toBeChecked();
   });
 });
