@@ -3178,21 +3178,57 @@ export async function getAbandonedMediaUploadIntents({ limit = 100 } = {}) {
     await client.query(
       "UPDATE media_upload_intents SET status = 'expired' WHERE status = 'pending' AND expires_at <= NOW()",
     );
-    // Completed but never attached uploads are also abandoned after one hour.
-    // Mark them terminal while holding the same lock used by attachment claims.
+    // Buffered uploads (profile images, statuses, posts and attachments) are
+    // completed before their owning DB row is written. They intentionally have
+    // no attachment claim, so age alone must never classify them as abandoned.
+    // Only terminal intents with NO live database reference may be deleted.
+    const liveReferenceGuard = `
+       AND NOT EXISTS (
+         SELECT 1 FROM posts p
+         WHERE p.is_deleted = false
+           AND (p.media_blob_id = i.object_key OR p.media_url LIKE '%' || i.object_key)
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM statuses s
+         WHERE s.expires_at > NOW()
+           AND (s.media_key = i.object_key OR s.media_url LIKE '%' || i.object_key)
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM messages m
+         WHERE m.deleted_at IS NULL
+           AND (m.attachment_key = i.object_key OR m.attachment_url LIKE '%' || i.object_key)
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM comments c
+         INNER JOIN posts p ON p.id = c.post_id
+         WHERE c.media_blob_id = i.object_key AND p.is_deleted = false
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM profiles pr
+         WHERE pr.avatar_blob_id = i.object_key
+            OR pr.banner_blob_id = i.object_key
+            OR pr.avatar_url LIKE '%' || i.object_key
+            OR pr.banner_url LIKE '%' || i.object_key
+       )`;
+
+    // Mark only genuinely unattached completed uploads as abandoned. This
+    // reference check is repeated in the selection below as the final safety
+    // barrier before app.js is allowed to delete an R2 object.
     await client.query(
-      `UPDATE media_upload_intents
+      `UPDATE media_upload_intents i
        SET status = 'canceled'
-       WHERE status = 'completed'
-         AND attached_at IS NULL
-         AND attached_to IS NULL
-         AND created_at <= NOW() - INTERVAL '1 hour'`,
+       WHERE i.status = 'completed'
+         AND i.attached_at IS NULL
+         AND i.attached_to IS NULL
+         AND i.created_at <= NOW() - INTERVAL '1 hour'
+         ${liveReferenceGuard}`,
     );
     const { rows } = await client.query(
       `SELECT i.id, i.object_key, i.status
        FROM media_upload_intents i
        WHERE i.status IN ('expired', 'canceled')
          AND i.created_at <= NOW() - INTERVAL '10 minutes'
+         ${liveReferenceGuard}
        ORDER BY i.created_at ASC
        LIMIT $1
        FOR UPDATE OF i SKIP LOCKED`,
