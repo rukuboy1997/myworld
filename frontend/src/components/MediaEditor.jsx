@@ -65,7 +65,7 @@ async function cropImage(file, crop, imageSize) {
     const outputType = file.type === "image/png" ? "image/png"
       : file.type === "image/jpeg" ? "image/jpeg" : "image/webp";
     const blob = await canvasBlob(canvas, outputType, outputType === "image/png" ? undefined : 0.98);
-    return makeFile(blob, file, outputType);
+    return makeFile(blob, file, blob.type || outputType);
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -148,7 +148,8 @@ function estimateVideoCompressionBytes(file, maxBytes, duration, quality) {
   );
   const boundedTarget = Math.max(180 * 1024, targetBytes);
   const totalBitrate = Math.max(220000, Math.min(8000000, Math.floor((boundedTarget * 8 / duration) * 0.86)));
-  return Math.ceil((totalBitrate * duration / 8) * 1.08);
+  const recorderBitrate = Math.max(268000, totalBitrate);
+  return Math.ceil((recorderBitrate * duration / 8) * 1.08);
 }
 
 async function recordVideo(file, start, end, videoBitrate, onProgress) {
@@ -498,6 +499,7 @@ export default function MediaEditor({
   const startPercent = duration ? (start / duration) * 100 : 0;
   const endPercent = duration ? (end / duration) * 100 : 100;
   const endRangeMax = maxDurationSeconds ? Math.min(duration, start + maxDurationSeconds) : duration;
+  const startRangeMax = Math.max(0, Math.min(duration - 0.25, end - 0.25));
 
   const changeTrimStart = (value) => {
     stopTrimPreview();
@@ -697,7 +699,7 @@ export default function MediaEditor({
                 aria-label="Trim start"
                 type="range"
                 min="0"
-                max={Math.max(0.1, duration)}
+                max={Math.max(0.1, startRangeMax)}
                 step="0.1"
                 value={start}
                 onChange={(event) => changeTrimStart(event.target.value)}
@@ -706,7 +708,7 @@ export default function MediaEditor({
               <input
                 aria-label="Trim end"
                 type="range"
-                min="0"
+                min={Math.min(duration, start + 0.25)}
                 max={Math.max(0.1, endRangeMax)}
                 step="0.1"
                 value={end}
@@ -715,7 +717,7 @@ export default function MediaEditor({
               />
             </div>
             <div className="flex justify-between text-[11px] tabular-nums text-muted-foreground">
-              <span>{formatTime(start)}</span><span>{formatTime(duration)}</span>
+              <span>Start · {formatTime(start)}</span><span>End · {formatTime(end)} / {formatTime(duration)}</span>
             </div>
             {duration > maxDurationSeconds && (
               <p className="mt-2 text-xs text-amber-600">Your plan allows up to {formatTime(maxDurationSeconds)}. The selected section must fit this limit.</p>
