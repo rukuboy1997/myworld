@@ -569,7 +569,6 @@ export default function MediaEditor({
                 ))}
               </div>
             </div>
-          )}
 
           <div className="flex flex-wrap gap-2" role="group" aria-label="Crop aspect ratio">
             {[
