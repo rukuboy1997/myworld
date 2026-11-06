@@ -342,19 +342,94 @@ export default function MediaEditor({
   const [processing, setProcessing] = useState("");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  const [estimatedBytes, setEstimatedBytes] = useState(null);
+  const [isEstimating, setIsEstimating] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [isPreviewingTrim, setIsPreviewingTrim] = useState(false);
   const stageRef = useRef(null);
   const dragRef = useRef(null);
+  const videoPreviewRef = useRef(null);
+  const originalFileRef = useRef(file);
+  const editHistoryRef = useRef([]);
+  const lastEmittedFileRef = useRef(null);
+
+  const pushEditedFile = (edited, type) => {
+    editHistoryRef.current.push({ type, previous: file });
+    lastEmittedFileRef.current = edited;
+    setHistoryVersion((value) => value + 1);
+    onChange(edited);
+  };
+
+  const undoEdit = (type) => {
+    let index = -1;
+    for (let position = editHistoryRef.current.length - 1; position >= 0; position -= 1) {
+      if (editHistoryRef.current[position].type === type) {
+        index = position;
+        break;
+      }
+    }
+    if (index < 0) return;
+    const previousFile = editHistoryRef.current[index].previous;
+    editHistoryRef.current = editHistoryRef.current.slice(0, index);
+    lastEmittedFileRef.current = previousFile;
+    setHistoryVersion((value) => value + 1);
+    setError("");
+    onChange(previousFile);
+  };
+
+  const restoreOriginal = () => {
+    const original = originalFileRef.current;
+    editHistoryRef.current = [];
+    lastEmittedFileRef.current = original;
+    setHistoryVersion((value) => value + 1);
+    setQuality(72);
+    setCrop({ x: 0, y: 0, w: 1, h: 1 });
+    setCropAspect("free");
+    setStart(0);
+    setEnd(duration);
+    setError("");
+    onChange(original);
+  };
+
+  const stopTrimPreview = () => {
+    const video = videoPreviewRef.current;
+    setIsPreviewingTrim(false);
+    if (video) video.pause();
+  };
+
+  const previewTrim = async () => {
+    const video = videoPreviewRef.current;
+    if (!video || !duration || end <= start) return;
+    setIsPreviewingTrim(true);
+    try {
+      video.currentTime = start;
+      await video.play();
+    } catch {
+      setIsPreviewingTrim(false);
+      setError("Could not preview this video on your device.");
+    }
+  };
 
   useEffect(() => {
     if (!file) {
       setPreview("");
       return undefined;
     }
+    const isInternalEdit = lastEmittedFileRef.current === file;
+    if (isInternalEdit) {
+      lastEmittedFileRef.current = null;
+    } else {
+      originalFileRef.current = file;
+      editHistoryRef.current = [];
+      setHistoryVersion((value) => value + 1);
+      setQuality(72);
+    }
     const url = URL.createObjectURL(file);
     setPreview(url);
     setImageSize({ width: 0, height: 0 });
     setCrop({ x: 0, y: 0, w: 1, h: 1 });
     setCropAspect("free");
+    setIsPreviewingTrim(false);
     setError("");
     return () => URL.revokeObjectURL(url);
   }, [file]);
