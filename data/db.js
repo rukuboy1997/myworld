@@ -303,11 +303,15 @@ CREATE TABLE IF NOT EXISTS presence (
 CREATE TABLE IF NOT EXISTS email_notification_preferences (
   user_address TEXT PRIMARY KEY REFERENCES users(address) ON DELETE CASCADE,
   email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-  unread_message_reminders BOOLEAN NOT NULL DEFAULT FALSE,
-  activity_digest BOOLEAN NOT NULL DEFAULT FALSE,
-  reengagement_emails BOOLEAN NOT NULL DEFAULT FALSE,
+  unread_message_reminders BOOLEAN NOT NULL DEFAULT TRUE,
+  activity_digest BOOLEAN NOT NULL DEFAULT TRUE,
+  reengagement_emails BOOLEAN NOT NULL DEFAULT TRUE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE email_notification_preferences ALTER COLUMN unread_message_reminders SET DEFAULT TRUE;
+ALTER TABLE email_notification_preferences ALTER COLUMN activity_digest SET DEFAULT TRUE;
+ALTER TABLE email_notification_preferences ALTER COLUMN reengagement_emails SET DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS email_notification_deliveries (
   id TEXT PRIMARY KEY,
@@ -1470,8 +1474,8 @@ export async function updateEmailNotificationPreferences(userAddress, preference
     `INSERT INTO email_notification_preferences (
        user_address, email_enabled, unread_message_reminders,
        activity_digest, reengagement_emails
-     ) VALUES ($1, COALESCE($2, TRUE), COALESCE($3, FALSE),
-       COALESCE($4, FALSE), COALESCE($5, FALSE))
+     ) VALUES ($1, COALESCE($2, TRUE), COALESCE($3, TRUE),
+       COALESCE($4, TRUE), COALESCE($5, TRUE))
      ON CONFLICT (user_address) DO UPDATE SET
        email_enabled = COALESCE($2, email_notification_preferences.email_enabled),
        unread_message_reminders = COALESCE($3, email_notification_preferences.unread_message_reminders),
