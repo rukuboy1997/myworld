@@ -572,8 +572,8 @@ export default function MediaEditor({
                     onPointerDown={(event) => beginCropDrag(event, handle)}
                     className={`absolute z-10 block rounded-full border-2 border-primary bg-white shadow-md ${handle.length === 2 ? "h-3.5 w-3.5" : "h-2 w-5"} `}
                     style={{
-                      ...(handle.includes("n") ? { top: -5 } : handle.includes("s") ? { bottom: -5 } : { top: "50%", transform: "translateY(-50%)" }),
-                      ...(handle.includes("w") ? { left: -5 } : handle.includes("e") ? { right: -5 } : { left: "50%", transform: "translateX(-50%)" }),
+                      ...(handle.includes("n") ? { top: 0 } : handle.includes("s") ? { bottom: 0 } : { top: "50%", transform: "translateY(-50%)" }),
+                      ...(handle.includes("w") ? { left: 0 } : handle.includes("e") ? { right: 0 } : { left: "50%", transform: "translateX(-50%)" }),
                       ...(handle.length === 2 ? {} : { borderRadius: 999 }),
                     }}
                   />
@@ -633,10 +633,10 @@ export default function MediaEditor({
         <button
           type="button"
           onClick={compress}
-          disabled={disabled || Boolean(processing) || !maxBytes}
+          disabled={disabled || Boolean(processing) || !maxBytes || (isVideo && !duration)}
           className="mt-3 w-full rounded-full border border-border bg-card px-4 py-2.5 text-sm font-bold text-foreground transition hover:bg-secondary disabled:opacity-45"
         >
-          {processing === "compress" ? (isVideo ? `Compressing video · ${Math.round(progress * 100)}%` : "Compressing image…") : `Compress ${isVideo ? "video" : "image"}`}
+          {processing === "compress" ? (isVideo ? `Compressing video · ${Math.round(progress * 100)}%` : "Compressing image…") : `Apply ${isVideo ? "video" : "image"} compression`}
         </button>
       </div>
 
