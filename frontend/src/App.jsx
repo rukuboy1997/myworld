@@ -5,6 +5,7 @@ import ReelsPage from "./pages/ReelsPage.jsx";
 import ReelsAnalyticsPage from "./pages/ReelsAnalyticsPage.jsx";
 import CreatePostPage from "./pages/CreatePostPage.jsx";
 import ProfilePage from "./pages/ProfilePage.jsx";
+import SettingsPage from "./pages/SettingsPage.jsx";
 import MessagesPage from "./pages/MessagesPage.jsx";
 import ExplorePage from "./pages/ExplorePage.jsx";
 import NotificationsPage from "./pages/NotificationsPage.jsx";
@@ -81,6 +82,7 @@ export default function App() {
         <Route path="/post/:id" element={<PostPage />} />
         <Route path="/create" element={<CreatePostPage />} />
         <Route path="/profile/:address" element={<ProfilePage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/messages" element={<MessagesPage />} />
         <Route path="/explore" element={<ExplorePage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
