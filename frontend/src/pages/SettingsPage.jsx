@@ -88,7 +88,7 @@ export default function SettingsPage() {
             </section>
 
             <section aria-labelledby="settings-privacy-title">
-              <SectionTitle description="Review how your account and personal information are handled.">Privacy &amp; account</SectionTitle>
+              <SectionTitle id="settings-privacy-title" description="Review how your account and personal information are handled.">Privacy &amp; account</SectionTitle>
               <div className="grid gap-3 sm:grid-cols-2">
                 <SettingsLink to={`/profile/${address}`} icon={UserRound} title="Profile details" description="Update your public profile information and private contact details." />
                 <SettingsLink to="/privacy-policy" icon={Shield} title="Privacy policy" description="Learn what information myWorld handles and how it is used." />
