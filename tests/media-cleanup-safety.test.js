@@ -59,9 +59,9 @@ test("cron repeats live-reference checks immediately before R2 deletion", async 
 
   assert.notEqual(cleanupStart, -1);
   assert.notEqual(cleanupEnd, -1);
-  assert.match(cronCleanup, /const liveReference = await pool\\.query/);
-  assert.match(cronCleanup, /if \\(liveReference\\.rows\\[0\\]\\?\\.referenced\\)/);
-  assert.match(cronCleanup, /await deleteFromR2\\(intent\\.object_key\\)/);
+  assert.match(cronCleanup, /const liveReference = await pool\.query/);
+  assert.match(cronCleanup, /if \(liveReference\.rows\[0\]\?\.referenced\)/);
+  assert.match(cronCleanup, /await deleteFromR2\(intent\.object_key\)/);
 
   for (const liveTable of ["posts", "statuses", "messages", "comments", "profiles"]) {
     assert.match(
