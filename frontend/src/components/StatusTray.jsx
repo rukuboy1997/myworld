@@ -510,21 +510,12 @@ export default function StatusTray() {
                 <input key={file?.name || "status-media-input"} type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.heic,.heif,.bmp,.mp4,.m4v,.mov,.webm,.3gp,.mkv" className="sr-only" onChange={handleFileChange} />
               </label>
               {file && filePreview && (
-                <div className="relative mt-2 overflow-hidden rounded-xl border border-white/10 bg-black">
-                  {file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|3gp|mkv)$/i.test(file.name) ? (
-                    <video src={filePreview} controls muted playsInline className="max-h-64 w-full object-contain" />
-                  ) : (
-                    <img src={filePreview} alt="Status preview" className="max-h-64 w-full object-contain" />
-                  )}
-                  <button type="button" onClick={() => setFile(null)} className="absolute right-2 top-2 rounded-full bg-black/75 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/20">Remove media</button>
-                </div>
-              )}
-              {file && (
                 <MediaEditor
                   file={file}
                   maxBytes={file.type.startsWith("video/") ? membershipPlan.maxVideoBytes : membershipPlan.maxImageBytes}
                   maxDurationSeconds={STATUS_VIDEO_MAX_SECONDS}
                   disabled={saving}
+                  onRemove={() => setFile(null)}
                   onChange={setFile}
                 />
               )}
