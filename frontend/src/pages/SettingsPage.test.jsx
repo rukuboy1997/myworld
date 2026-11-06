@@ -42,7 +42,8 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("heading", { name: "Settings & Privacy" })).toBeInTheDocument();
     expect(screen.getByTestId("email-preferences-panel")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /terms of use/i })).toHaveAttribute("href", "/terms");
-    expect(screen.getByRole("link", { name: /privacy policy/i })).toHaveAttribute("href", "/privacy-policy");
+    expect(screen.getAllByRole("link", { name: /privacy policy/i })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /privacy policy/i }).every((link) => link.getAttribute("href") === "/privacy-policy")).toBe(true);
     expect(screen.getByRole("link", { name: /safety & child protection/i })).toHaveAttribute("href", "/child-safety");
     expect(screen.getByRole("link", { name: /delete account/i })).toHaveAttribute("href", "/delete-account");
     expect(screen.getByRole("link", { name: /contact@dakta\.name\.ng/i })).toHaveAttribute("href", "mailto:contact@dakta.name.ng");
