@@ -18,6 +18,8 @@ test("message attachment API accepts and verifies supported video formats", () =
   }
   assert.match(attachmentRoute, /mimeType\.startsWith\("video\/"\)/);
   assert.match(attachmentRoute, /sniffMime\(file\.buffer\)/);
+  assert.match(attachmentRoute, /getMediaSizeLimit\(req\.membershipPlan\.id, "video"\)/);
+  assert.match(attachmentRoute, /MEMBERSHIP_MEDIA_SIZE_LIMIT/);
   assert.match(attachmentRoute, /mimeType\.startsWith\("video\/"\)[\s\S]*?\? "video" :/);
   assert.match(attachmentRoute, /uploadBufferedMedia\([\s\S]*?category: "message"/);
 });

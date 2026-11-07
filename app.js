@@ -3151,6 +3151,18 @@ export function buildApp() {
           return res.status(400).json({ error: `The ${mimeType.startsWith("video/") ? "video" : "image"} file content does not match its declared type` });
         }
       }
+      if (mimeType.startsWith("video/")) {
+        const maxBytes = getMediaSizeLimit(req.membershipPlan.id, "video");
+        if (!maxBytes || file.size > maxBytes) {
+          const maxMiB = maxBytes ? Math.floor(maxBytes / (1024 * 1024)) : 0;
+          return res.status(413).json({
+            error: `Your ${req.membershipPlan.name} plan allows message videos up to ${maxMiB} MiB`,
+            code: "MEMBERSHIP_MEDIA_SIZE_LIMIT",
+            planId: req.membershipPlan.id,
+            maxBytes,
+          });
+        }
+      }
       const nameExt = originalName.includes(".") ? originalName.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 10) : "";
       const mimeExt = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/").pop().split("+")[0].replace(/[^a-z0-9]/g, "").slice(0, 10);
       uploadedKey = `messages/${sender}/${uuidv4()}.${nameExt || mimeExt || "bin"}`;
