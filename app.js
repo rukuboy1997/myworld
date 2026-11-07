@@ -648,6 +648,12 @@ export function buildApp() {
     }
   });
 
+  // The frontend uses this protected endpoint as its authoritative admin capability check.
+  app.get("/api/admin/access", requireAuth, requireAdmin, (req, res) => {
+    res.set("Cache-Control", "private, no-store");
+    res.json({ isAdmin: true });
+  });
+
   // Restricted to configured administrators; diagnostics expire after seven days.
   // Read-only integrity audit: inspect active usage records against R2 metadata
   // and live database references. No objects or accounting records are changed.
@@ -1298,6 +1304,31 @@ export function buildApp() {
             continue;
           }
           try {
+            // A final live-reference check closes the gap between selecting an
+            // abandoned intent and deleting its R2 object. Never let cleanup
+            // remove media that is currently attached to a user-visible record.
+            const liveReference = await pool.query(
+              `SELECT
+                EXISTS (SELECT 1 FROM posts p WHERE p.is_deleted = false
+                  AND (p.media_blob_id = $1 OR p.media_url LIKE '%' || $1))
+                OR EXISTS (SELECT 1 FROM statuses s WHERE s.expires_at > NOW()
+                  AND (s.media_key = $1 OR s.media_url LIKE '%' || $1))
+                OR EXISTS (SELECT 1 FROM messages m WHERE m.deleted_at IS NULL
+                  AND (m.attachment_key = $1 OR m.attachment_url LIKE '%' || $1))
+                OR EXISTS (SELECT 1 FROM comments c INNER JOIN posts p ON p.id = c.post_id
+                  WHERE c.media_blob_id = $1 AND p.is_deleted = false)
+                OR EXISTS (SELECT 1 FROM profiles pr
+                  WHERE pr.avatar_blob_id = $1 OR pr.banner_blob_id = $1
+                    OR pr.avatar_url LIKE '%' || $1 OR pr.banner_url LIKE '%' || $1)
+                AS referenced`,
+              [intent.object_key],
+            );
+            if (liveReference.rows[0]?.referenced) {
+              cleanedIds.push(intent.id);
+              console.info("[upload-cleanup] preserved an object with a live database reference", intent.id);
+              continue;
+            }
+
             await deleteFromR2(intent.object_key);
             await markMediaUsageDeleted(intent.object_key);
             cleanedIds.push(intent.id);
@@ -3080,7 +3111,8 @@ export function buildApp() {
 
   const messageAttachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
   const allowedMessageMimeTypes = new Set([
-    "image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf",
+    "image/jpeg", "image/png", "image/gif", "image/webp",
+    "video/mp4", "video/webm", "video/quicktime", "application/pdf",
     "text/plain", "text/csv", "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3113,18 +3145,34 @@ export function buildApp() {
       const mimeType = String(file.mimetype || "").toLowerCase();
       if (!allowedMessageMimeTypes.has(mimeType)) return res.status(400).json({ error: "This file type is not supported" });
       const originalName = String(file.originalname || "attachment").replace(/[\\/\x00-\x1f\x7f]/g, "_").slice(0, 180);
-      if (mimeType.startsWith("image/")) {
+      if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
         const detected = sniffMime(file.buffer);
-        if (!detected || detected !== mimeType) return res.status(400).json({ error: "The image file content does not match its declared type" });
+        if (!detected || detected !== mimeType) {
+          return res.status(400).json({ error: `The ${mimeType.startsWith("video/") ? "video" : "image"} file content does not match its declared type` });
+        }
+      }
+      if (mimeType.startsWith("video/")) {
+        const maxBytes = getMediaSizeLimit(req.membershipPlan.id, "video");
+        if (!maxBytes || file.size > maxBytes) {
+          const maxMiB = maxBytes ? Math.floor(maxBytes / (1024 * 1024)) : 0;
+          return res.status(413).json({
+            error: `Your ${req.membershipPlan.name} plan allows message videos up to ${maxMiB} MiB`,
+            code: "MEMBERSHIP_MEDIA_SIZE_LIMIT",
+            planId: req.membershipPlan.id,
+            maxBytes,
+          });
+        }
       }
       const nameExt = originalName.includes(".") ? originalName.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 10) : "";
       const mimeExt = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/").pop().split("+")[0].replace(/[^a-z0-9]/g, "").slice(0, 10);
       uploadedKey = `messages/${sender}/${uuidv4()}.${nameExt || mimeExt || "bin"}`;
       const mediaType = mimeType.startsWith("image/")
         ? "image"
-        : mimeType.startsWith("audio/")
-          ? "audio"
-          : "other";
+        : mimeType.startsWith("video/")
+          ? "video"
+          : mimeType.startsWith("audio/")
+            ? "audio"
+            : "other";
       const stored = await uploadBufferedMedia({
         req, objectKey: uploadedKey, category: "message", mediaType,
         contentType: mimeType, file,
@@ -3137,7 +3185,7 @@ export function buildApp() {
       });
       messageSaved = true;
       publishMessageToFirebase(message);
-      await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
+      await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("video/") ? "🎥 Video" : mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
       res.json(message);
     } catch (err) {
       if (uploadedMediaCompleted && uploadedKey && !messageSaved) {

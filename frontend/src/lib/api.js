@@ -177,6 +177,7 @@ export const getFollowing = (address) =>
   request("GET", `/profile/${address}/following`);
 
 // ─── Admin moderation ─────────────────────────────────────────────────────────
+export const getAdminAccess = () => request("GET", "/admin/access");
 export const getAdminReports = (status = "pending", priority = "all") =>
   request("GET", `/admin/reports?status=${encodeURIComponent(status)}&priority=${encodeURIComponent(priority)}`);
 export const moderateReport = (id, action) =>

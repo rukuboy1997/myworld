@@ -6,6 +6,7 @@ import { useAuth } from "../lib/auth.jsx";
 import {
   getProfile,
   getMyProfileContact,
+  getMyMembership,
   createProfile,
   getFollowStatus,
   getBlockStatus,
@@ -27,6 +28,7 @@ vi.mock("../lib/auth.jsx", () => ({
 
 vi.mock("../lib/api.js", () => ({
   getProfile: vi.fn(),
+  getMyMembership: vi.fn(),
   getMyProfileContact: vi.fn(),
   createProfile: vi.fn(),
   followUser: vi.fn(),
@@ -71,6 +73,7 @@ describe("ProfilePage", () => {
       isAuthenticated: true,
     });
     getProfile.mockResolvedValue({ ...profile });
+    getMyMembership.mockResolvedValue({ plan: { maxImageBytes: 10 * 1024 * 1024 } });
     getMyProfileContact.mockResolvedValue({ phoneNumber: "" });
     createProfile.mockResolvedValue({});
     getFollowStatus.mockResolvedValue({ following: false });
@@ -98,7 +101,7 @@ describe("ProfilePage", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /About/ }));
     expect(await screen.findByText(/Nigeria/)).toBeInTheDocument();
     expect(screen.getByText("FCT")).toBeInTheDocument();
-    expect(screen.getByText("Software Engineer")).toBeInTheDocument();
+    expect(screen.getAllByText("Software Engineer")).toHaveLength(2);
     expect(screen.getByText(/Premium/)).toBeInTheDocument();
     expect(screen.queryByText(/phone/i)).not.toBeInTheDocument();
   });
@@ -150,6 +153,13 @@ describe("ProfilePage", () => {
     renderProfile();
 
     expect(await screen.findByRole("button", { name: "Message" })).toBeInTheDocument();
+  });
+
+  it("offers Settings and Privacy on the owner's profile", async () => {
+    useAuth.mockReturnValue({ address: "0xTARGET", isAuthenticated: true });
+    renderProfile("0xTARGET");
+
+    expect(await screen.findByRole("button", { name: "Settings and privacy" })).toBeInTheDocument();
   });
 
   it("follows a profile and increments the follower count", async () => {

@@ -1213,15 +1213,15 @@ export default function MessagesPage() {
       event.target.value = "";
       return;
     }
-    const allowed = ["image/jpeg","image/png","image/gif","image/webp","application/pdf","text/plain","text/csv","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","audio/webm","audio/mp4","audio/ogg","audio/mpeg","audio/wav","audio/aac","audio/3gpp"];
+    const allowed = ["image/jpeg","image/png","image/gif","image/webp","video/mp4","video/webm","video/quicktime","application/pdf","text/plain","text/csv","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","audio/webm","audio/mp4","audio/ogg","audio/mpeg","audio/wav","audio/aac","audio/3gpp"];
     if (!allowed.includes(file.type)) {
-      showToast("Choose an image, document, or supported audio file.");
+      showToast("Choose an image, video, document, or supported audio file.");
       event.target.value = "";
       return;
     }
     if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
     setSelectedAttachment(file);
-    setAttachmentPreviewUrl(file.type.startsWith("image/") || file.type.startsWith("audio/") ? URL.createObjectURL(file) : "");
+    setAttachmentPreviewUrl(file.type.startsWith("image/") || file.type.startsWith("audio/") || file.type.startsWith("video/") ? URL.createObjectURL(file) : "");
   };
 
   const clearSelectedAttachment = () => {
@@ -1724,8 +1724,10 @@ export default function MessagesPage() {
                             ) : lastMsg ? (
                               lastMsg.deletedAt
                                 ? (lastMsg.sender === wallet ? "You: This message was deleted" : "This message was deleted")
-                                : lastMsg.attachmentMime?.startsWith("audio/")
-                                  ? (lastMsg.sender === wallet ? "You: 🎤 Voice message" : "🎤 Voice message")
+                                : lastMsg.attachmentMime?.startsWith("video/")
+                                  ? (lastMsg.sender === wallet ? "You: 🎥 Video" : "🎥 Video")
+                                  : lastMsg.attachmentMime?.startsWith("audio/")
+                                    ? (lastMsg.sender === wallet ? "You: 🎤 Voice message" : "🎤 Voice message")
                                   : lastMsg.attachmentUrl && !lastMsg.content
                                     ? (lastMsg.sender === wallet ? `You: 📎 ${lastMsg.attachmentName || "Attachment"}` : `📎 ${lastMsg.attachmentName || "Attachment"}`)
                                     : lastMsg.sender === wallet ? `You: ${lastMsg.content}` : lastMsg.content
@@ -1936,11 +1938,18 @@ export default function MessagesPage() {
                               {msg.replyToMessageId && (
                                 <div className="mb-2 rounded-lg border-l-2 border-current/50 bg-black/10 px-2.5 py-1.5 text-xs">
                                   <div className="font-semibold opacity-80">{replyTarget ? (replyTarget.sender === wallet ? "You" : (profiles[replyTarget.sender]?.displayName || profiles[replyTarget.sender]?.username || "Message")) : "Reply"}</div>
-                                  <div className="opacity-75 line-clamp-2">{!replyTarget ? "Original message" : replyTarget.deletedAt ? "This message was deleted" : replyTarget.content || (replyTarget.attachmentMime?.startsWith("audio/") ? "🎤 Voice message" : replyTarget.attachmentName ? "📎 " + replyTarget.attachmentName : "Attachment")}</div>
+                                  <div className="opacity-75 line-clamp-2">{!replyTarget ? "Original message" : replyTarget.deletedAt ? "This message was deleted" : replyTarget.content || (replyTarget.attachmentMime?.startsWith("video/") ? "🎥 Video" : replyTarget.attachmentMime?.startsWith("audio/") ? "🎤 Voice message" : replyTarget.attachmentName ? "📎 " + replyTarget.attachmentName : "Attachment")}</div>
                                 </div>
                               )}
                               {msg.attachmentUrl && (
-                                msg.attachmentMime?.startsWith("audio/") ? (
+                                msg.attachmentMime?.startsWith("video/") ? (
+                                  <div className="mb-1 min-w-[220px] max-w-full">
+                                    <video controls playsInline preload="metadata" src={msg.attachmentUrl} className="w-full max-w-[360px] max-h-72 rounded-xl bg-black" aria-label={`Play video attachment: ${msg.attachmentName || "Shared video"}`}>
+                                      Your browser does not support video playback.
+                                    </video>
+                                    {msg.attachmentName && <p className="mt-1 text-[10px] opacity-70 break-all">{msg.attachmentName}</p>}
+                                  </div>
+                                ) : msg.attachmentMime?.startsWith("audio/") ? (
                                   <div className="mb-1 min-w-[210px] max-w-full">
                                     <div className="text-[11px] font-semibold mb-1 flex items-center gap-1.5"><span aria-hidden="true">🎤</span> Voice message</div>
                                     <audio controls preload="metadata" src={msg.attachmentUrl} className="w-full max-w-[280px] h-10" aria-label="Play voice message">Your browser does not support audio playback.</audio>
@@ -2041,8 +2050,8 @@ export default function MessagesPage() {
 
                 {/* Attachment picker and message composer */}
                 {selectedAttachment && <div className="px-4 pt-3 border-t border-white/10 bg-background/40"><div className="flex items-center gap-3 rounded-xl border border-white/10 bg-secondary/40 p-2">
-                  {selectedAttachment.type.startsWith("image/") && attachmentPreviewUrl ? <img src={attachmentPreviewUrl} alt="Attachment preview" className="h-14 w-14 rounded-lg object-cover" /> : selectedAttachment.type.startsWith("audio/") && attachmentPreviewUrl ? <audio controls src={attachmentPreviewUrl} className="min-w-0 flex-1 h-10" aria-label="Preview voice message" /> : <span className="text-2xl px-3" aria-hidden="true">📎</span>}
-                  <div className="min-w-0 flex-1"><p className="text-xs font-semibold truncate">{selectedAttachment.type.startsWith("audio/") ? "Voice message" : selectedAttachment.name}</p><p className="text-[10px] text-muted-foreground">{(selectedAttachment.size / 1048576).toFixed(2)} MB · Ready to send</p></div>
+                  {selectedAttachment.type.startsWith("image/") && attachmentPreviewUrl ? <img src={attachmentPreviewUrl} alt="Attachment preview" className="h-14 w-14 rounded-lg object-cover" /> : selectedAttachment.type.startsWith("video/") && attachmentPreviewUrl ? <video controls playsInline preload="metadata" src={attachmentPreviewUrl} className="h-16 w-24 shrink-0 rounded-lg bg-black object-cover" aria-label="Preview video attachment" /> : selectedAttachment.type.startsWith("audio/") && attachmentPreviewUrl ? <audio controls src={attachmentPreviewUrl} className="min-w-0 flex-1 h-10" aria-label="Preview voice message" /> : <span className="text-2xl px-3" aria-hidden="true">📎</span>}
+                  <div className="min-w-0 flex-1"><p className="text-xs font-semibold truncate">{selectedAttachment.type.startsWith("video/") ? "Video" : selectedAttachment.type.startsWith("audio/") ? "Voice message" : selectedAttachment.name}</p><p className="text-[10px] text-muted-foreground">{(selectedAttachment.size / 1048576).toFixed(2)} MB · Ready to send</p></div>
                   <button type="button" onClick={clearSelectedAttachment} disabled={isSendingMessage} aria-label="Remove attachment" className="p-2 rounded-full hover:bg-white/10 disabled:opacity-40">✕</button>
                 </div></div>}
                 {replyingToMessage && (
@@ -2056,7 +2065,7 @@ export default function MessagesPage() {
                 )}
                 {isSendingMessage && selectedAttachment && <div className="px-4 py-1 text-[11px] text-muted-foreground" role="status">Uploading attachment… {uploadProgress}%</div>}
                 <form onSubmit={handleSend} className="px-3 md:px-4 py-3 border-t border-white/10 bg-background/40 flex gap-2 flex-shrink-0 items-center">
-                  <input ref={attachmentInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,audio/webm,audio/mp4,audio/ogg,audio/mpeg,audio/wav,audio/aac,audio/3gpp" onChange={handleAttachmentSelect} className="hidden" aria-label="Choose an image, file, or audio" />
+                  <input ref={attachmentInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime,application/pdf,text/plain,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,audio/webm,audio/mp4,audio/ogg,audio/mpeg,audio/wav,audio/aac,audio/3gpp" onChange={handleAttachmentSelect} className="hidden" aria-label="Choose an image, video, file, or audio" />
                   <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={isSendingMessage || isRecordingVoice} aria-label="Attach image or file" title="Attach image or file" className="p-2.5 rounded-full hover:bg-white/10 disabled:opacity-40 text-lg"><Paperclip size={19} aria-hidden="true" /></button>
                   {isRecordingVoice ? (
                     <button type="button" onClick={stopVoiceRecording} className="flex-shrink-0 inline-flex items-center gap-2 rounded-full bg-red-600 text-white px-3 py-2.5 text-xs font-semibold animate-pulse" aria-label="Stop voice recording" title="Stop recording">

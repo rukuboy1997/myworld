@@ -3,9 +3,12 @@ import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import PostCard from "../components/PostCard.jsx";
+import MediaEditor from "../components/MediaEditor.jsx";
+import { Settings, Users, UserPlus, Heart, Briefcase, MapPin, Globe, Link2, AtSign, FileText, UserRound } from "../components/icons.jsx";
 import {
   getProfile,
   getMyProfileContact,
+  getMyMembership,
   createProfile,
   followUser,
   unfollowUser,
@@ -146,6 +149,7 @@ export default function ProfilePage() {
   const [bannerPreview, setBannerPreview] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [profileMediaMaxBytes, setProfileMediaMaxBytes] = useState(10 * 1024 * 1024);
 
   // Follow state
   const [isFollowing, setIsFollowing] = useState(false);
@@ -209,6 +213,30 @@ export default function ProfilePage() {
   useEffect(() => {
     fetchFollowStatus();
   }, [address, isAuthenticated, currentWallet, isOwnProfile]);
+
+  useEffect(() => {
+    let active = true;
+    if (!isOwnProfile || !isAuthenticated) return undefined;
+    getMyMembership()
+      .then((result) => {
+        const limit = result?.plan?.maxImageBytes;
+        if (active && Number.isSafeInteger(limit) && limit > 0) {
+          setProfileMediaMaxBytes(limit);
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [isOwnProfile, isAuthenticated]);
+
+  useEffect(() => {
+    return () => {
+      [avatarPreview, bannerPreview].forEach((preview) => {
+        if (typeof preview === "string" && preview.startsWith("blob:")) {
+          URL.revokeObjectURL(preview);
+        }
+      });
+    };
+  }, [avatarPreview, bannerPreview]);
 
   useEffect(() => {
     let active = true;
@@ -314,25 +342,24 @@ export default function ProfilePage() {
     }
   };
 
-  const handleFile = (kind) => (e) => {
-    const file = e.target.files?.[0];
+  const handleFile = (kind) => (event) => {
+    const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      setError("Please pick an image");
+      setError("Please choose an image file.");
+      event.target.value = "";
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setError("Image must be under 10 MB");
-      return;
-    }
+    // The shared MediaEditor now handles crop and compression before upload.
+    // Let the user select a large image and reduce it to their plan limit.
     setError(null);
-    const url = URL.createObjectURL(file);
+    const preview = URL.createObjectURL(file);
     if (kind === "avatar") {
       setAvatarFile(file);
-      setAvatarPreview(url);
+      setAvatarPreview(preview);
     } else {
       setBannerFile(file);
-      setBannerPreview(url);
+      setBannerPreview(preview);
     }
   };
 
@@ -511,12 +538,23 @@ export default function ProfilePage() {
                       </>
                     )}
                     {isOwnProfile && (
-                      <button
-                        onClick={() => setIsEditing(true)}
-                        className="bg-secondary text-secondary-foreground px-3 py-2 md:px-5 md:py-2.5 rounded-full font-semibold hover:bg-secondary/80 transition-colors border border-white/10 text-xs md:text-sm whitespace-nowrap"
-                      >
-                        Edit Profile
-                      </button>
+                      <>
+                        <button
+                          onClick={() => setIsEditing(true)}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary px-3 py-2 text-xs font-semibold text-secondary-foreground transition hover:bg-secondary/80 md:px-4 md:py-2.5 md:text-sm"
+                        >
+                          Edit Profile
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate("/settings")}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/15 md:px-4 md:py-2.5 md:text-sm"
+                          aria-label="Settings and privacy"
+                        >
+                          <Settings size={15} aria-hidden="true" />
+                          Settings
+                        </button>
+                      </>
                     )}
                     {!isOwnProfile && isAuthenticated && (
                       <div className="relative">
@@ -574,15 +612,28 @@ export default function ProfilePage() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-x-5 gap-y-2 mt-5">
-                  <div><span className="font-bold text-sm">{profile?.followerCount ?? 0}</span><span className="text-xs text-muted-foreground ml-1">Followers</span></div>
-                  <div><span className="font-bold text-sm">{profile?.followingCount ?? 0}</span><span className="text-xs text-muted-foreground ml-1">Following</span></div>
-                  {profile?.totalLikes > 0 && (
-                    <div className="flex items-center gap-1 text-teal-400 text-xs font-medium leading-none">
-                      <span aria-hidden="true" className="inline-flex leading-none">♥</span>
-                      <span>{profile.totalLikes} likes</span>
-                    </div>
-                  )}
+                <div className="mt-5 grid grid-cols-3 gap-2 sm:max-w-lg sm:gap-3" aria-label="Profile statistics">
+                  <div className="rounded-2xl border border-border bg-secondary/45 px-2.5 py-3 text-center sm:px-4">
+                    <span className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <Users size={17} strokeWidth={1.9} aria-hidden="true" />
+                    </span>
+                    <span className="block text-base font-bold tabular-nums sm:text-lg">{profile?.followerCount ?? 0}</span>
+                    <span className="mt-0.5 block text-[10px] font-semibold text-muted-foreground sm:text-xs">Followers</span>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-secondary/45 px-2.5 py-3 text-center sm:px-4">
+                    <span className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-xl bg-sky-500/10 text-sky-500">
+                      <UserPlus size={17} strokeWidth={1.9} aria-hidden="true" />
+                    </span>
+                    <span className="block text-base font-bold tabular-nums sm:text-lg">{profile?.followingCount ?? 0}</span>
+                    <span className="mt-0.5 block text-[10px] font-semibold text-muted-foreground sm:text-xs">Following</span>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-secondary/45 px-2.5 py-3 text-center sm:px-4">
+                    <span className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500">
+                      <Heart size={17} strokeWidth={1.9} aria-hidden="true" />
+                    </span>
+                    <span className="block text-base font-bold tabular-nums sm:text-lg">{profile?.totalLikes ?? 0}</span>
+                    <span className="mt-0.5 block text-[10px] font-semibold text-muted-foreground sm:text-xs">Likes</span>
+                  </div>
                 </div>
 
 
@@ -600,69 +651,77 @@ export default function ProfilePage() {
                 </h3>
                 {error && <p className="text-sm text-red-400">{error}</p>}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-muted-foreground uppercase mb-2 block">
-                      Profile Picture
-                    </label>
-                    <div className="flex items-center gap-3">
-                      {avatarSrc ? (
-                        <img
-                          src={avatarSrc}
-                          alt=""
-                          className="w-14 h-14 rounded-full object-cover border-2 border-white/10"
-                        />
-                      ) : (
-                        <div className="w-14 h-14 rounded-full bg-gradient-brand flex items-center justify-center text-white font-bold text-xl">
-                          {initial}
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => avatarRef.current?.click()}
-                        className="bg-secondary px-3 py-1.5 rounded-full text-xs hover:bg-secondary/80 border border-white/10"
-                      >
-                        Change
-                      </button>
-                      <input
-                        ref={avatarRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFile("avatar")}
-                        className="hidden"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-muted-foreground uppercase mb-2 block">
-                      Banner
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <div className="w-20 h-10 rounded-lg bg-gradient-brand overflow-hidden border-2 border-white/10 flex-shrink-0">
-                        {bannerSrc && (
-                          <img
-                            src={bannerSrc}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
+                <div className="grid grid-cols-1 gap-4">
+                  <section className="rounded-2xl border border-border bg-secondary/30 p-3 sm:p-4" aria-label="Profile picture editor">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        {avatarSrc ? (
+                          <img src={avatarSrc} alt="" className="h-12 w-12 shrink-0 rounded-full border-2 border-border object-cover" />
+                        ) : (
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-lg font-bold text-white">{initial}</div>
                         )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">Profile picture</p>
+                          <p className="text-xs text-muted-foreground">Crop and resize how people see you.</p>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => bannerRef.current?.click()}
-                        className="bg-secondary px-3 py-1.5 rounded-full text-xs hover:bg-secondary/80 border border-white/10"
-                      >
-                        Change
+                      <button type="button" onClick={() => avatarRef.current?.click()} disabled={isSaving} className="shrink-0 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold transition hover:bg-secondary disabled:opacity-50">
+                        {avatarFile ? "Change" : "Choose image"}
                       </button>
-                      <input
-                        ref={bannerRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFile("banner")}
-                        className="hidden"
-                      />
+                      <input ref={avatarRef} type="file" accept="image/*" onChange={handleFile("avatar")} className="hidden" />
                     </div>
-                  </div>
+                    {avatarFile && (
+                      <MediaEditor
+                        file={avatarFile}
+                        maxBytes={profileMediaMaxBytes}
+                        disabled={isSaving}
+                        onChange={(edited) => {
+                          setAvatarFile(edited);
+                          setAvatarPreview(URL.createObjectURL(edited));
+                        }}
+                        onRemove={() => {
+                          setAvatarFile(null);
+                          setAvatarPreview(null);
+                          if (avatarRef.current) avatarRef.current.value = "";
+                        }}
+                      />
+                    )}
+                  </section>
+
+                  <section className="rounded-2xl border border-border bg-secondary/30 p-3 sm:p-4" aria-label="Profile banner editor">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="h-12 w-16 shrink-0 overflow-hidden rounded-xl border border-border bg-gradient-brand">
+                          {bannerSrc && <img src={bannerSrc} alt="" className="h-full w-full object-cover" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">Profile banner</p>
+                          <p className="text-xs text-muted-foreground">Set the cover image at the top of your profile.</p>
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => bannerRef.current?.click()} disabled={isSaving} className="shrink-0 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold transition hover:bg-secondary disabled:opacity-50">
+                        {bannerFile ? "Change" : "Choose image"}
+                      </button>
+                      <input ref={bannerRef} type="file" accept="image/*" onChange={handleFile("banner")} className="hidden" />
+                    </div>
+                    {bannerFile && (
+                      <MediaEditor
+                        file={bannerFile}
+                        maxBytes={profileMediaMaxBytes}
+                        disabled={isSaving}
+                        onChange={(edited) => {
+                          setBannerFile(edited);
+                          setBannerPreview(URL.createObjectURL(edited));
+                        }}
+                        onRemove={() => {
+                          setBannerFile(null);
+                          setBannerPreview(null);
+                          if (bannerRef.current) bannerRef.current.value = "";
+                        }}
+                      />
+                    )}
+                  </section>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">Images may be cropped or compressed before upload. The upload limit for your current membership is {Math.round(profileMediaMaxBytes / (1024 * 1024))} MiB per image.</p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -923,36 +982,102 @@ export default function ProfilePage() {
                 )}
 
                 {activeTab === "about" && (
-                  <div className="glass-panel rounded-3xl p-5 md:p-7">
-                    <h2 className="text-lg font-bold mb-4">About</h2>
-                    {profile?.bio ? (
-                      <p className="text-sm md:text-base leading-relaxed text-foreground/90 whitespace-pre-wrap">{profile.bio}</p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground italic">No bio added yet.</p>
-                    )}
+                  <div className="space-y-4">
+                    <section className="overflow-hidden rounded-3xl border border-border bg-card">
+                      <div className="border-b border-border bg-gradient-to-br from-primary/10 via-card to-secondary/50 p-5 sm:p-7">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Get to know</p>
+                        <h2 className="mt-1 text-xl font-bold tracking-tight">{profile?.displayName || profile?.username || "About this profile"}</h2>
+                        {profile?.username && <p className="mt-1 text-sm text-muted-foreground">@{profile.username}</p>}
+                      </div>
+                      <div className="p-5 sm:p-7">
+                        <div className="mb-3 flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <FileText size={16} aria-hidden="true" />
+                          </span>
+                          <h3 className="text-sm font-bold">About me</h3>
+                        </div>
+                        {profile?.bio ? (
+                          <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90 sm:text-base">{profile.bio}</p>
+                        ) : (
+                          <p className="text-sm italic text-muted-foreground">No bio added yet.</p>
+                        )}
+                      </div>
+                    </section>
 
-                    <div className="mt-5 flex flex-wrap gap-x-5 gap-y-3 text-sm text-muted-foreground">
-                      {profile?.profession && <span>Profession: {profile.profession}</span>}
-                      {profile?.location && <span>📍 {profile.location}</span>}
-                      {profile?.stateProvince && <span>{profile.stateProvince}</span>}
-                      {profile?.country && <span>🌍 {profile.country}</span>}
-                      {profile?.website && (
-                        <a href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary break-all">
-                          ↗ {profile.website.replace(/^https?:\/\//, "")}
-                        </a>
-                      )}
-                      {profile?.twitter && (
-                        <a href={`https://x.com/${profile.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
-                          @{profile.twitter.replace("@", "")}
-                        </a>
-                      )}
-                    </div>
+                    <section className="rounded-3xl border border-border bg-card p-5 sm:p-6">
+                      <div className="mb-4 flex items-center gap-2">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                          <UserRound size={16} aria-hidden="true" />
+                        </span>
+                        <div>
+                          <h3 className="text-sm font-bold">Personal details</h3>
+                          <p className="text-xs text-muted-foreground">A little more about this member.</p>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {profile?.profession && (
+                          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-border bg-secondary/35 p-3">
+                            <Briefcase size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+                            <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Profession</p><p className="mt-1 break-words text-sm font-semibold text-foreground">{profile.profession}</p></div>
+                          </div>
+                        )}
+                        {profile?.location && (
+                          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-border bg-secondary/35 p-3">
+                            <MapPin size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+                            <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Location</p><p className="mt-1 break-words text-sm font-semibold text-foreground">{profile.location}</p></div>
+                          </div>
+                        )}
+                        {profile?.stateProvince && (
+                          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-border bg-secondary/35 p-3">
+                            <MapPin size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+                            <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">State / Province</p><p className="mt-1 break-words text-sm font-semibold text-foreground">{profile.stateProvince}</p></div>
+                          </div>
+                        )}
+                        {profile?.country && (
+                          <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-border bg-secondary/35 p-3">
+                            <Globe size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+                            <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Country</p><p className="mt-1 break-words text-sm font-semibold text-foreground">{profile.country}</p></div>
+                          </div>
+                        )}
+                        {!profile?.profession && !profile?.location && !profile?.stateProvince && !profile?.country && (
+                          <p className="col-span-full rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">No personal details have been added yet.</p>
+                        )}
+                      </div>
+                    </section>
+
+                    {(profile?.website || profile?.twitter) && (
+                      <section className="rounded-3xl border border-border bg-card p-5 sm:p-6">
+                        <div className="mb-4 flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <Link2 size={16} aria-hidden="true" />
+                          </span>
+                          <div><h3 className="text-sm font-bold">Around the web</h3><p className="text-xs text-muted-foreground">Other places to find this person.</p></div>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {profile?.website && (
+                            <a href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-3 rounded-2xl border border-border bg-secondary/35 p-3 transition hover:border-primary/40">
+                              <Globe size={18} className="shrink-0 text-primary" aria-hidden="true" />
+                              <span className="min-w-0"><span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Website</span><span className="mt-1 block break-all text-sm font-semibold text-foreground">{profile.website.replace(/^https?:\/\//, "")}</span></span>
+                              <Link2 size={14} className="ml-auto shrink-0 text-muted-foreground" aria-hidden="true" />
+                            </a>
+                          )}
+                          {profile?.twitter && (
+                            <a href={`https://x.com/${profile.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-3 rounded-2xl border border-border bg-secondary/35 p-3 transition hover:border-primary/40">
+                              <AtSign size={18} className="shrink-0 text-primary" aria-hidden="true" />
+                              <span className="min-w-0"><span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">X / Twitter</span><span className="mt-1 block truncate text-sm font-semibold text-foreground">@{profile.twitter.replace("@", "")}</span></span>
+                              <Link2 size={14} className="ml-auto shrink-0 text-muted-foreground" aria-hidden="true" />
+                            </a>
+                          )}
+                        </div>
+                      </section>
+                    )}
 
                     {!profile?.bio && !profile?.profession && !profile?.location && !profile?.stateProvince && !profile?.country && !profile?.website && !profile?.twitter && (
-                      <p className="mt-5 text-xs text-muted-foreground">No additional profile information is available.</p>
+                      <p className="rounded-2xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">No additional profile information is available.</p>
                     )}
                     {isOwnProfile && (
-                      <button type="button" onClick={() => setIsEditing(true)} className="mt-6 rounded-full border border-white/10 bg-secondary px-4 py-2 text-sm font-semibold hover:bg-secondary/80">
+                      <button type="button" onClick={() => setIsEditing(true)} className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary px-4 py-2.5 text-sm font-semibold transition hover:bg-secondary/80">
+                        <Settings size={15} aria-hidden="true" />
                         Edit profile details
                       </button>
                     )}

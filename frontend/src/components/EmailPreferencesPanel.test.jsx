@@ -13,9 +13,9 @@ vi.mock("../lib/api.js", () => ({
 
 const preferences = {
   emailEnabled: true,
-  unreadMessageReminders: false,
-  activityDigest: false,
-  reengagementEmails: false,
+  unreadMessageReminders: true,
+  activityDigest: true,
+  reengagementEmails: true,
 };
 
 describe("EmailPreferencesPanel", () => {
@@ -25,13 +25,13 @@ describe("EmailPreferencesPanel", () => {
     updateEmailNotificationPreferences.mockImplementation(async (value) => ({ ...value }));
   });
 
-  it("loads saved preferences and keeps optional email categories off by default", async () => {
+  it("loads saved preferences with all optional email categories enabled by default", async () => {
     render(<EmailPreferencesPanel />);
 
     expect(await screen.findByRole("switch", { name: /allow optional emails/i })).toBeChecked();
-    expect(screen.getByRole("switch", { name: /unread message reminders/i })).not.toBeChecked();
-    expect(screen.getByRole("switch", { name: /following activity digest/i })).not.toBeChecked();
-    expect(screen.getByRole("switch", { name: /occasional catch-up emails/i })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: /unread message reminders/i })).toBeChecked();
+    expect(screen.getByRole("switch", { name: /following activity digest/i })).toBeChecked();
+    expect(screen.getByRole("switch", { name: /occasional catch-up emails/i })).toBeChecked();
     expect(screen.getByRole("button", { name: /save preferences/i })).toBeDisabled();
     expect(screen.getByText(/inactive for at least 3 days/i)).toBeInTheDocument();
   });
@@ -50,9 +50,9 @@ describe("EmailPreferencesPanel", () => {
     await waitFor(() => {
       expect(updateEmailNotificationPreferences).toHaveBeenCalledWith({
         emailEnabled: true,
-        unreadMessageReminders: true,
-        activityDigest: true,
-        reengagementEmails: false,
+        unreadMessageReminders: false,
+        activityDigest: false,
+        reengagementEmails: true,
       });
     });
     expect(await screen.findByText(/your email preferences have been saved/i)).toBeInTheDocument();
@@ -81,6 +81,6 @@ describe("EmailPreferencesPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /save preferences/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Network unavailable");
-    expect(screen.getByRole("switch", { name: /unread message reminders/i })).toBeChecked();
+    expect(screen.getByRole("switch", { name: /unread message reminders/i })).not.toBeChecked();
   });
 });
