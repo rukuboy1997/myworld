@@ -648,6 +648,12 @@ export function buildApp() {
     }
   });
 
+  // The frontend uses this protected endpoint as its authoritative admin capability check.
+  app.get("/api/admin/access", requireAuth, requireAdmin, (req, res) => {
+    res.set("Cache-Control", "private, no-store");
+    res.json({ isAdmin: true });
+  });
+
   // Restricted to configured administrators; diagnostics expire after seven days.
   // Read-only integrity audit: inspect active usage records against R2 metadata
   // and live database references. No objects or accounting records are changed.
@@ -3105,7 +3111,8 @@ export function buildApp() {
 
   const messageAttachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
   const allowedMessageMimeTypes = new Set([
-    "image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf",
+    "image/jpeg", "image/png", "image/gif", "image/webp",
+    "video/mp4", "video/webm", "video/quicktime", "application/pdf",
     "text/plain", "text/csv", "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3138,18 +3145,22 @@ export function buildApp() {
       const mimeType = String(file.mimetype || "").toLowerCase();
       if (!allowedMessageMimeTypes.has(mimeType)) return res.status(400).json({ error: "This file type is not supported" });
       const originalName = String(file.originalname || "attachment").replace(/[\\/\x00-\x1f\x7f]/g, "_").slice(0, 180);
-      if (mimeType.startsWith("image/")) {
+      if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
         const detected = sniffMime(file.buffer);
-        if (!detected || detected !== mimeType) return res.status(400).json({ error: "The image file content does not match its declared type" });
+        if (!detected || detected !== mimeType) {
+          return res.status(400).json({ error: `The ${mimeType.startsWith("video/") ? "video" : "image"} file content does not match its declared type` });
+        }
       }
       const nameExt = originalName.includes(".") ? originalName.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 10) : "";
       const mimeExt = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/").pop().split("+")[0].replace(/[^a-z0-9]/g, "").slice(0, 10);
       uploadedKey = `messages/${sender}/${uuidv4()}.${nameExt || mimeExt || "bin"}`;
       const mediaType = mimeType.startsWith("image/")
         ? "image"
-        : mimeType.startsWith("audio/")
-          ? "audio"
-          : "other";
+        : mimeType.startsWith("video/")
+          ? "video"
+          : mimeType.startsWith("audio/")
+            ? "audio"
+            : "other";
       const stored = await uploadBufferedMedia({
         req, objectKey: uploadedKey, category: "message", mediaType,
         contentType: mimeType, file,
@@ -3162,7 +3173,7 @@ export function buildApp() {
       });
       messageSaved = true;
       publishMessageToFirebase(message);
-      await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
+      await notifyMessageReceiver(receiver, sender, content || (mimeType.startsWith("video/") ? "🎥 Video" : mimeType.startsWith("audio/") ? "🎤 Voice message" : `📎 ${originalName}`));
       res.json(message);
     } catch (err) {
       if (uploadedMediaCompleted && uploadedKey && !messageSaved) {

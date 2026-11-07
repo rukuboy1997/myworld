@@ -19,6 +19,7 @@ import ChildSafetyPage from "./pages/ChildSafetyPage.jsx";
 import AdminModerationPage from "./pages/AdminModerationPage.jsx";
 import AdminMediaDiagnosticsPage from "./pages/AdminMediaDiagnosticsPage.jsx";
 import AdminMediaStoragePage from "./pages/AdminMediaStoragePage.jsx";
+import AdminDashboardPage from "./pages/AdminDashboardPage.jsx";
 
 
 import { useEffect } from "react";
@@ -92,6 +93,7 @@ export default function App() {
         <Route path="/terms" element={<TermsOfServicePage />} />
         <Route path="/delete-account" element={<DeleteAccountPage />} />
         <Route path="/child-safety" element={<ChildSafetyPage />} />
+        <Route path="/admin" element={<AdminDashboardPage />} />
         <Route path="/admin/moderation" element={<AdminModerationPage />} />
         <Route path="/admin/media-diagnostics" element={<AdminMediaDiagnosticsPage />} />
         <Route path="/admin/media-storage" element={<AdminMediaStoragePage />} />

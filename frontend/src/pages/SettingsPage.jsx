@@ -1,14 +1,16 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 import EmailPreferencesPanel from "../components/EmailPreferencesPanel.jsx";
 import { useAuth } from "../lib/auth.jsx";
+import { getAdminAccess } from "../lib/api.js";
 import {
   ArrowLeft,
   ChevronRight,
   FileText,
   LifeBuoy,
   Lock,
+  ShieldCheck,
   Mail,
   Shield,
   Trash2,
@@ -44,6 +46,17 @@ function SectionTitle({ children, description, id }) {
 
 export default function SettingsPage() {
   const { address, isAuthenticated, openAuthModal } = useAuth();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setIsAdmin(false);
+    if (!isAuthenticated) return undefined;
+    getAdminAccess()
+      .then((result) => { if (active && result?.isAdmin === true) setIsAdmin(true); })
+      .catch(() => { if (active) setIsAdmin(false); });
+    return () => { active = false; };
+  }, [isAuthenticated, address]);
 
   return (
     <Layout>
@@ -96,6 +109,15 @@ export default function SettingsPage() {
                 <SettingsLink to="/delete-account" icon={Trash2} title="Delete account" description="Review the steps and consequences of deleting your account." tone="danger" />
               </div>
             </section>
+
+            {isAdmin && (
+              <section aria-labelledby="settings-admin-title">
+                <SectionTitle id="settings-admin-title" description="Restricted tools for verified myWorld administrators.">Administration</SectionTitle>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <SettingsLink to="/admin" icon={ShieldCheck} title="Admin Dashboard" description="Open moderation, media diagnostics, storage tools, and administrator controls." />
+                </div>
+              </section>
+            )}
 
             <section aria-labelledby="settings-legal-title">
               <SectionTitle id="settings-legal-title" description="Important information about using myWorld.">Legal</SectionTitle>
